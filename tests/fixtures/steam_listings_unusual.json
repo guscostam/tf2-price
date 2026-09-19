@@ -1,0 +1,66 @@
+{
+  "success": true,
+  "start": 0,
+  "pagesize": 100,
+  "total_count": 3,
+  "listinginfo": {
+    "1111111111111111111": {
+      "listingid": "1111111111111111111",
+      "price": 80000,
+      "fee": 9000,
+      "converted_price": 80000,
+      "converted_fee": 9000,
+      "asset": { "currency": 0, "appid": 440, "contextid": "2", "id": "aaa1", "amount": "1" }
+    },
+    "2222222222222222222": {
+      "listingid": "2222222222222222222",
+      "price": 120000,
+      "fee": 13500,
+      "converted_price": 120000,
+      "converted_fee": 13500,
+      "asset": { "currency": 0, "appid": 440, "contextid": "2", "id": "aaa2", "amount": "1" }
+    },
+    "3333333333333333333": {
+      "listingid": "3333333333333333333",
+      "converted_price": 0,
+      "converted_fee": 0,
+      "asset": { "currency": 0, "appid": 440, "contextid": "2", "id": "aaa3", "amount": "1" }
+    }
+  },
+  "assets": {
+    "440": {
+      "2": {
+        "aaa1": {
+          "appid": 440,
+          "contextid": "2",
+          "id": "aaa1",
+          "market_hash_name": "Unusual Team Captain",
+          "descriptions": [
+            { "value": "Level 10 Hat" },
+            { "value": "★ Unusual Effect: Burning Flames", "color": "ffd700" },
+            { "value": " " }
+          ]
+        },
+        "aaa2": {
+          "appid": 440,
+          "contextid": "2",
+          "id": "aaa2",
+          "market_hash_name": "Unusual Team Captain",
+          "descriptions": [
+            { "value": "Level 10 Hat" },
+            { "value": "★ Unusual Effect: Green Confetti", "color": "ffd700" },
+            { "value": "( Not Usable in Crafting )" },
+            { "value": "Halloween: Exorcism (spell only active during event)" }
+          ]
+        },
+        "aaa3": {
+          "appid": 440,
+          "contextid": "2",
+          "id": "aaa3",
+          "market_hash_name": "Unusual Team Captain",
+          "descriptions": [{ "value": "Level 10 Hat" }]
+        }
+      }
+    }
+  }
+}

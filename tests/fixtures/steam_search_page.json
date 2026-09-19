@@ -1,0 +1,29 @@
+{
+  "success": true,
+  "start": 0,
+  "pagesize": "100",
+  "total_count": 21543,
+  "results": [
+    {
+      "name": "Mann Co. Supply Crate Key",
+      "hash_name": "Mann Co. Supply Crate Key",
+      "sell_listings": 4821,
+      "sell_price": 2214,
+      "sell_price_text": "R$ 22,14"
+    },
+    {
+      "name": "Unusual Team Captain",
+      "hash_name": "Unusual Team Captain",
+      "sell_listings": 7,
+      "sell_price": 89000,
+      "sell_price_text": "R$ 890,00"
+    },
+    {
+      "name": "Strange Australium Rocket Launcher",
+      "hash_name": "Strange Australium Rocket Launcher",
+      "sell_listings": 31,
+      "sell_price": 15990,
+      "sell_price_text": "R$ 159,90"
+    }
+  ]
+}
