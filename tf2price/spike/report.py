@@ -15,6 +15,7 @@ STRONG_DISCOUNT = 0.20
 MIN_MEAN_DISCOUNT_BRL = Brl.from_float(50.00)
 MIN_STRONG_COUNT_GREEN = 10
 MIN_STRONG_COUNT_YELLOW = 3
+DISPLAY_BUCKETS = (0.15, 0.25, 0.40)
 
 # Análise da guarda 4
 NEAR_15PCT_TOLERANCE = 0.03
@@ -177,9 +178,8 @@ def render_markdown(
     add("")
     add("| Faixa de desconto | Líquidas |")
     add("|---|---|")
-    add(f"| >= 15% | {faixa(0.15)} |")
-    add(f"| >= 25% | {faixa(0.25)} |")
-    add(f"| >= 40% | {faixa(0.40)} |")
+    for bucket in DISPLAY_BUCKETS:
+        add(f"| >= {bucket * 100:.0f}% | {faixa(bucket)} |")
     add("")
     add(f"- Brutas avaliadas: {len(opportunities)}")
     add(f"- Líquidas (pós-guardas, desconto positivo): {len(net)}")
@@ -195,7 +195,9 @@ def render_markdown(
     add("")
     add("| Guarda | Itens |")
     add("|---|---|")
-    for guard, total in Counter(o.guard for o in opportunities).most_common():
+    for guard, total in Counter(
+        o.guard for o in opportunities if o.guard is not Guard.OK
+    ).most_common():
         add(f"| {guard.value} | {total} |")
 
     add("")

@@ -170,3 +170,27 @@ def test_analise_da_guarda_4_com_amostra_pequena_nao_conclui():
         key_brl=CHAVE,
     )
     assert analise.hypothesis_supported is False
+
+
+def test_tabela_de_reprovacao_exclui_aprovadas():
+    """A tabela de motivos de reprovação não deve listar oportunidades que passaram."""
+    todas = [
+        _oportunidade(60.0, guard=Guard.OK),
+        _oportunidade(60.0, guard=Guard.STALE_PRICE),
+        _oportunidade(60.0, guard=Guard.OK),
+    ]
+    texto = render_markdown(
+        opportunities=todas,
+        key_brl=CHAVE,
+        key_median_brl=CHAVE,
+        total_names=3,
+        unmatched=[],
+        guaranteed_count=0,
+        candidate_count=3,
+        deep_fetched_count=0,
+        requests_made=1,
+        first_429_after=None,
+        market_derived=None,
+    )
+    assert "| preco_desatualizado |" in texto
+    assert "| ok |" not in texto
