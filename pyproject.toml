@@ -1,0 +1,29 @@
+[project]
+name = "tf2price"
+version = "0.1.0"
+description = "Spike de validação de arbitragem TF2 entre Steam Market e backpack.tf"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "hypothesis>=6.100",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["tf2price*"]
+
+[tool.setuptools.package-data]
+tf2price = ["data/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

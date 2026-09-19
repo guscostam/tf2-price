@@ -1,0 +1,42 @@
+from __future__ import annotations
+
+import pytest
+
+from tf2price.domain.money import Brl, Keys
+
+
+def test_from_float_converte_para_centavos():
+    assert Brl.from_float(12.34).cents == 1234
+
+
+def test_from_cents_e_as_float_sao_inversos():
+    assert Brl.from_cents(2214).as_float == pytest.approx(22.14)
+
+
+def test_soma_e_subtracao():
+    assert Brl.from_cents(1000) + Brl.from_cents(250) == Brl.from_cents(1250)
+    assert Brl.from_cents(1000) - Brl.from_cents(250) == Brl.from_cents(750)
+
+
+def test_multiplicacao_arredonda_para_centavo():
+    # taxa de 15% da Steam sobre R$ 10,00 deixa R$ 8,50 ao vendedor
+    assert Brl.from_float(10.00) * 0.85 == Brl.from_float(8.50)
+
+
+def test_ordenacao():
+    assert Brl.from_cents(100) < Brl.from_cents(200)
+    assert max(Brl.from_cents(100), Brl.from_cents(200)) == Brl.from_cents(200)
+
+
+def test_str_em_formato_brasileiro():
+    assert str(Brl.from_float(1234.5)) == "R$ 1.234,50"
+    assert str(Brl.from_float(0.99)) == "R$ 0,99"
+
+
+def test_keys_converte_para_brl_pela_taxa_da_steam():
+    # 10 chaves a R$ 22,00 cada
+    assert Keys(10).to_brl(Brl.from_float(22.00)) == Brl.from_float(220.00)
+
+
+def test_keys_fracionaria():
+    assert Keys(2.5).to_brl(Brl.from_float(20.00)) == Brl.from_float(50.00)
