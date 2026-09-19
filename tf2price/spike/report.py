@@ -1,0 +1,257 @@
+from __future__ import annotations
+
+import csv
+import io
+from collections import Counter
+from dataclasses import dataclass
+from enum import Enum
+from statistics import median
+
+from tf2price.domain.money import Brl
+from tf2price.domain.valuation import Guard
+from tf2price.spike.pipeline import Opportunity
+
+STRONG_DISCOUNT = 0.20
+MIN_MEAN_DISCOUNT_BRL = Brl.from_float(50.00)
+MIN_STRONG_COUNT_GREEN = 10
+MIN_STRONG_COUNT_YELLOW = 3
+
+# Análise da guarda 4
+NEAR_15PCT_TOLERANCE = 0.03
+MIN_USD_SAMPLE = 30
+MIN_FRACTION_NEAR = 0.5
+
+
+class Verdict(str, Enum):
+    GREEN = "VERDE"
+    YELLOW = "AMARELO"
+    RED = "VERMELHO"
+
+
+def net_opportunities(opportunities: list[Opportunity]) -> list[Opportunity]:
+    """Oportunidades líquidas: passaram nas guardas e têm desconto real."""
+    return [
+        o for o in opportunities if o.guard is Guard.OK and o.valuation.discount > 0
+    ]
+
+
+def decide(opportunities: list[Opportunity]) -> Verdict:
+    """Veredito do §8 do spec, sobre as líquidas."""
+    strong = [
+        o
+        for o in net_opportunities(opportunities)
+        if o.valuation.discount >= STRONG_DISCOUNT
+    ]
+
+    if not strong:
+        return Verdict.RED
+
+    mean_cents = sum(o.absolute_discount.cents for o in strong) / len(strong)
+
+    if len(strong) >= MIN_STRONG_COUNT_GREEN and mean_cents >= MIN_MEAN_DISCOUNT_BRL.cents:
+        return Verdict.GREEN
+    if len(strong) >= MIN_STRONG_COUNT_YELLOW:
+        return Verdict.YELLOW
+    return Verdict.RED
+
+
+@dataclass(frozen=True)
+class MarketDerivedAnalysis:
+    sample_size: int
+    median_discount: float | None
+    fraction_near_15pct: float
+    hypothesis_supported: bool
+
+
+def analyse_market_derived(
+    usd_items: list[tuple[float, Brl]],
+    raw_usd_per_refined: float,
+    key_in_refined: float,
+    key_brl: Brl,
+) -> MarketDerivedAnalysis:
+    """Testa a hipótese da guarda 4 sem consultar câmbio externo.
+
+    O câmbio USD->BRL sai da própria economia da Steam: a bp.tf diz quantos
+    dólares vale um refined, e a Steam diz quantos reais vale uma chave.
+
+    Se os preços em USD da bp.tf forem derivados da Steam Market menos 15%,
+    o desconto desses itens vai se agrupar perto de 0,15.
+    """
+    usd_per_key = raw_usd_per_refined * key_in_refined
+    if usd_per_key <= 0:
+        return MarketDerivedAnalysis(0, None, 0.0, False)
+
+    brl_per_usd = key_brl.as_float / usd_per_key
+
+    discounts: list[float] = []
+    for usd_value, steam_price in usd_items:
+        fair_cents = round(usd_value * brl_per_usd * 100)
+        if fair_cents <= 0:
+            continue
+        discounts.append(1 - steam_price.cents / fair_cents)
+
+    if not discounts:
+        return MarketDerivedAnalysis(0, None, 0.0, False)
+
+    near = sum(1 for d in discounts if abs(d - 0.15) <= NEAR_15PCT_TOLERANCE)
+    fraction = near / len(discounts)
+
+    return MarketDerivedAnalysis(
+        sample_size=len(discounts),
+        median_discount=median(discounts),
+        fraction_near_15pct=fraction,
+        hypothesis_supported=(
+            len(discounts) >= MIN_USD_SAMPLE and fraction >= MIN_FRACTION_NEAR
+        ),
+    )
+
+
+def render_csv(opportunities: list[Opportunity]) -> str:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(
+        [
+            "hash_name",
+            "listing_id",
+            "effect",
+            "craftable",
+            "steam_total_brl",
+            "fair_value_brl",
+            "discount_pct",
+            "absolute_discount_brl",
+            "resale_profit_brl",
+            "classification",
+            "guard",
+            "deep_fetched",
+            "steam_url",
+        ]
+    )
+    for o in sorted(opportunities, key=lambda x: x.valuation.discount, reverse=True):
+        writer.writerow(
+            [
+                o.hash_name,
+                o.listing_id or "",
+                o.effect or "",
+                o.craftable if o.craftable is not None else "",
+                f"{o.steam_total.as_float:.2f}",
+                f"{o.valuation.fair_value.as_float:.2f}",
+                f"{o.valuation.discount * 100:.1f}",
+                f"{o.absolute_discount.as_float:.2f}",
+                f"{o.valuation.resale_profit.as_float:.2f}",
+                o.classification.value,
+                o.guard.value,
+                o.deep_fetched,
+                o.steam_url,
+            ]
+        )
+    return buffer.getvalue()
+
+
+def render_markdown(
+    opportunities: list[Opportunity],
+    key_brl: Brl,
+    key_median_brl: Brl,
+    total_names: int,
+    unmatched: list[str],
+    guaranteed_count: int,
+    candidate_count: int,
+    deep_fetched_count: int,
+    requests_made: int,
+    first_429_after: int | None,
+    market_derived: MarketDerivedAnalysis | None,
+) -> str:
+    net = net_opportunities(opportunities)
+    verdict = decide(opportunities)
+
+    def faixa(minimo: float) -> int:
+        return sum(1 for o in net if o.valuation.discount >= minimo)
+
+    linhas: list[str] = []
+    add = linhas.append
+
+    add("# Relatório do spike de arbitragem TF2")
+    add("")
+    add(f"## Veredito: **{verdict.value}**")
+    add("")
+    add("### Oportunidades")
+    add("")
+    add("| Faixa de desconto | Líquidas |")
+    add("|---|---|")
+    add(f"| >= 15% | {faixa(0.15)} |")
+    add(f"| >= 25% | {faixa(0.25)} |")
+    add(f"| >= 40% | {faixa(0.40)} |")
+    add("")
+    add(f"- Brutas avaliadas: {len(opportunities)}")
+    add(f"- Líquidas (pós-guardas, desconto positivo): {len(net)}")
+
+    if net:
+        melhor = max(net, key=lambda o: o.absolute_discount.cents)
+        media = sum(o.absolute_discount.cents for o in net) / len(net)
+        add(f"- Desconto absoluto médio: {Brl.from_cents(round(media))}")
+        add(f"- Maior desconto absoluto: {melhor.absolute_discount} em `{melhor.hash_name}`")
+
+    add("")
+    add("### Motivos de reprovação")
+    add("")
+    add("| Guarda | Itens |")
+    add("|---|---|")
+    for guard, total in Counter(o.guard for o in opportunities).most_common():
+        add(f"| {guard.value} | {total} |")
+
+    add("")
+    add("### Varredura")
+    add("")
+    add(f"- Nomes na busca da Steam: {total_names}")
+    add(f"- Garantidas: {guaranteed_count}")
+    add(f"- Candidatas: {candidate_count}")
+    add(f"- Candidatas com fetch profundo: {deep_fetched_count}")
+    add(f"- Nomes não casados: {len(unmatched)}")
+    add(f"- Requisições feitas: {requests_made}")
+    add(
+        f"- Primeiro 429 após: "
+        f"{first_429_after if first_429_after is not None else 'nenhum 429'}"
+    )
+    add(f"- Chave (listagem mais barata): {key_brl}")
+    add(f"- Chave (mediana 24h): {key_median_brl}")
+
+    add("")
+    add("### Hipótese da guarda 4 — preços derivados da Steam")
+    add("")
+    if market_derived is None:
+        add("Não analisada nesta execução.")
+    else:
+        status = "CONFIRMADA" if market_derived.hypothesis_supported else "REFUTADA"
+        add(f"**{status}**")
+        add("")
+        add(f"- Itens precificados em USD: {market_derived.sample_size}")
+        mediana = market_derived.median_discount
+        add(f"- Desconto mediano: {mediana * 100:.1f}%" if mediana is not None else "- Sem dados")
+        add(f"- Fração perto de 15%: {market_derived.fraction_near_15pct * 100:.1f}%")
+        if not market_derived.hypothesis_supported:
+            add("")
+            add(
+                "> Detecção por moeda USD não se sustenta. Alternativa: cruzar "
+                "contra a lista `/market` da própria backpack.tf."
+            )
+
+    add("")
+    add("### Top 20 oportunidades líquidas")
+    add("")
+    add("| Item | Efeito | Pago | Justo | Desc. | Lucro revenda |")
+    add("|---|---|---|---|---|---|")
+    for o in sorted(net, key=lambda x: x.valuation.discount, reverse=True)[:20]:
+        add(
+            f"| [{o.hash_name}]({o.steam_url}) | {o.effect or '-'} | {o.steam_total} | "
+            f"{o.valuation.fair_value} | {o.valuation.discount * 100:.1f}% | "
+            f"{o.valuation.resale_profit} |"
+        )
+
+    add("")
+    add("### Nomes não casados, por frequência")
+    add("")
+    add("| Nome | Ocorrências |")
+    add("|---|---|")
+    for nome, total in Counter(unmatched).most_common(50):
+        add(f"| {nome} | {total} |")
+
+    return "\n".join(linhas) + "\n"
