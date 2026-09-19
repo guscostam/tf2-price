@@ -96,6 +96,16 @@ def test_lookup_ausente_devolve_none(index: PriceIndex):
     assert index.lookup("Team Captain", 5, priceindex="9999") is None
 
 
+def test_lookup_sem_priceindex_nao_devolve_variante(index: PriceIndex):
+    """Pedir o preço sem variante de um item que só tem variantes devolve None.
+
+    Se o guard que ignora entradas com priceindex sumir, esta chamada passaria
+    a devolver o preço de um efeito de Unusual arbitrário — erro de ordens de
+    magnitude, e silencioso.
+    """
+    assert index.lookup("Team Captain", 5) is None
+
+
 # --- faixa de valor ------------------------------------------------------
 
 
