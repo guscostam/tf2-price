@@ -18,12 +18,13 @@ class RateLimiter:
     requests: int = 0
     throttled: int = 0
     first_429_after: int | None = None
-    _last_call: float = field(default=0.0, repr=False)
+    _last_call: float | None = field(default=None, repr=False, init=False)
 
     def wait(self) -> None:
-        remaining = self.min_interval_s - (time.monotonic() - self._last_call)
-        if remaining > 0:
-            time.sleep(remaining)
+        if self._last_call is not None:
+            remaining = self.min_interval_s - (time.monotonic() - self._last_call)
+            if remaining > 0:
+                time.sleep(remaining)
         self._last_call = time.monotonic()
         self.requests += 1
 
