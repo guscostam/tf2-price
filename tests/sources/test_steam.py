@@ -38,6 +38,32 @@ def test_parse_price_text(texto, centavos):
     assert parse_price_text(texto) == Brl.from_cents(centavos)
 
 
+@pytest.mark.parametrize(
+    "texto,centavos",
+    [
+        ("R$ 1.234", 123400),
+        ("R$ 22", 2200),
+    ],
+)
+def test_parse_price_text_formas_sem_centavos(texto, centavos):
+    assert parse_price_text(texto) == Brl.from_cents(centavos)
+
+
+def test_parse_price_text_rejeita_formato_en_us():
+    # "22.14" tem um ponto seguido de só 2 dígitos: não é pt-BR (seria
+    # ambíguo com milhar). Interpretar como pt-BR daria 2214,00 — 100x
+    # o valor real. É melhor falhar alto do que silenciosamente errado.
+    with pytest.raises(ValueError):
+        parse_price_text("R$ 22.14")
+
+
+def test_parse_price_text_rejeita_grupo_de_milhar_malformado():
+    # "1.23,45": o grupo antes da vírgula não tem exatamente 3 dígitos,
+    # então não é um formato pt-BR inequívoco.
+    with pytest.raises(ValueError):
+        parse_price_text("R$ 1.23,45")
+
+
 def test_parse_search_page_le_total_e_resultados():
     page = parse_search_page(_fixture("steam_search_page.json"))
     assert page.total_count == 21543
@@ -83,6 +109,72 @@ def test_parse_listings_detecta_nao_craftavel_e_spell():
     assert segunda.craftable is False
     assert segunda.spelled is True
     assert segunda.total_price == Brl.from_cents(133500)
+
+
+def test_parse_listings_pula_quando_asset_nao_encontrado_em_nenhum_contexto():
+    # asset.id "zzz9" aparece em listinginfo mas não existe em assets[440][*].
+    # Craftability é desconhecida nesse caso, então a listagem deve ser
+    # pulada em vez de assumida craftável por padrão.
+    payload = {
+        "listinginfo": {
+            "9999999999999999999": {
+                "listingid": "9999999999999999999",
+                "converted_price": 50000,
+                "converted_fee": 5600,
+                "asset": {"currency": 0, "appid": 440, "contextid": "2", "id": "zzz9", "amount": "1"},
+            }
+        },
+        "assets": {
+            "440": {
+                "2": {
+                    "outro_id": {
+                        "appid": 440,
+                        "contextid": "2",
+                        "id": "outro_id",
+                        "descriptions": [{"value": "Level 10 Hat"}],
+                    }
+                }
+            }
+        },
+    }
+
+    listings = parse_listings(payload)
+
+    assert listings == []
+
+
+def test_parse_listings_asset_presente_sem_linha_de_nao_craftavel_e_craftavel():
+    # Guarda de regressão: um asset presente cujas descrições simplesmente
+    # não mencionam "( Not Usable in Crafting )" continua craftável e não
+    # deve ser pulado pela correção do caso "asset ausente".
+    payload = {
+        "listinginfo": {
+            "8888888888888888888": {
+                "listingid": "8888888888888888888",
+                "converted_price": 30000,
+                "converted_fee": 3300,
+                "asset": {"currency": 0, "appid": 440, "contextid": "2", "id": "www1", "amount": "1"},
+            }
+        },
+        "assets": {
+            "440": {
+                "2": {
+                    "www1": {
+                        "appid": 440,
+                        "contextid": "2",
+                        "id": "www1",
+                        "market_hash_name": "Team Captain",
+                        "descriptions": [{"value": "Level 10 Hat"}],
+                    }
+                }
+            }
+        },
+    }
+
+    listings = parse_listings(payload)
+
+    assert len(listings) == 1
+    assert listings[0].craftable is True
 
 
 # --- cliente HTTP --------------------------------------------------------

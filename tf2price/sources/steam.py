@@ -22,6 +22,13 @@ SPELL_PREFIX = "Halloween:"
 
 _NON_NUMERIC = re.compile(r"[^\d,.]")
 
+# Formatos pt-BR inequívocos aceitos por parse_price_text. Qualquer outra
+# forma (ex.: "22.14", formato en-US) levanta ValueError em vez de ser
+# interpretada errado silenciosamente.
+_PTBR_THOUSANDS_AND_CENTS = re.compile(r"^\d{1,3}(\.\d{3})*,\d{2}$")
+_PTBR_THOUSANDS_ONLY = re.compile(r"^\d{1,3}(\.\d{3})+$")
+_PTBR_INTEGER = re.compile(r"^\d+$")
+
 
 @dataclass(frozen=True)
 class SearchResult:
@@ -49,11 +56,24 @@ def parse_price_text(text: str) -> Brl:
     """'R$ 1.234,50' -> Brl(123450).
 
     Com currency=7 a Steam responde no formato pt-BR: ponto para milhar,
-    vírgula para decimal.
+    vírgula para decimal. Só aceitamos formas pt-BR inequívocas; qualquer
+    outra coisa (ex.: en-US "22.14") levanta ValueError em vez de ser
+    interpretada 100x errado silenciosamente — essa função precifica a
+    chave, e um erro silencioso ali corrompe todo o relatório.
     """
     cleaned = _NON_NUMERIC.sub("", text)
-    cleaned = cleaned.replace(".", "").replace(",", ".")
-    return Brl.from_float(float(cleaned))
+
+    if _PTBR_THOUSANDS_AND_CENTS.match(cleaned):
+        reais, cents = cleaned.replace(".", "").split(",")
+        return Brl.from_cents(int(reais) * 100 + int(cents))
+
+    if _PTBR_THOUSANDS_ONLY.match(cleaned):
+        return Brl.from_cents(int(cleaned.replace(".", "")) * 100)
+
+    if _PTBR_INTEGER.match(cleaned):
+        return Brl.from_cents(int(cleaned) * 100)
+
+    raise ValueError(f"texto de preço não está em formato pt-BR reconhecido: {text!r}")
 
 
 def parse_search_page(payload: dict[str, Any]) -> SearchPage:
@@ -68,17 +88,21 @@ def parse_search_page(payload: dict[str, Any]) -> SearchPage:
     return SearchPage(total_count=int(payload.get("total_count", 0)), results=results)
 
 
-def _descriptions_for(payload: dict[str, Any], asset_id: str) -> list[str]:
+def _descriptions_for(payload: dict[str, Any], asset_id: str) -> list[str] | None:
     """Busca as descrições de um asset dentro de assets[appid][contextid][id].
 
     O contextid varia, então varremos os contextos em vez de assumir "2".
+
+    Retorna None quando o asset não foi encontrado em nenhum contexto —
+    craftability é desconhecida nesse caso, o que é diferente de um asset
+    encontrado sem nenhuma descrição (lista vazia).
     """
     contexts = (payload.get("assets") or {}).get(str(APPID)) or {}
     for context in contexts.values():
         asset = context.get(asset_id)
         if asset:
             return [str(d.get("value", "")) for d in (asset.get("descriptions") or [])]
-    return []
+    return None
 
 
 def parse_listings(payload: dict[str, Any]) -> list[Listing]:
@@ -87,11 +111,18 @@ def parse_listings(payload: dict[str, Any]) -> list[Listing]:
     for listing_id, info in (payload.get("listinginfo") or {}).items():
         asset_id = str((info.get("asset") or {}).get("id", ""))
 
+        descriptions = _descriptions_for(payload, asset_id)
+        if descriptions is None:
+            # Asset não encontrado em nenhum contexto: craftability é
+            # desconhecida. Precificar como craftável seria um chute, então
+            # pulamos — o mesmo tratamento dado a um preço não convertido.
+            continue
+
         effect: str | None = None
         craftable = True
         spelled = False
 
-        for value in _descriptions_for(payload, asset_id):
+        for value in descriptions:
             text = value.strip()
             if text.startswith(UNUSUAL_EFFECT_PREFIX):
                 effect = text[len(UNUSUAL_EFFECT_PREFIX) :].strip()
