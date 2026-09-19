@@ -117,6 +117,22 @@ def test_preco_desatualizado_reprova_a_garantida(index: PriceIndex):
     assert oportunidade.guard is Guard.STALE_PRICE
 
 
+def test_garantida_nao_resolve_craftabilidade_ou_efeito_na_passada_rasa(index: PriceIndex):
+    """Craftabilidade e efeito são incógnitas na passada rasa.
+
+    A passada rasa só vê nomes e preços: não consegue determinar se um item
+    é craftável ou qual seu efeito (em Unusuais). Reportar o valor da
+    variante mais barata como um fato verificado seria apresentar um
+    artefato (qual entrada foi mais barata) como uma verdade do mercado.
+    Por isso ambos são None, como expressão de desconhecimento.
+    """
+    saida = shallow_pass([_resultado("Unusual Team Captain", 100.0)], index, CHAVE, 0.15)
+    oportunidade = guaranteed_opportunities(saida.candidates, index, CHAVE, now=AGORA)[0]
+
+    assert oportunidade.craftable is None
+    assert oportunidade.effect is None
+
+
 # --- alvos do fetch profundo ---------------------------------------------
 
 

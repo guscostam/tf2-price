@@ -144,7 +144,7 @@ def guaranteed_opportunities(
                 hash_name=candidate.hash_name,
                 listing_id=None,
                 effect=None,
-                craftable=entry.craftable,
+                craftable=None,  # Craftability is unresolved at the shallow-pass stage, like effect
                 steam_total=candidate.steam_lowest,
                 valuation=evaluate(candidate.steam_lowest, keys, key_brl),
                 classification=candidate.classification,
