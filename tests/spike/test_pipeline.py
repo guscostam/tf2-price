@@ -243,3 +243,27 @@ def test_resolve_deep_ignora_efeito_sem_preco_no_indice(index: PriceIndex):
         effects_path=EFEITOS,
     )
     assert oportunidades == []
+
+
+# --- itens em USD (guarda 4) ----------------------------------------------
+
+
+def test_collect_usd_items_pega_valor_em_dolar_e_preco_da_steam(index: PriceIndex):
+    from tf2price.spike.pipeline import collect_usd_items
+
+    itens = collect_usd_items(
+        [_resultado("Mildly Disturbing Halloween Mask", 30.0)], index
+    )
+    assert itens == [(4.25, Brl.from_float(30.00))]
+
+
+def test_collect_usd_items_ignora_itens_precificados_em_chaves(index: PriceIndex):
+    from tf2price.spike.pipeline import collect_usd_items
+
+    assert collect_usd_items([_resultado("Unusual Team Captain", 500.0)], index) == []
+
+
+def test_collect_usd_items_ignora_nome_fora_do_indice(index: PriceIndex):
+    from tf2price.spike.pipeline import collect_usd_items
+
+    assert collect_usd_items([_resultado("Item Inexistente", 10.0)], index) == []

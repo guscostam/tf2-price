@@ -222,3 +222,34 @@ def resolve_deep(
         )
 
     return opportunities
+
+
+def collect_usd_items(
+    results: list[SearchResult], index: PriceIndex
+) -> list[tuple[float, Brl]]:
+    """Pares (valor em USD na bp.tf, preço na Steam) para testar a guarda 4.
+
+    Estes itens são justamente os que `shallow_pass` descarta como não
+    casados, porque USD não converte para chaves. Coletá-los à parte é o
+    que permite verificar se o preço deles é derivado da Steam Market.
+    """
+    pairs: list[tuple[float, Brl]] = []
+
+    for result in results:
+        identity = parse_market_hash_name(result.hash_name)
+
+        for name in bptf_name_candidates(identity, result.hash_name):
+            entries = index.entries(name, identity.quality_id)
+            if not entries:
+                continue
+
+            usd = [
+                e
+                for e in entries
+                if e.price.currency == "usd" and e.craftable and e.price.value > 0
+            ]
+            if usd:
+                pairs.append((usd[0].price.value, result.lowest_price))
+            break  # primeiro nome que existe no índice decide
+
+    return pairs
