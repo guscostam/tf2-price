@@ -1,0 +1,39 @@
+{
+  "response": {
+    "success": 1,
+    "name": "Team Fortress 2",
+    "url": "https://backpack.tf",
+    "currencies": {
+      "metal": {
+        "name": "Refined Metal",
+        "quality": 6,
+        "priceindex": "0",
+        "single": "ref",
+        "plural": "ref",
+        "defindex": 5002,
+        "price": {
+          "value": 0.05,
+          "currency": "keys",
+          "difference": 0,
+          "last_update": 1759000000
+        }
+      },
+      "keys": {
+        "name": "Mann Co. Supply Crate Key",
+        "quality": 6,
+        "priceindex": "0",
+        "single": "key",
+        "plural": "keys",
+        "defindex": 5021,
+        "price": {
+          "value": 69.44,
+          "value_high": 69.55,
+          "currency": "metal",
+          "difference": 0.11,
+          "last_update": 1759000000,
+          "usd": 2.52
+        }
+      }
+    }
+  }
+}

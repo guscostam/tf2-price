@@ -1,0 +1,87 @@
+{
+  "response": {
+    "success": 1,
+    "current_time": 1760000000,
+    "raw_usd_value": 0.0363,
+    "usd_currency": "metal",
+    "usd_currency_index": 5002,
+    "items": {
+      "Rocket Launcher": {
+        "defindex": [205, 18],
+        "prices": {
+          "6": {
+            "Tradable": {
+              "Craftable": [
+                { "currency": "metal", "value": 0.11, "last_update": 1759900000, "difference": 0 }
+              ],
+              "Non-Craftable": [
+                { "currency": "metal", "value": 0.05, "last_update": 1759900000, "difference": 0 }
+              ]
+            }
+          },
+          "11": {
+            "Tradable": {
+              "Craftable": [
+                {
+                  "currency": "keys",
+                  "value": 1.55,
+                  "value_high": 1.66,
+                  "last_update": 1759900000,
+                  "difference": 0
+                }
+              ]
+            }
+          }
+        }
+      },
+      "Team Captain": {
+        "defindex": [378],
+        "prices": {
+          "5": {
+            "Tradable": {
+              "Craftable": {
+                "13": {
+                  "currency": "keys",
+                  "value": 28.0,
+                  "value_high": 30.0,
+                  "last_update": 1759900000
+                },
+                "17": {
+                  "currency": "keys",
+                  "value": 9.0,
+                  "value_high": 10.0,
+                  "last_update": 1759900000
+                },
+                "701": {
+                  "currency": "keys",
+                  "value": 45.0,
+                  "value_high": 50.0,
+                  "last_update": 1759900000
+                }
+              }
+            }
+          },
+          "6": {
+            "Tradable": {
+              "Craftable": [
+                { "currency": "metal", "value": 1.0, "last_update": 1759900000 }
+              ]
+            }
+          }
+        }
+      },
+      "Mildly Disturbing Halloween Mask": {
+        "defindex": [115],
+        "prices": {
+          "6": {
+            "Tradable": {
+              "Craftable": [
+                { "currency": "usd", "value": 4.25, "last_update": 1759900000 }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
