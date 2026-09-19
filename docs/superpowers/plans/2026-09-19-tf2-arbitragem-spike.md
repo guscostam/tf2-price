@@ -2555,14 +2555,14 @@ Esperado: `NNN efeitos gravados em .../tf2price/data/effects.json`, com NNN na c
 ```json
 {
   "Burning Flames": 13,
-  "Circling TF Logo": 17,
+  "Circling TF Logo": 11,
   "Green Confetti": 6,
   "Scorching Flames": 14,
   "Sunbeams": 17
 }
 ```
 
-> Nota: `"Circling TF Logo"` e `"Sunbeams"` compartilham o id 17 nesta fixture de propósito, para que o teste de colisão tenha o que verificar. No schema real os ids são únicos por efeito.
+> Nota: a fixture é um recorte mínimo do schema real, só com os efeitos que os testes usam. `"Green Confetti"` está aqui de propósito **sem** preço correspondente no `bptf_prices.json`, para cobrir o caso de efeito conhecido mas não precificado.
 
 - [ ] **Step 4: Escrever o teste que falha**
 
@@ -4176,7 +4176,7 @@ Nenhum teste toca a rede.
 - [ ] **Step 12: Commit final**
 
 ```bash
-git add README.md docs/superpowers/findings out
+git add README.md docs/superpowers/findings
 git commit -m "$(cat <<'MSG'
 Registra o resultado da execução do spike
 
