@@ -35,6 +35,14 @@ from tf2price.spike.report import (
     render_markdown,
 )
 
+# Trava de segurança da passada rasa: a Steam só interrompe a paginação por
+# "sem resultados" ou por total_count, e ambos podem falhar juntos (ex.: a
+# API degrada e devolve total_count=0 com results não vazio). Esse teto
+# independe dos outros dois e garante que o loop sempre termina, mesmo
+# contra um endpoint rate-limited. A 100 itens/página são 100.000 itens,
+# ~5x o mercado inteiro de TF2 — nunca deve disparar numa execução saudável.
+MAX_SHALLOW_PAGES = 1000
+
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Spike de arbitragem TF2")
@@ -89,6 +97,13 @@ def _shallow_scan(
             break
         if total and start >= total:
             break
+        if pages >= MAX_SHALLOW_PAGES:
+            print(
+                "  aviso: passada rasa interrompida no teto de segurança "
+                f"({MAX_SHALLOW_PAGES} páginas); resultado incompleto.",
+                file=sys.stderr,
+            )
+            break
 
     return results, total
 
@@ -100,6 +115,16 @@ def main(argv: list[str] | None = None) -> int:
     api_key = os.getenv("BPTF_API_KEY", "").strip()
     if not api_key:
         print("BPTF_API_KEY não configurada. Veja .env.example.", file=sys.stderr)
+        return 1
+
+    # Cria o diretório de saída antes de qualquer chamada de rede: uma
+    # execução completa leva 15-30 min, e descobrir só no final que --out
+    # aponta para um caminho inválido jogaria tudo fora.
+    out_dir = Path(args.out)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        print(f"Não foi possível criar o diretório de saída {out_dir}: {error}", file=sys.stderr)
         return 1
 
     bptf = BackpackTfClient(api_key)
@@ -157,9 +182,6 @@ def main(argv: list[str] | None = None) -> int:
         key_in_refined=currencies.key_in_refined,
         key_brl=key_brl,
     )
-
-    out_dir = Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     (out_dir / "relatorio.md").write_text(
         render_markdown(
