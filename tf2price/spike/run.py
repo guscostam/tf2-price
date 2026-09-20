@@ -224,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Fetch profundo em {len(targets)} candidatas...")
     deep_done = 0
     deep_error: str | None = None
+    interrupcao: KeyboardInterrupt | None = None
     # O estágio profundo inteiro fica embrulhado: a passada rasa é a parte
     # cara (~11 min) e qualquer exceção aqui a descartaria junto com o
     # relatório. Escrever o que já temos vale mais do que morrer limpo.
@@ -240,6 +241,21 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             opportunities.extend(resolve_deep(target, listings, index, key_brl))
             deep_done += 1
+    except KeyboardInterrupt as error:
+        # Ctrl-C não é Exception e escaparia do handler abaixo, descartando
+        # os ~11 min já gastos na passada rasa. Quem babá uma execução de
+        # meia hora e decide parar antes quer o resultado parcial, não um
+        # traceback. A interrupção é guardada e relançada depois de o
+        # relatório estar no disco — parar cedo não é sucesso.
+        interrupcao = error
+        deep_error = "KeyboardInterrupt: interrompido pelo usuário (Ctrl-C)"
+        print(
+            f"ERRO: fetch profundo interrompido em {deep_done}/{len(targets)}: "
+            f"{deep_error}\nO relatório será escrito assim mesmo, marcado "
+            "como incompleto.",
+            file=sys.stderr,
+            flush=True,
+        )
     except Exception as error:  # noqa: BLE001 - relatório antes de morrer
         deep_error = f"{type(error).__name__}: {error}"
         print(
@@ -304,6 +320,16 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Veredito: {decide(opportunities).value}")
     print(f"Requisições: {limiter.requests} | 429s: {limiter.throttled}")
     print(f"Relatório: {out_dir / 'relatorio.md'}")
+    # Relatório no disco: agora sim a interrupção pode seguir seu curso. Não
+    # engolir o Ctrl-C é o que mantém a execução parada cedo como
+    # interrupção, e não como sucesso.
+    if interrupcao is not None:
+        print(
+            "Execução INTERROMPIDA pelo usuário: relatório parcial escrito.",
+            file=sys.stderr,
+            flush=True,
+        )
+        raise interrupcao
     if avisos:
         print("Execução INCOMPLETA: veja os avisos no topo do relatório.", file=sys.stderr)
         return 1
