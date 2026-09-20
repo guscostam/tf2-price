@@ -34,6 +34,9 @@ Duas regras do projeto valem para todo código deste plano:
   serviço recebe o instante como parâmetro para o teste poder mentir sobre ele.
 - **Tokens nunca são guardados em claro** — só o SHA-256 hexadecimal, 64 caracteres.
 - Mensagens e nomes de código em português, como o resto do projeto.
+- **CSS próprio, sem Tailwind nem framework de estilo.** As variáveis de tema
+  (`--papel`, `--tinta`, `--carimbo`…) ficam no `:root` de `base.html`, e cada
+  regra não óbvia carrega o comentário que diz por que ela existe.
 - Commits em português, no imperativo, com as duas linhas de atribuição que os
   commits existentes usam (veja `git log -1`).
 - Uma réplica só: freio e período de calma vivem na memória do processo.
@@ -1584,9 +1587,21 @@ def apagar_cookie(resposta: Response) -> None:
 
 - [ ] **Step 4: Criar `tf2price/painel/templates/base.html`**
 
-O bloco `<style>` inteiro sai **verbatim** de `tf2price/lookup/templates/index.html`
-(as linhas entre `<style>` e `</style>`, inclusive os comentários). Não reescreva
-o CSS: é o mesmo visual, e a tela nova só chega no plano 3.
+O `base.html` carrega **apenas o que as telas de conta usam**. Copie de
+`tf2price/lookup/templates/index.html`, verbatim e com os comentários, só estes
+trechos:
+
+- o bloco `:root` inteiro (as variáveis de tema)
+- `*, *::before, *::after`, `body`, `body::before`
+- `.guia`, `.timbre`, `.timbre h1`, `.cotacao`, `.cotacao b`
+- `.campo`, `.campo + .campo`, `.rotulo`, `.dica`, `.dica b`
+- `.erro`, `.erro b`, `a`, `a:hover`, `:focus-visible`
+- as duas media queries, de `prefers-reduced-motion` e de impressão
+
+**Não copie** as regras de `.opcoes`, `.linha`, `.bloco`, `.carimbo`, `.tag`,
+`.numero-grande` e companhia: elas pertencem à análise, continuam em
+`index.html` enquanto ele existir, e a Task 7 as traz para cá junto com o
+template. Assim nenhuma regra vive em dois arquivos ao mesmo tempo.
 
 ```html
 <!doctype html>
@@ -1600,8 +1615,7 @@ o CSS: é o mesmo visual, e a tela nova só chega no plano 3.
   <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <style>
-    /* COLE AQUI, VERBATIM, o conteúdo do <style> de
-       tf2price/lookup/templates/index.html, e acrescente ao final: */
+    /* COLE AQUI os trechos listados acima, verbatim, e acrescente: */
 
     .topo-conta {
       display: flex; justify-content: space-between; align-items: baseline;
@@ -2095,10 +2109,20 @@ git mv tests/lookup/test_app.py tests/painel/test_consulta.py
 
 - [ ] **Step 2: Transformar `painel.html` em filho de `base.html`**
 
-O arquivo movido ainda é uma página inteira. Troque o que está **fora** do
-`<main class="guia">` pelas diretivas de herança, e mova o bloco `<style>` para
-`base.html` (Task 5 já pediu isso — se ainda não foi feito, faça agora e apague
-daqui). O arquivo passa a ser:
+O arquivo movido ainda é uma página inteira. Duas coisas:
+
+1. **Leve o CSS que sobrou para `base.html`.** A Task 5 levou as variáveis e a
+   casca; agora vão as regras da análise — `.opcoes`, `.vazio`, `.niveis`,
+   `.tag*`, `.cruz`, `.avaliacao`, `.pago`, `.cifrao`, `.numero-grande`,
+   `.em-chaves`, `.bloco*`, `.explica`, `.linha*`, `.fio`, `.valor`, `.bom`,
+   `.ruim`, `.nota`, `.carimbo*`, `#espera`, `#q` e as keyframes. Ao colar,
+   **não repita** o que já está lá (`:root`, `body`, `.guia`, `.timbre`,
+   `.campo`, `.rotulo`, `.dica`, `.erro`, `a`, `:focus-visible`): confira uma a
+   uma e descarte as repetidas.
+2. Troque o que está **fora** do `<main class="guia">` pelas diretivas de
+   herança.
+
+O arquivo passa a ser:
 
 ```html
 {% extends "base.html" %}
@@ -2324,7 +2348,45 @@ if __name__ == "__main__":
     servir()
 ```
 
-- [ ] **Step 5: Adaptar `tests/painel/test_consulta.py`**
+- [ ] **Step 5: Mover o contexto falso para `tests/painel/conftest.py`**
+
+`test_entrar.py` também bate em `/`, que a partir daqui só existe quando há
+contexto. Para os dois arquivos usarem o mesmo duplo, mova de
+`tests/painel/test_consulta.py` para um `tests/painel/conftest.py` novo: as
+classes `_SteamFalso` e `_PaginasFalsas`, a função `_pagina`, as constantes
+`FIXTURES`, `NOME` e `CHAVE`, e a função `_contexto`. Acrescente ali o auxiliar
+de login, que os dois arquivos vão usar:
+
+```python
+SENHA = "uma senha longa"
+
+
+def cliente_logado(engine, ctx):
+    """TestClient autenticado, com a primeira conta vinda do convite de partida."""
+    from fastapi.testclient import TestClient
+
+    from tf2price import db as _db
+    from tf2price.contas import servico
+    from tf2price.painel.app import criar_app
+
+    with engine.begin() as conn:
+        token = servico.convite_de_partida(conn, _db.agora())
+        servico.aceitar_convite(
+            conn, token, nome="gusco", senha=SENHA, quando=_db.agora()
+        )
+    cliente = TestClient(criar_app(engine, ctx))
+    cliente.post("/entrar", data={"nome": "gusco", "senha": SENHA})
+    cliente.ctx = ctx
+    return cliente
+```
+
+Em `tests/painel/test_entrar.py`, troque `criar_app(engine)` por
+`criar_app(engine, _contexto())` na fixture. Os três testes que batem em `/` —
+`test_painel_sem_cookie_manda_para_entrar`,
+`test_fragmento_htmx_sem_cookie_devolve_401_com_redirecionamento` e
+`test_com_cookie_o_painel_abre` — continuam valendo palavra por palavra.
+
+- [ ] **Step 6: Adaptar `tests/painel/test_consulta.py`**
 
 O corpo dos testes **não muda** — as asserções sobre dupla qualidade, Unusualifier,
 carimbo, limpeza fora de banda e cotação no timbre continuam palavra por palavra.
@@ -2340,29 +2402,15 @@ from tf2price.painel.consulta import Contexto, PageCache
 E troque a fixture `cliente` por esta:
 
 ```python
-SENHA = "uma senha longa"
-
-
-def _cliente_logado(engine, ctx):
-    from tf2price import db as _db
-    from tf2price.contas import servico
-
-    with engine.begin() as conn:
-        token = servico.convite_de_partida(conn, _db.agora())
-        servico.aceitar_convite(conn, token, nome="gusco", senha=SENHA, quando=_db.agora())
-    cliente = TestClient(criar_app(engine, ctx))
-    cliente.post("/entrar", data={"nome": "gusco", "senha": SENHA})
-    cliente.ctx = ctx
-    return cliente
-
-
 @pytest.fixture
 def cliente(engine):
-    return _cliente_logado(engine, _contexto())
+    return cliente_logado(engine, _contexto())
 ```
 
+importando `cliente_logado`, `_contexto`, `NOME` e `CHAVE` do `conftest.py`.
+
 Nos testes que montam contexto próprio, troque `TestClient(criar_app(ctx))` por
-`_cliente_logado(engine, ctx)` e acrescente `engine` aos parâmetros do teste:
+`cliente_logado(engine, ctx)` e acrescente `engine` aos parâmetros do teste:
 
 - `test_busca_mantem_a_dupla_qualidade(engine)`
 - `test_busca_descarta_o_unusualifier(engine)`
@@ -2380,7 +2428,7 @@ def test_a_consulta_exige_sessao(engine):
         assert cliente.get(caminho, params={"q": "x", "nome": "x", "efeito": "x"}).status_code in (303, 401)
 ```
 
-- [ ] **Step 6: Apagar o que sobrou de `lookup/app.py`**
+- [ ] **Step 7: Apagar o que sobrou de `lookup/app.py`**
 
 ```bash
 git rm tf2price/lookup/app.py
@@ -2391,12 +2439,12 @@ Confira que nada mais o referencia:
 Run: `grep -rn "lookup.app\|lookup/app" --include="*.py" --include="*.toml" --include="*.md" . | grep -v ".venv"`
 Expected: só ocorrências em `docs/` e no `README.md`, que a Task 9 atualiza.
 
-- [ ] **Step 7: Rodar tudo**
+- [ ] **Step 8: Rodar tudo**
 
 Run: `.venv/Scripts/python -m pytest`
 Expected: 256 passed (os mesmos de antes, mais o teste de sessão)
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add -A
@@ -2763,7 +2811,7 @@ na função `_contexto`. Acrescente:
 def test_analise_sem_indice_nao_mente_sobre_a_bptf(engine):
     ctx = _contexto()
     ctx.indice = _IndiceFalso(None)
-    cliente = _cliente_logado(engine, ctx)
+    cliente = cliente_logado(engine, ctx)
     r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
     assert "ainda não carregou" in r.text
 ```
