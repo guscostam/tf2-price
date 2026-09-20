@@ -40,9 +40,14 @@ from tf2price.spike.report import (
 # "sem resultados" ou por total_count, e ambos podem falhar juntos (ex.: a
 # API degrada e devolve total_count=0 com results não vazio). Esse teto
 # independe dos outros dois e garante que o loop sempre termina, mesmo
-# contra um endpoint rate-limited. A 100 itens/página são 100.000 itens,
-# ~5x o mercado inteiro de TF2 — nunca deve disparar numa execução saudável.
-MAX_SHALLOW_PAGES = 1000
+# contra um endpoint rate-limited.
+#
+# Dimensionado contra a API real, não contra estimativa: medido em
+# 2026-09-19, a busca devolve 10 itens por página (o parâmetro `count` é
+# ignorado) e o mercado de TF2 anuncia 41.080 nomes, ou seja ~4.108
+# páginas. 6.000 dá ~46% de folga para o mercado crescer sem que o teto
+# passe a truncar uma execução saudável.
+MAX_SHALLOW_PAGES = 6000
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
