@@ -504,7 +504,15 @@ def novo() -> tuple[str, str]:
 Run: `.venv/Scripts/python -m pytest tests/contas -q`
 Expected: PASS, 9 testes
 
-- [ ] **Step 5: Suíte inteira**
+- [ ] **Step 5: Registrar a diferença de dialeto perto da fixture**
+
+Em `tests/conftest.py`, acrescente ao docstring da fixture `engine` que o
+`sqlite3` só abre transação de verdade antes de uma escrita, então o dublê
+**não** reproduz o aperto que o Postgres sente em caminho de leitura pura. Quem
+escrever o próximo teste de concorrência precisa saber disso antes de presumir
+cobertura que não existe.
+
+- [ ] **Step 6: Suíte inteira**
 
 Run: `.venv/Scripts/python -m pytest`
 Expected: 210 passed
@@ -3105,58 +3113,77 @@ parâmetros saber o que vai quebrar.
 
 - [ ] **Step 1: Escrever o teste que falha**
 
-O teste prova a propriedade em vez de descrevê-la: o dublê da página da Steam,
-quando chamado, tenta **abrir uma conexão nova e usá-la**. Com `StaticPool`, se a
-requisição ainda estiver segurando uma transação, isso levanta. É o mesmo aperto
-que o Postgres sentiria no pool, reproduzido de graça.
+**Primeira tentativa, e por que ela não serviu.** A versão anterior deste step
+mandava o dublê da página abrir uma conexão nova e executar `SELECT 1`, supondo
+que o `StaticPool` levantaria por transação aninhada. Não levanta: o driver
+`sqlite3` só abre transação de verdade antes de uma escrita, e tanto a
+autenticação quanto o dublê só fazem leitura. O teste passava antes da correção,
+ou seja, não provava nada. Em Postgres o problema existe — qualquer SQL já deixa
+a conexão *idle in transaction* — mas o dublê de teste não reproduz isso.
+
+**A prova que serve** não depende de semântica de dialeto nenhum: conte as
+conexões emprestadas pelo pool, com os eventos `checkout` e `checkin` do
+SQLAlchemy, e meça **durante** a chamada ao terceiro. Medido nesta máquina: com
+uma transação aberta o contador marca 1, e volta a 0 ao fechar, em todas as
+voltas, desde que as conexões não se aninhem — que é o caso aqui.
 
 Crie `tests/painel/test_transacao.py`:
 
 ```python
 from __future__ import annotations
 
-import pytest
-from sqlalchemy import text
+from sqlalchemy import event
 
-from tests.painel.conftest import CHAVE, NOME, _contexto, _pagina, cliente_logado
+from tests.painel.conftest import NOME, _contexto, _pagina, cliente_logado
 
 
-class _PaginasQueUsamOBanco:
-    """Dublê que, ao ser chamado, exige uma conexão livre.
+def _contar_conexoes(motor) -> dict:
+    """Conta conexões emprestadas pelo pool, a qualquer momento.
 
-    É assim que este teste prova que a rota não está segurando transação
-    durante o I/O: com StaticPool, a conexão é uma só, e abrir uma segunda
-    enquanto a primeira tem transação aberta levanta na hora.
+    Não depende de dialeto: mede a propriedade que interessa ao Postgres —
+    conexão emprestada é conexão indisponível para os outros — sem depender
+    de o SQLite levantar erro, que ele não levanta em leitura pura.
+    """
+    estado = {"emprestadas": 0}
+    event.listen(motor, "checkout", lambda *a: estado.__setitem__("emprestadas", estado["emprestadas"] + 1))
+    event.listen(motor, "checkin", lambda *a: estado.__setitem__("emprestadas", estado["emprestadas"] - 1))
+    return estado
+
+
+class _PaginasQueObservamOPool:
+    """Dublê que anota quantas conexões estavam emprestadas quando foi chamado.
+
+    É o instante que importa: aqui, na aplicação de verdade, o processo está
+    baixando dezenas de MB da backpack.tf com timeout de 180 s.
     """
 
-    def __init__(self, engine, pagina):
-        self.engine = engine
+    def __init__(self, contador, pagina):
+        self.contador = contador
         self.pagina = pagina
-        self.chamadas = 0
+        self.emprestadas_durante_o_io = None
 
     def item_page(self, hash_name, usd_to_brl):
-        self.chamadas += 1
-        with self.engine.begin() as conn:
-            conn.execute(text("SELECT 1"))
+        self.emprestadas_durante_o_io = self.contador["emprestadas"]
         return self.pagina
 
 
-def test_a_rota_nao_segura_transacao_durante_o_io(engine):
+def test_nenhuma_conexao_fica_emprestada_durante_o_io(engine):
     """Uma consulta lenta não pode prender conexão do banco sem usá-la.
 
-    A primeira carga do índice baixa dezenas de MB com timeout de 180 s. Se a
-    transação da requisição ficar aberta durante isso, algumas pessoas clicando
-    depois de um deploy esgotam o pool.
+    A primeira carga do índice baixa dezenas de MB. Se a transação da
+    requisição ficar aberta durante isso, algumas pessoas clicando depois de
+    um deploy esgotam o pool do Postgres com conexões ociosas.
     """
+    contador = _contar_conexoes(engine)
     ctx = _contexto()
-    paginas = _PaginasQueUsamOBanco(engine, _pagina())
+    paginas = _PaginasQueObservamOPool(contador, _pagina())
     ctx.paginas = paginas
     cliente = cliente_logado(engine, ctx)
 
     resposta = cliente.get("/efeitos", params={"nome": NOME})
 
     assert resposta.status_code == 200
-    assert paginas.chamadas == 1
+    assert paginas.emprestadas_durante_o_io == 0
 
 
 def test_rota_de_escrita_continua_funcionando(engine):
@@ -3169,10 +3196,14 @@ def test_rota_de_escrita_continua_funcionando(engine):
 - [ ] **Step 2: Rodar e confirmar que falha**
 
 Run: `.venv/Scripts/python -m pytest tests/painel/test_transacao.py`
-Expected: `test_a_rota_nao_segura_transacao_durante_o_io` FALHA, porque a
-requisição ainda segura a transação e o SQLite recusa a transação aninhada. O
-segundo teste passa desde já — ele existe para provar que a correção não quebra
-o caminho de escrita.
+Expected: `test_nenhuma_conexao_fica_emprestada_durante_o_io` FALHA, com
+`assert 1 == 0` — a conexão da autenticação está emprestada enquanto a rota
+fala com o terceiro. O segundo teste passa desde já; ele existe para provar que
+a correção não quebra o caminho de escrita.
+
+**Se o primeiro teste passar aqui, pare e reporte.** Um teste que já passa não
+prova correção nenhuma, e foi exatamente assim que a primeira versão deste step
+falhou.
 
 - [ ] **Step 3: Abrir conexão curta na autenticação**
 
@@ -3211,7 +3242,7 @@ Expected: tudo verde. Preste atenção especial a `tests/painel/test_admin.py` e
 `tests/painel/test_convite.py`, que são as rotas que declaram as duas
 dependências.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add -A
