@@ -1,79 +1,21 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from tf2price.domain.money import Brl
-from tf2price.lookup.app import Contexto, PageCache, criar_app
+from tf2price.painel.app import criar_app
+from tf2price.painel.consulta import Contexto, PageCache
 from tf2price.sources.backpacktf import PriceIndex
-from tf2price.sources.steam import SearchPage, SearchResult
-from tf2price.sources.steam_page import PageStructureError, parse_item_page
+from tf2price.sources.steam_page import PageStructureError
 
-FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
-NOME = "Unusual Taunt: Chairholder"
-CHAVE = Brl.from_float(11.73)
-
-
-def _pagina():
-    html = (FIXTURES / "steam_listing_page.html").read_text(encoding="utf-8")
-    # Taxa 1.0: a fixture declara BRL e nenhum teste daqui é sobre moeda.
-    return parse_item_page(html, NOME, 1.0)
-
-
-class _SteamFalso:
-    def __init__(self, nomes=(NOME, "Unusual Team Captain")):
-        self.nomes = nomes
-        self.chamadas = 0
-
-    def search_page(self, start=0, count=100, query=None):
-        self.chamadas += 1
-        return SearchPage(
-            total_count=len(self.nomes),
-            results=[
-                SearchResult(hash_name=n, lowest_price=Brl.from_cents(1000), sell_listings=1)
-                for n in self.nomes
-            ],
-        )
-
-
-class _PaginasFalsas:
-    def __init__(self, pagina=None, erro=None):
-        self._pagina = pagina
-        self._erro = erro
-        self.chamadas = 0
-        self.taxas: list[float] = []
-
-    def item_page(self, hash_name, usd_to_brl):
-        self.chamadas += 1
-        self.taxas.append(usd_to_brl)
-        if self._erro:
-            raise self._erro
-        return self._pagina
-
-
-def _contexto(steam=None, paginas=None, indice=None, usd_to_brl=1.0):
-    return Contexto(
-        steam=steam or _SteamFalso(),
-        paginas=paginas or _PaginasFalsas(_pagina()),
-        index=indice or PriceIndex.from_payload(
-            {"response": {"items": {}}}, key_in_refined=64.11
-        ),
-        key_brl=CHAVE,
-        usd_to_brl=usd_to_brl,
-        cache=PageCache(),
-    )
+from .conftest import CHAVE, NOME, _contexto, _pagina, _PaginasFalsas, _SteamFalso, cliente_logado
 
 
 @pytest.fixture
-def cliente():
-    ctx = _contexto()
-    app = criar_app(ctx)
-    cliente = TestClient(app)
-    cliente.ctx = ctx
-    return cliente
+def cliente(engine):
+    return cliente_logado(engine, _contexto())
 
 
 # --- rotas ---------------------------------------------------------------
@@ -140,9 +82,9 @@ def test_cache_expira_pelo_relogio_injetado():
 # --- falha de estrutura --------------------------------------------------
 
 
-def test_mudanca_na_valve_vira_mensagem_e_nao_traceback():
+def test_mudanca_na_valve_vira_mensagem_e_nao_traceback(engine):
     ctx = _contexto(paginas=_PaginasFalsas(erro=PageStructureError("renderContext sumiu")))
-    cliente = TestClient(criar_app(ctx), raise_server_exceptions=False)
+    cliente = cliente_logado(engine, ctx)
 
     r = cliente.get("/efeitos", params={"nome": NOME})
 
@@ -153,11 +95,11 @@ def test_mudanca_na_valve_vira_mensagem_e_nao_traceback():
 # --- taxa de conversão ---------------------------------------------------
 
 
-def test_contexto_carrega_a_taxa_e_a_repassa_para_a_pagina():
+def test_contexto_carrega_a_taxa_e_a_repassa_para_a_pagina(engine):
     """A página da Steam alterna entre dólar e real; sem a taxa ela é lida errado."""
     paginas = _PaginasFalsas(_pagina())
     ctx = _contexto(paginas=paginas, usd_to_brl=5.15)
-    cliente = TestClient(criar_app(ctx))
+    cliente = cliente_logado(engine, ctx)
 
     cliente.get("/efeitos", params={"nome": NOME})
 
@@ -176,24 +118,24 @@ def test_contexto_exige_a_taxa_explicitamente():
         )
 
 
-def test_busca_mantem_a_dupla_qualidade():
+def test_busca_mantem_a_dupla_qualidade(engine):
     """`Strange Unusual ...` são 28 de 100 nomes da busca real, e os mais caros.
 
     O filtro antigo (`startswith("Unusual ")`) descartava todos eles.
     """
     dupla = "Strange Unusual Bonk Boy"
     ctx = _contexto(steam=_SteamFalso(nomes=(NOME, dupla, "Strange Scattergun")))
-    cliente = TestClient(criar_app(ctx))
+    cliente = cliente_logado(engine, ctx)
 
     r = cliente.get("/buscar", params={"q": "Veil"})
     assert dupla in r.text
     assert "Strange Scattergun" not in r.text
 
 
-def test_busca_descarta_o_unusualifier():
+def test_busca_descarta_o_unusualifier(engine):
     """A ferramenta aplica um efeito; não tem um. Não há o que analisar nela."""
     ctx = _contexto(steam=_SteamFalso(nomes=(NOME, f"{NOME} Unusualifier")))
-    cliente = TestClient(criar_app(ctx))
+    cliente = cliente_logado(engine, ctx)
 
     r = cliente.get("/buscar", params={"q": "Chairholder"})
     assert "Unusualifier" not in r.text
@@ -216,9 +158,9 @@ def _indice_com_preco(idade_dias: int) -> PriceIndex:
     )
 
 
-def _texto_da_analise(idade_dias: int) -> str:
+def _texto_da_analise(engine, idade_dias: int) -> str:
     ctx = _contexto(indice=_indice_com_preco(idade_dias))
-    cliente = TestClient(criar_app(ctx))
+    cliente = cliente_logado(engine, ctx)
     return cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"}).text
 
 
@@ -230,8 +172,8 @@ def _texto_da_analise(idade_dias: int) -> str:
         (900, 'class="carimbo carimbo-vencido"', "vencido"),  # o caso do Bonk Boy
     ],
 )
-def test_o_carimbo_reflete_a_idade_do_preco(idade, classe, palavra):
-    texto = _texto_da_analise(idade)
+def test_o_carimbo_reflete_a_idade_do_preco(engine, idade, classe, palavra):
+    texto = _texto_da_analise(engine, idade)
     assert classe in texto
     assert palavra in texto
     # A asserção da classe sozinha é fraca: "carimbo " casa com todos os
@@ -265,3 +207,9 @@ def test_trocar_de_item_apaga_a_avaliacao(cliente):
 def test_a_cotacao_da_chave_aparece_no_timbre(cliente):
     """Os valores em chaves não significam nada sem o preço que os converteu."""
     assert str(CHAVE) in cliente.get("/").text
+
+
+def test_a_consulta_exige_sessao(engine):
+    cliente = TestClient(criar_app(engine, _contexto()), follow_redirects=False)
+    for caminho in ("/", "/buscar", "/efeitos", "/analise"):
+        assert cliente.get(caminho, params={"q": "x", "nome": "x", "efeito": "x"}).status_code in (303, 401)

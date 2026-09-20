@@ -8,6 +8,8 @@ from tf2price.contas import servico
 from tf2price.painel.app import criar_app
 from tf2price.painel.sessao import NOME_COOKIE
 
+from .conftest import _contexto
+
 SENHA = "uma senha longa"
 
 
@@ -16,7 +18,7 @@ def cliente(engine):
     with engine.begin() as conn:
         token = servico.convite_de_partida(conn, db.agora())
         servico.aceitar_convite(conn, token, nome="gusco", senha=SENHA, quando=db.agora())
-    return TestClient(criar_app(engine), follow_redirects=False)
+    return TestClient(criar_app(engine, _contexto()), follow_redirects=False)
 
 
 def test_entrar_mostra_o_formulario(cliente):

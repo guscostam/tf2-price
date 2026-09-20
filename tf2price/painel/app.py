@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -12,16 +13,19 @@ from sqlalchemy.engine import Connection, Engine
 from tf2price import db
 from tf2price.contas import repositorio as repo
 from tf2price.contas import servico, tokens
-from tf2price.contas.modelo import Usuario
 from tf2price.contas.senhas import SenhaCurta
 from tf2price.painel import sessao as ses
+
+if TYPE_CHECKING:
+    from tf2price.painel.consulta import Contexto
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
-def criar_app(engine: Engine) -> FastAPI:
+def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
     app = FastAPI(title="Painel de Unusual")
     app.state.engine = engine
+    app.state.contexto = contexto
 
     @app.exception_handler(ses.PrecisaEntrar)
     def _sem_sessao(request: Request, _exc: ses.PrecisaEntrar) -> Response:
@@ -66,15 +70,6 @@ def criar_app(engine: Engine) -> FastAPI:
         resposta = RedirectResponse("/entrar", status_code=303)
         ses.apagar_cookie(resposta)
         return resposta
-
-    # Provisória: a Task 7 troca o corpo desta rota pela consulta.
-    @app.get("/", response_class=HTMLResponse)
-    def painel(
-        request: Request, usuario: Usuario = Depends(ses.usuario_obrigatorio)
-    ):
-        return TEMPLATES.TemplateResponse(
-            request=request, name="base.html", context={"usuario": usuario}
-        )
 
     def _convite_aberto(conn: Connection, token: str):
         """Convite utilizável, ou None. Não diz por que não serve."""
@@ -138,4 +133,29 @@ def criar_app(engine: Engine) -> FastAPI:
         ses.gravar_cookie(resposta, request, sessao_token)
         return resposta
 
+    if contexto is not None:
+        from tf2price.painel.consulta import ROTEADOR
+
+        app.include_router(ROTEADOR)
+
     return app
+
+
+def servir() -> None:
+    """Ponto de entrada: python -m tf2price.painel.app"""
+    import uvicorn
+
+    from tf2price.painel.consulta import construir_contexto
+
+    engine = db.criar_engine()
+    db.criar_schema(engine)
+    with engine.begin() as conn:
+        token = servico.convite_de_partida(conn, db.agora())
+    if token:
+        print(f"[partida] nenhum usuário ainda. Convite de administrador: /convite/{token}")
+
+    uvicorn.run(criar_app(engine, construir_contexto()), host="127.0.0.1", port=8000)
+
+
+if __name__ == "__main__":
+    servir()

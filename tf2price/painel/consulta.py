@@ -1,3 +1,9 @@
+"""A consulta de Unusual: contexto, cache de página e rotas.
+
+O que decide número continua em `lookup/analysis.py`, que não sabe que existe
+usuário. Aqui só há transporte e apresentação.
+"""
+
 from __future__ import annotations
 
 import os
@@ -7,13 +13,15 @@ from pathlib import Path
 from typing import Any, Callable
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from tf2price.contas.modelo import Usuario
 from tf2price.domain.identity import is_unusual_name
 from tf2price.domain.money import Brl
 from tf2price.lookup.analysis import analyse, effects_available
+from tf2price.painel import sessao as ses
 from tf2price.sources.backpacktf import BackpackTfClient, PriceIndex
 from tf2price.sources.ratelimit import RateLimiter
 from tf2price.sources.steam import SteamClient
@@ -32,6 +40,8 @@ def _chaves(valor: float) -> str:
 
 
 TEMPLATES.env.filters["chaves"] = _chaves
+
+ROTEADOR = APIRouter(dependencies=[Depends(ses.usuario_obrigatorio)])
 
 
 class PageCache:
@@ -93,78 +103,80 @@ def _erro(request: Request, mensagem: str) -> HTMLResponse:
     )
 
 
-def criar_app(contexto: Contexto) -> FastAPI:
-    app = FastAPI(title="Consulta de Unusual")
+def _contexto(request: Request) -> Contexto:
+    return request.app.state.contexto
 
-    def pagina_do_item(nome: str) -> ItemPage:
-        em_cache = contexto.cache.get(nome)
-        if em_cache is not None:
-            return em_cache
-        pagina = contexto.paginas.item_page(nome, contexto.usd_to_brl)
-        contexto.cache.put(nome, pagina)
-        return pagina
 
-    @app.get("/", response_class=HTMLResponse)
-    def raiz(request: Request):
-        # A cotação vai no timbre porque é a taxa de câmbio de toda a
-        # página: os valores em chaves só significam alguma coisa ao lado
-        # do preço da chave que os converteu.
+def _pagina_do_item(contexto: Contexto, nome: str) -> ItemPage:
+    guardada = contexto.cache.get(nome)
+    if guardada is not None:
+        return guardada
+    pagina = contexto.paginas.item_page(nome, contexto.usd_to_brl)
+    contexto.cache.put(nome, pagina)
+    return pagina
+
+
+@ROTEADOR.get("/", response_class=HTMLResponse)
+def painel(request: Request, usuario: Usuario = Depends(ses.usuario_obrigatorio)):
+    contexto = _contexto(request)
+    return TEMPLATES.TemplateResponse(
+        request=request,
+        name="painel.html",
+        context={
+            "usuario": usuario,
+            "key_brl": contexto.key_brl,
+            "usd_brl": Brl.from_float(contexto.usd_to_brl),
+        },
+    )
+
+
+@ROTEADOR.get("/buscar", response_class=HTMLResponse)
+def buscar(request: Request, q: str = ""):
+    contexto = _contexto(request)
+    termo = q.strip()
+    if not termo:
         return TEMPLATES.TemplateResponse(
-            request=request,
-            name="index.html",
-            context={
-                "key_brl": contexto.key_brl,
-                "usd_brl": Brl.from_float(contexto.usd_to_brl),
-            },
+            request=request, name="_itens.html", context={"nomes": []}
         )
+    try:
+        pagina = contexto.steam.search_page(start=0, count=BUSCA_MAX, query=termo)
+    except (RuntimeError, PageStructureError) as erro:
+        return _erro(request, str(erro))
 
-    @app.get("/buscar", response_class=HTMLResponse)
-    def buscar(request: Request, q: str = ""):
-        termo = q.strip()
-        if not termo:
-            return TEMPLATES.TemplateResponse(
-                request=request, name="_itens.html", context={"nomes": []}
-            )
-        try:
-            pagina = contexto.steam.search_page(start=0, count=BUSCA_MAX, query=termo)
-        except (RuntimeError, PageStructureError) as erro:
-            return _erro(request, str(erro))
+    nomes = [r.hash_name for r in pagina.results if is_unusual_name(r.hash_name)]
+    return TEMPLATES.TemplateResponse(
+        request=request, name="_itens.html", context={"nomes": nomes[:BUSCA_MAX]}
+    )
 
-        nomes = [r.hash_name for r in pagina.results if is_unusual_name(r.hash_name)]
-        return TEMPLATES.TemplateResponse(
-            request=request, name="_itens.html", context={"nomes": nomes[:BUSCA_MAX]}
-        )
 
-    @app.get("/efeitos", response_class=HTMLResponse)
-    def efeitos(request: Request, nome: str):
-        try:
-            pagina = pagina_do_item(nome)
-        except (RuntimeError, PageStructureError) as erro:
-            return _erro(request, str(erro))
+@ROTEADOR.get("/efeitos", response_class=HTMLResponse)
+def efeitos(request: Request, nome: str):
+    contexto = _contexto(request)
+    try:
+        pagina = _pagina_do_item(contexto, nome)
+    except (RuntimeError, PageStructureError) as erro:
+        return _erro(request, str(erro))
+    return TEMPLATES.TemplateResponse(
+        request=request,
+        name="_efeitos.html",
+        context={"nome": nome, "efeitos": effects_available(pagina)},
+    )
 
-        return TEMPLATES.TemplateResponse(
-            request=request,
-            name="_efeitos.html",
-            context={"nome": nome, "efeitos": effects_available(pagina)},
-        )
 
-    @app.get("/analise", response_class=HTMLResponse)
-    def rota_analise(request: Request, nome: str, efeito: str):
-        try:
-            pagina = pagina_do_item(nome)
-        except (RuntimeError, PageStructureError) as erro:
-            return _erro(request, str(erro))
-
-        try:
-            resultado = analyse(pagina, efeito, contexto.index, contexto.key_brl)
-        except ValueError as erro:
-            return _erro(request, str(erro))
-
-        return TEMPLATES.TemplateResponse(
-            request=request, name="_analise.html", context={"a": resultado}
-        )
-
-    return app
+@ROTEADOR.get("/analise", response_class=HTMLResponse)
+def rota_analise(request: Request, nome: str, efeito: str):
+    contexto = _contexto(request)
+    try:
+        pagina = _pagina_do_item(contexto, nome)
+    except (RuntimeError, PageStructureError) as erro:
+        return _erro(request, str(erro))
+    try:
+        resultado = analyse(pagina, efeito, contexto.index, contexto.key_brl)
+    except ValueError as erro:
+        return _erro(request, str(erro))
+    return TEMPLATES.TemplateResponse(
+        request=request, name="_analise.html", context={"a": resultado}
+    )
 
 
 def construir_contexto() -> Contexto:
@@ -187,14 +199,3 @@ def construir_contexto() -> Contexto:
         key_brl=steam.key_price(),
         usd_to_brl=steam.usd_to_brl(),
     )
-
-
-def servir() -> None:
-    """Ponto de entrada: python -m tf2price.lookup.app"""
-    import uvicorn
-
-    uvicorn.run(criar_app(construir_contexto()), host="127.0.0.1", port=8000)
-
-
-if __name__ == "__main__":
-    servir()
