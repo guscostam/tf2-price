@@ -225,7 +225,10 @@ def test_analise_sem_indice_nao_mente_sobre_a_bptf(engine):
     ctx.indice = _IndiceFalso(None)
     cliente = cliente_logado(engine, ctx)
     r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
-    assert "ainda não carregou" in r.text
+    # "ainda não carregou" aparece nas duas mensagens (índice ausente e
+    # cotação ausente); só a do índice tem a palavra "índice", que é a
+    # distinção que este teste existe para proteger.
+    assert "índice" in r.text
 
 
 def test_sem_cotacao_a_tela_diz_e_nao_quebra(engine):

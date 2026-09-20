@@ -31,3 +31,23 @@ def confere(hash_guardado: str, senha: str) -> bool:
         return _HASHER.verify(hash_guardado, senha)
     except (VerifyMismatchError, VerificationError, InvalidHashError):
         return False
+
+
+# Hash de referência calculado uma vez, no import, sobre uma senha fixa
+# qualquer — nenhuma conta real usa esta senha, e não precisa: ele existe só
+# para ter algo a comparar quando o nome não existe.
+_HASH_DE_REFERENCIA = _HASHER.hash("senha de referencia do freio de tempo")
+
+
+def confere_em_falso(senha: str) -> None:
+    """Paga o custo do Argon2 sem validar nada.
+
+    Usado quando o nome não existe: sem isto, `entrar` voltaria em ~1ms
+    contra os ~50-100ms de uma senha errada contra um nome real, e esse
+    relógio denunciaria quais nomes existem — o mesmo vazamento que a
+    mensagem de erro única já foi escrita para evitar.
+    """
+    try:
+        _HASHER.verify(_HASH_DE_REFERENCIA, senha)
+    except (VerifyMismatchError, VerificationError, InvalidHashError):
+        pass

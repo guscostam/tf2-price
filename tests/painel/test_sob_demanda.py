@@ -13,6 +13,8 @@ from tf2price.domain.money import Brl
 from tf2price.painel.consulta import CotacaoSobDemanda, IndiceSobDemanda
 from tf2price.sources.backpacktf import Currencies, PriceIndex
 
+CHAVE_SECRETA = "segredo-que-nao-pode-vazar"
+
 
 class _RelogioFalso:
     """Um relógio que só anda quando o teste manda."""
@@ -205,3 +207,30 @@ def test_falha_da_cotacao_fica_registrada_no_log(capsys):
     assert "RuntimeError" in saida
     assert "Steam fora do ar" in saida
     assert "nova tentativa" in saida
+
+
+def test_falha_com_url_na_mensagem_nao_vaza_a_chave_no_log(capsys):
+    """A mensagem de um `httpx.HTTPStatusError` inclui a URL inteira do
+    pedido, e `BackpackTfClient._get` manda a chave da API na query string.
+    O log tem que cortar isso — o tipo da exceção continua lá, o segredo não.
+    """
+    cliente = _ClienteBptfFalso()
+    relogio = _RelogioFalso()
+    sob = IndiceSobDemanda(cliente, relogio=relogio)
+
+    erro = RuntimeError(
+        f"Client error '403 Forbidden' for url "
+        f"'https://backpack.tf/api/IGetPrices/v4?key={CHAVE_SECRETA}&appid=440'"
+    )
+
+    def _falha():
+        cliente.chamadas += 1
+        raise erro
+
+    cliente.currencies = _falha
+    sob.obter()
+
+    saida = capsys.readouterr().out
+    assert CHAVE_SECRETA not in saida
+    assert "RuntimeError" in saida
+    assert "IndiceSobDemanda" in saida

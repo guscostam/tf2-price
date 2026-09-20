@@ -34,7 +34,7 @@ def test_link_valido_mostra_o_formulario(cliente, engine):
     assert "senha" in r.text.lower()
 
 
-def test_link_invalido_diz_a_mesma_coisa_que_o_expirado(cliente, engine):
+def test_link_invalido_diz_a_mesma_coisa_que_o_usado(cliente, engine):
     """Distinguir os dois conta a quem está adivinhando token."""
     inexistente = cliente.get("/convite/token-inventado")
     assert inexistente.status_code == 404
@@ -47,6 +47,31 @@ def test_link_invalido_diz_a_mesma_coisa_que_o_expirado(cliente, engine):
     usado = cliente.get(f"/convite/{token}")
     assert usado.status_code == 404
     assert usado.text == inexistente.text
+
+
+def test_link_expirado_diz_a_mesma_coisa_que_o_inexistente(cliente, engine):
+    """O caso que o nome do teste anterior prometia e não cobria: convite
+    de verdade expirado, não usado."""
+    inexistente = cliente.get("/convite/token-inventado")
+
+    token = _convite(engine, validade=timedelta(seconds=-1))
+    expirado = cliente.get(f"/convite/{token}")
+    assert expirado.status_code == 404
+    assert expirado.text == inexistente.text
+
+
+def test_post_com_token_morto_devolve_o_mesmo_corpo_do_get(cliente, engine):
+    """O GET de um convite morto já era coberto; o POST é o caminho de
+    escrita e ficava sem teste."""
+    token = _convite(engine)
+    with engine.begin() as conn:
+        repo.marcar_convite_usado(
+            conn, tokens.hash_de(token), usado_em=db.agora(), usado_por=1
+        )
+    esperado = cliente.get(f"/convite/{token}")
+    r = cliente.post(f"/convite/{token}", data={"nome": "amiga", "senha": SENHA})
+    assert r.status_code == esperado.status_code == 404
+    assert r.text == esperado.text
 
 
 def test_aceitar_cria_a_conta_e_ja_entra(cliente, engine):

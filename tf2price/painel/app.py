@@ -179,6 +179,10 @@ def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
         usuario: Usuario = Depends(ses.exigir_admin),
         conn: Connection = Depends(ses.conexao),
     ):
+        if repo.usuario_por_id(conn, usuario_id) is None:
+            # Sem isto o convite nasce com `alvo` apontando para ninguém: o
+            # SQLite deixa passar, e a chave estrangeira do Postgres levanta.
+            return HTMLResponse("Usuário não encontrado.", status_code=404)
         token = servico.convidar(
             conn,
             criado_por=usuario.id,
@@ -204,6 +208,9 @@ def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
                 usuario,
                 erro="Você não pode desativar a própria conta.",
             )
+        if repo.usuario_por_id(conn, usuario_id) is None:
+            # Sem isto, "sucesso" é um UPDATE que não bateu em linha nenhuma.
+            return HTMLResponse("Usuário não encontrado.", status_code=404)
         ligado = ativo == "1"
         repo.definir_ativo(conn, usuario_id, ligado)
         if not ligado:

@@ -76,6 +76,18 @@ def test_nome_ja_em_uso(engine):
             )
 
 
+def test_aceitar_convite_recusa_nome_maior_que_o_limite(engine):
+    """Postgres tem `usuario.nome` como String(60); acima disso ele levanta."""
+    nome_longo = "x" * (servico.NOME_MAXIMO + 1)
+    with engine.begin() as conn:
+        token = servico.convidar(conn, criado_por=_dono(conn), quando=AGORA)
+        with pytest.raises(servico.NomeEmUso):
+            servico.aceitar_convite(
+                conn, token, nome=nome_longo, senha=SENHA, quando=AGORA
+            )
+        assert repo.usuario_por_nome(conn, nome_longo) is None
+
+
 def test_convite_de_partida_so_existe_com_banco_vazio(engine):
     with engine.begin() as conn:
         token = servico.convite_de_partida(conn, AGORA)
@@ -126,6 +138,16 @@ def test_nome_inexistente_da_o_mesmo_erro_da_senha_errada(engine):
     with engine.begin() as conn:
         with pytest.raises(servico.CredenciaisInvalidas):
             servico.entrar(conn, nome="ninguem", senha=SENHA, quando=AGORA)
+
+
+def test_nome_maior_que_o_limite_e_recusado_sem_gravar_tentativa(engine):
+    """Postgres tem `tentativa.nome` como String(60); sem a checagem, o
+    INSERT da tentativa é quem levantaria, virando 500 anônimo."""
+    nome_longo = "x" * (servico.NOME_MAXIMO + 1)
+    with engine.begin() as conn:
+        with pytest.raises(servico.CredenciaisInvalidas):
+            servico.entrar(conn, nome=nome_longo, senha=SENHA, quando=AGORA)
+        assert repo.contar_tentativas(conn, nome_longo, AGORA - timedelta(days=1)) == 0
 
 
 def test_sessao_expirada_nao_resolve(engine):
@@ -181,6 +203,25 @@ def test_o_bloqueio_passa_depois_da_janela(engine):
                 servico.entrar(conn, nome="amiga", senha="errada demais", quando=AGORA)
         depois = AGORA + servico.JANELA_DO_FREIO + timedelta(seconds=1)
         assert servico.entrar(conn, nome="amiga", senha=SENHA, quando=depois)
+
+
+def test_entrar_apaga_tentativas_fora_da_janela(engine):
+    """Tentativa contra nome inexistente nunca passa por `limpar_tentativas`
+    (só quem acerta a senha passa por lá); sem esta limpeza a tabela só
+    cresce."""
+    with engine.begin() as conn:
+        _com_conta(conn)
+        antiga = AGORA - servico.JANELA_DO_FREIO - timedelta(minutes=1)
+        recente = AGORA - timedelta(minutes=1)
+        repo.registrar_tentativa(conn, "amiga", antiga)
+        repo.registrar_tentativa(conn, "amiga", recente)
+
+        with pytest.raises(servico.CredenciaisInvalidas):
+            servico.entrar(conn, nome="amiga", senha="errada demais", quando=AGORA)
+
+        desde_sempre = AGORA - timedelta(days=1)
+        # A antiga sumiu; sobram a recente e a nova gravada por esta chamada.
+        assert repo.contar_tentativas(conn, "amiga", desde_sempre) == 2
 
 
 def test_acertar_a_senha_limpa_o_contador(engine):

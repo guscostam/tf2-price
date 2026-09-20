@@ -32,6 +32,18 @@ BUSCA_MAX = 25
 INTERVALO_S = 1.0
 
 
+def _mensagem_saneada(erro: Exception) -> str:
+    """Corta a mensagem no primeiro '?', onde começa a query string.
+
+    `BackpackTfClient._get` manda a chave da API como parâmetro `key=` na
+    URL, e o `str()` de um `httpx.HTTPStatusError` inclui a URL inteira do
+    pedido que falhou. A backpack.tf devolve 403 para quem não é navegador,
+    então esse caminho é exercitado de verdade, não só em teoria — e o log
+    não pode ser onde a chave aparece em claro.
+    """
+    return str(erro).split("?", 1)[0]
+
+
 def _registra_falha_sob_demanda(origem: str, erro: Exception, espera_s: float) -> None:
     """Log mínimo para uma falha de terceiro não esconder um bug nosso.
 
@@ -44,7 +56,7 @@ def _registra_falha_sob_demanda(origem: str, erro: Exception, espera_s: float) -
     partida em `app.py`, que o Railway já capta no log do serviço.
     """
     print(
-        f"[sob-demanda] {origem}: {type(erro).__name__}: {erro}; "
+        f"[sob-demanda] {origem}: {type(erro).__name__}: {_mensagem_saneada(erro)}; "
         f"nova tentativa em {espera_s:.0f}s",
         flush=True,
     )

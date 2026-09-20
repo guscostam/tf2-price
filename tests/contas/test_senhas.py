@@ -25,6 +25,17 @@ def test_senha_curta_e_recusada():
         senhas.gerar("curta")
 
 
+def test_senha_no_minimo_exato_e_aceita():
+    """A regra é `<`; exatamente `SENHA_MINIMA` caracteres tem que passar."""
+    senhas.gerar("a" * senhas.SENHA_MINIMA)
+
+
 def test_hash_corrompido_nao_levanta_excecao():
     """Um hash inválido no banco não pode derrubar a tela de entrar."""
     assert senhas.confere("isto nao e um hash", "uma senha longa") is False
+
+
+def test_confere_em_falso_nao_levanta_para_nenhuma_entrada():
+    """Só existe para gastar tempo de Argon2; não afirma nada sobre a senha."""
+    assert senhas.confere_em_falso("qualquer coisa") is None
+    assert senhas.confere_em_falso("") is None

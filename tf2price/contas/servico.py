@@ -21,6 +21,12 @@ VALIDADE_SESSAO = timedelta(days=30)
 JANELA_DO_FREIO = timedelta(minutes=15)
 FALHAS_ATE_BLOQUEIO = 5
 
+# Espelha o String(60) de `usuario.nome` e `tentativa.nome` em `db.py`. O
+# SQLite não impõe esse limite e deixa passar; o Postgres levanta erro, e sem
+# esta conferência antes o visitante anônimo recebe um 500 em vez de um
+# recado.
+NOME_MAXIMO = 60
+
 TIPO_CONTA = "conta"
 TIPO_REDEFINICAO = "redefinicao"
 
@@ -109,6 +115,8 @@ def aceitar_convite(
     nome = nome.strip()
     if not nome:
         raise NomeEmUso("escolha um nome")
+    if len(nome) > NOME_MAXIMO:
+        raise NomeEmUso(f"esse nome é longo demais (máximo {NOME_MAXIMO} caracteres)")
     if repo.usuario_por_nome(conn, nome) is not None:
         raise NomeEmUso("esse nome já está em uso")
 
@@ -145,11 +153,30 @@ def redefinir(
 def entrar(conn: Connection, *, nome: str, senha: str, quando: datetime) -> str:
     """Devolve o token de sessão em claro, que vai para o cookie."""
     nome = nome.strip()
-    if repo.contar_tentativas(conn, nome, quando - JANELA_DO_FREIO) >= FALHAS_ATE_BLOQUEIO:
+    if len(nome) > NOME_MAXIMO:
+        # Recusa antes de gravar qualquer tentativa: um nome deste tamanho
+        # nunca bate com uma conta real (o schema não permite), então não
+        # há freio a proteger, só um INSERT que o Postgres recusaria.
+        raise CredenciaisInvalidas("nome ou senha incorretos")
+
+    limite_do_freio = quando - JANELA_DO_FREIO
+    # Fora da janela do freio a linha não significa mais nada; sem isto,
+    # `tentativa` só encolhe quando alguém acerta a senha, e é o único jeito
+    # de um anônimo escrever no banco sem limite.
+    repo.limpar_tentativas_antigas(conn, limite_do_freio)
+    if repo.contar_tentativas(conn, nome, limite_do_freio) >= FALHAS_ATE_BLOQUEIO:
         raise ContaBloqueada("tentativas demais; espere alguns minutos")
 
     usuario = repo.usuario_por_nome(conn, nome)
-    if usuario is None or not senhas.confere(usuario.senha_hash, senha):
+    if usuario is None:
+        # Sem conta para conferir senha, este caminho voltaria em ~1ms contra
+        # os ~50-100ms do Argon2 no caminho de senha errada — e o relógio
+        # denunciaria quais nomes existem, desfazendo de propósito a mensagem
+        # única abaixo.
+        senhas.confere_em_falso(senha)
+        repo.registrar_tentativa(conn, nome, quando)
+        raise CredenciaisInvalidas("nome ou senha incorretos")
+    if not senhas.confere(usuario.senha_hash, senha):
         repo.registrar_tentativa(conn, nome, quando)
         raise CredenciaisInvalidas("nome ou senha incorretos")
     if not usuario.ativo:

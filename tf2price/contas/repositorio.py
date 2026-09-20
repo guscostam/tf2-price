@@ -186,3 +186,13 @@ def contar_tentativas(conn: Connection, nome: str, desde: datetime) -> int:
 
 def limpar_tentativas(conn: Connection, nome: str) -> None:
     conn.execute(delete(db.tentativa).where(db.tentativa.c.nome == nome))
+
+
+def limpar_tentativas_antigas(conn: Connection, antes_de: datetime) -> None:
+    """Apaga tentativas fora da janela do freio, de qualquer nome.
+
+    É o único caminho de limpeza para quem erra o nome (nunca acerta a
+    senha, então nunca passa por `limpar_tentativas`): sem isto, a tabela só
+    cresce.
+    """
+    conn.execute(delete(db.tentativa).where(db.tentativa.c.quando < antes_de))

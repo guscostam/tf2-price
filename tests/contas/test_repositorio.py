@@ -126,3 +126,13 @@ def test_limpar_tentativas_apaga_so_daquele_nome(engine):
         antigo = AGORA - timedelta(minutes=15)
         assert repo.contar_tentativas(conn, "gusco", antigo) == 0
         assert repo.contar_tentativas(conn, "outro", antigo) == 1
+
+
+def test_limpar_tentativas_antigas_apaga_so_as_de_fora_da_janela(engine):
+    with engine.begin() as conn:
+        repo.registrar_tentativa(conn, "gusco", AGORA - timedelta(hours=1))
+        repo.registrar_tentativa(conn, "outro", AGORA)
+        repo.limpar_tentativas_antigas(conn, AGORA - timedelta(minutes=15))
+        antigo = AGORA - timedelta(minutes=15)
+        assert repo.contar_tentativas(conn, "gusco", antigo) == 0
+        assert repo.contar_tentativas(conn, "outro", antigo) == 1

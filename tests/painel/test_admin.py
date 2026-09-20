@@ -103,6 +103,27 @@ def test_admin_nao_consegue_se_desativar(admin, engine):
     assert admin.get("/admin").status_code == 200
 
 
+def test_comum_leva_403_nos_tres_posts_de_admin(admin, engine):
+    """As três rotas de escrita dependem de `exigir_admin`; a garantia é
+    estrutural (Depends), mas é a superfície de escrita e merece teste
+    próprio, não só o GET."""
+    comum = _entra(engine, "amiga", admin=False)
+    with engine.begin() as conn:
+        alvo = repo.usuario_por_nome(conn, "amiga").id
+
+    assert comum.post("/admin/convite").status_code == 403
+    assert comum.post(f"/admin/redefinir/{alvo}").status_code == 403
+    assert comum.post(f"/admin/ativo/{alvo}", data={"ativo": "0"}).status_code == 403
+
+
+def test_redefinir_para_usuario_inexistente_da_404(admin):
+    assert admin.post("/admin/redefinir/999999").status_code == 404
+
+
+def test_ativo_para_usuario_inexistente_da_404(admin):
+    assert admin.post("/admin/ativo/999999", data={"ativo": "0"}).status_code == 404
+
+
 def test_admin_nao_ve_botao_de_desativar_a_propria_linha(admin, engine):
     _entra(engine, "amiga", admin=False)
     texto = admin.get("/admin").text
