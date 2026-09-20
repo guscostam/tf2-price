@@ -224,13 +224,22 @@ class SteamClient:
                 "start": start,
                 "currency": CURRENCY_BRL,
                 "l": "english",
-                # Ordenação estável por nome. O padrão da Steam é por
-                # popularidade, que muda durante os ~11 min da passada: itens
-                # migram entre páginas, uns são lidos duas vezes e outros
-                # nunca. Duplicatas inflam as contagens que alimentam o
-                # veredito — justamente na direção de "vale construir".
-                "sort_column": "name",
-                "sort_dir": "asc",
+                # Ordenação por preço decrescente, não por nome.
+                #
+                # O padrão da Steam é popularidade, que muda durante a
+                # varredura: itens migram entre páginas, uns são lidos duas
+                # vezes e outros nunca. Qualquer ordem explícita corrige isso,
+                # e a deduplicação por hash_name na passada rasa cobre a
+                # deriva residual (preço muda mais que nome ao longo de horas).
+                #
+                # Preço decrescente em vez de alfabética porque a varredura
+                # pode não terminar: a de 2026-09-19 morreu em 429 com 3% do
+                # catálogo lido. Em ordem alfabética, `Unusual ...` cai na
+                # letra U e uma execução truncada não vê Unusual nenhum — que
+                # é o dado de maior valor do spike. Por preço, os caros vêm
+                # primeiro, então o que mais importa é lido antes.
+                "sort_column": "price",
+                "sort_dir": "desc",
             },
         )
         return parse_search_page(payload)

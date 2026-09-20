@@ -345,10 +345,13 @@ def test_404_falha_na_primeira_tentativa():
     assert tentativas["n"] == 1
 
 
-def test_search_page_ordena_por_nome_para_paginacao_estavel():
-    # Sem sort explícito a Steam ordena por popularidade, que muda durante
-    # os ~11 min da passada: itens migram entre páginas e viram duplicata
-    # ou buraco.
+def test_search_page_ordena_por_preco_decrescente():
+    # Sem sort explícito a Steam ordena por popularidade, que muda durante a
+    # varredura: itens migram entre páginas e viram duplicata ou buraco.
+    #
+    # Decrescente por preço, e não alfabética, porque a varredura pode não
+    # terminar: em ordem de nome os Unusual caem na letra U e uma execução
+    # truncada não vê nenhum. Por preço, os caros vêm primeiro.
     capturadas: list[httpx.Request] = []
     client = SteamClient(
         limiter=RateLimiter(min_interval_s=0.0),
@@ -358,8 +361,8 @@ def test_search_page_ordena_por_nome_para_paginacao_estavel():
     client.search_page(start=0)
 
     params = capturadas[0].url.params
-    assert params["sort_column"] == "name"
-    assert params["sort_dir"] == "asc"
+    assert params["sort_column"] == "price"
+    assert params["sort_dir"] == "desc"
 
 
 def test_preco_da_chave_usa_uma_unica_requisicao():
