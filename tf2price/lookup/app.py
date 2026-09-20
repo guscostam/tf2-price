@@ -26,6 +26,14 @@ INTERVALO_S = 1.0
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
+def _chaves(valor: float) -> str:
+    """Quantidade de chaves com vírgula decimal, como o resto da tela."""
+    return f"{valor:.1f}".replace(".", ",")
+
+
+TEMPLATES.env.filters["chaves"] = _chaves
+
+
 class PageCache:
     """Guarda a ItemPage por hash_name com TTL curto.
 
@@ -98,7 +106,17 @@ def criar_app(contexto: Contexto) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     def raiz(request: Request):
-        return TEMPLATES.TemplateResponse(request=request, name="index.html", context={})
+        # A cotação vai no timbre porque é a taxa de câmbio de toda a
+        # página: os valores em chaves só significam alguma coisa ao lado
+        # do preço da chave que os converteu.
+        return TEMPLATES.TemplateResponse(
+            request=request,
+            name="index.html",
+            context={
+                "key_brl": contexto.key_brl,
+                "usd_brl": Brl.from_float(contexto.usd_to_brl),
+            },
+        )
 
     @app.get("/buscar", response_class=HTMLResponse)
     def buscar(request: Request, q: str = ""):

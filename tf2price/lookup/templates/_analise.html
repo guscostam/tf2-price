@@ -1,47 +1,131 @@
-<h3>{{ a.effect }}</h3>
+{# Cada bloco declara de que nível é o número que ele mostra. A "saída
+   imediata" cruza os dois: preço deste efeito contra ofertas do item
+   inteiro, e o spec proíbe cruzar sem rótulo. #}
+<article class="avaliacao">
+  <h2>{{ a.effect }}</h2>
+  <p class="item-nome">{{ a.hash_name }}</p>
 
-<p class="nivel">para este efeito</p>
-<table>
-  <tr><th>Listagem</th><th>Preço</th></tr>
-  {% for l in a.listings %}
-  <tr>
-    <td><a href="https://steamcommunity.com/market/listings/440/{{ a.hash_name | urlencode }}">{{ l.listing_id }}</a></td>
-    <td>{{ l.total_price }}</td>
-  </tr>
-  {% endfor %}
-</table>
-<p>Mais barata: <strong>{{ a.cheapest.total_price }}</strong> ({{ "%.1f"|format(a.price_in_keys) }} chaves)</p>
+  <div class="pago">
+    <span class="rotulo">você paga</span>
+    <span class="numero-grande"><span class="cifrao">R$</span>{{ a.cheapest.total_price|string|replace("R$ ", "") }}</span>
+    <span class="em-chaves">{{ a.price_in_keys|chaves }} chaves · listagem mais barata deste efeito</span>
+  </div>
 
-<p class="nivel">saída imediata — ordens reais agora</p>
-{% if a.immediate.top_bid %}
-<p>
-  Melhor oferta de compra: {{ a.immediate.top_bid }} ({{ a.immediate.buy_orders }} ordens).<br>
-  Você receberia {{ a.immediate.net_received }} após a taxa de 15%.<br>
-  Resultado:
-  <span class="{{ 'bom' if a.immediate.result.cents > 0 else 'ruim' }}">{{ a.immediate.result }}</span>
-</p>
-{% else %}
-<p>Não há ordem de compra para este item.</p>
-{% endif %}
+  <section class="bloco" data-nivel="efeito">
+    <div class="niveis"><span class="tag tag-efeito">este efeito</span></div>
+    <h3>À venda agora</h3>
+    {% for l in a.listings %}
+    <div class="linha">
+      <span>{% if a.listings|length == 1 %}única à venda{% else %}{{ loop.index }}ª mais barata{% endif %}</span>
+      <span class="fio"></span>
+      <span class="valor">{{ l.total_price }}</span>
+      <span class="em-chaves">{{ (l.total_price.cents / a.key_brl.cents)|chaves }} ch</span>
+    </div>
+    {% endfor %}
+    <p class="nota">
+      <a href="https://steamcommunity.com/market/listings/440/{{ a.hash_name | urlencode }}">Abrir na Steam</a>
+      — a página lista todos os efeitos juntos; confira o efeito antes de comprar.
+    </p>
+  </section>
 
-<p class="nivel">saída paciente — troca via backpack.tf</p>
-{% if a.patient.available %}
-<p>
-  Valor sugerido: {{ "%.1f"|format(a.patient.keys) }} chaves = {{ a.patient.fair_value }}.<br>
-  Resultado:
-  <span class="{{ 'bom' if a.patient.result.cents > 0 else 'ruim' }}">{{ a.patient.result }}</span>
-</p>
-<div class="aviso">
-  Preço atualizado há <strong>{{ a.patient.age_days }} dias</strong>.
-  É preço <em>sugerido</em>, não oferta de compra: ninguém se comprometeu a pagar isso.
-</div>
-{% else %}
-<div class="aviso">Sem saída paciente: {{ a.patient.reason }}.</div>
-{% endif %}
+  <section class="bloco" data-nivel="cruzado">
+    <div class="niveis">
+      <span class="tag tag-efeito">este efeito</span>
+      <span class="cruz">×</span>
+      <span class="tag tag-item">todos os efeitos</span>
+    </div>
+    <h3>Saída imediata</h3>
+    {% if a.immediate.top_bid %}
+    <p class="explica">Vender agora, na maior oferta de compra que existe no livro.</p>
+    <div class="linha">
+      <span>Maior oferta de compra ({{ a.immediate.buy_orders }} ordens)</span>
+      <span class="fio"></span>
+      <span class="valor">{{ a.immediate.top_bid }}</span>
+    </div>
+    <div class="linha">
+      <span>Você recebe, após a taxa de 15%</span>
+      <span class="fio"></span>
+      <span class="valor">{{ a.immediate.net_received }}</span>
+    </div>
+    <div class="linha total">
+      <span>Resultado</span>
+      <span class="fio"></span>
+      <span class="valor {{ 'bom' if a.immediate.result.cents > 0 else 'ruim' }}">{{ a.immediate.result }}</span>
+    </div>
+    <p class="nota">
+      † A conta cruza os dois níveis: o preço é <b>deste efeito</b>, a oferta de
+      compra é de <b>todos os efeitos</b> do item. Quem compra no livro não
+      escolhe efeito, então esse é o piso real de revenda — não o preço deste.
+    </p>
+    {% else %}
+    <p class="explica">Ninguém tem ordem de compra aberta para este item. Não há saída imediata.</p>
+    {% endif %}
+  </section>
 
-<p class="nivel">todos os efeitos deste item — a Steam não separa</p>
-<p>
-  Menor venda {{ a.orderbook.min_sell_order }} · maior compra {{ a.orderbook.max_buy_order }} ·
-  {{ a.orderbook.buy_orders }} ordens de compra · {{ a.orderbook.sell_orders }} de venda.<br>
-  Histórico: mediana {{ a.history_median }} em {{ a.history_purchases }} vendas.
-</p>
+  <section class="bloco" data-nivel="efeito">
+    <div class="niveis"><span class="tag tag-efeito">este efeito</span></div>
+    <h3>Saída paciente</h3>
+    {% if a.patient.available %}
+    {% set idade = a.patient.age_days %}
+    <div class="carimbo {{ 'carimbo-fresco' if idade <= 30 else ('carimbo-vencido' if idade > 365 else '') }}">
+      backpack.tf
+      <b>{{ idade }}</b>
+      {{ 'dias — fresco' if idade <= 30 else ('dias — vencido' if idade > 365 else 'dias atrás') }}
+    </div>
+    <p class="explica">Trocar pelo valor sugerido pela comunidade, em chaves.</p>
+    <div class="linha">
+      <span>Valor sugerido ({{ a.patient.keys|chaves }} chaves)</span>
+      <span class="fio"></span>
+      <span class="valor">{{ a.patient.fair_value }}</span>
+    </div>
+    <div class="linha total">
+      <span>Resultado</span>
+      <span class="fio"></span>
+      <span class="valor {{ 'bom' if a.patient.result.cents > 0 else 'ruim' }}">{{ a.patient.result }}</span>
+    </div>
+    <p class="nota">
+      † Preço <b>sugerido</b>, não oferta de compra: ninguém se comprometeu a
+      pagar isso, e a referência tem <b>{{ idade }} dias</b>.
+    </p>
+    {% else %}
+    <div class="carimbo carimbo-ausente">
+      backpack.tf
+      <b>—</b>
+      sem avaliação
+    </div>
+    <p class="explica">{{ a.patient.reason|capitalize }}.</p>
+    <p class="nota">
+      † A tela não mostra o preço de outro efeito no lugar deste. Foi
+      exatamente essa troca que invalidou a primeira versão do projeto.
+    </p>
+    {% endif %}
+  </section>
+
+  <section class="bloco" data-nivel="item">
+    <div class="niveis"><span class="tag tag-item">todos os efeitos</span></div>
+    <h3>O item inteiro</h3>
+    <p class="explica">A Steam não separa estes números por efeito. Valem para o chapéu, seja qual for o efeito.</p>
+    <div class="linha">
+      <span>Menor venda no livro</span>
+      <span class="fio"></span>
+      <span class="valor">{{ a.orderbook.min_sell_order }}</span>
+    </div>
+    <div class="linha">
+      <span>Maior compra no livro</span>
+      <span class="fio"></span>
+      <span class="valor">{{ a.orderbook.max_buy_order }}</span>
+    </div>
+    <div class="linha">
+      <span>Ordens abertas</span>
+      <span class="fio"></span>
+      <span class="valor">{{ a.orderbook.buy_orders }} compra · {{ a.orderbook.sell_orders }} venda</span>
+    </div>
+    {% if a.history_median %}
+    <div class="linha">
+      <span>Mediana do histórico ({{ a.history_purchases }} vendas)</span>
+      <span class="fio"></span>
+      <span class="valor">{{ a.history_median }}</span>
+    </div>
+    {% endif %}
+  </section>
+</article>

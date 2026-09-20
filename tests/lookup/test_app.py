@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -197,3 +198,70 @@ def test_busca_descarta_o_unusualifier():
     r = cliente.get("/buscar", params={"q": "Chairholder"})
     assert "Unusualifier" not in r.text
     assert NOME in r.text
+
+
+# --- a tela: carimbo e limpeza de estado ---------------------------------
+
+def _indice_com_preco(idade_dias: int) -> PriceIndex:
+    """Índice onde Deep Dive (id 3229 no mapa real) tem preço com essa idade."""
+    agora = int(time.time())
+    return PriceIndex.from_payload(
+        {"response": {"items": {"Taunt: Chairholder": {"prices": {"5": {"Tradable": {
+            "Craftable": {"3229": {
+                "currency": "keys", "value": 20.0,
+                "last_update": agora - idade_dias * 86400,
+            }}
+        }}}}}}},
+        key_in_refined=64.11,
+    )
+
+
+def _texto_da_analise(idade_dias: int) -> str:
+    ctx = _contexto(indice=_indice_com_preco(idade_dias))
+    cliente = TestClient(criar_app(ctx))
+    return cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"}).text
+
+
+@pytest.mark.parametrize(
+    "idade, classe, palavra",
+    [
+        (5, 'class="carimbo carimbo-fresco"', "fresco"),     # dentro do mês
+        (200, 'class="carimbo "', "dias atrás"),             # meio-termo
+        (900, 'class="carimbo carimbo-vencido"', "vencido"),  # o caso do Bonk Boy
+    ],
+)
+def test_o_carimbo_reflete_a_idade_do_preco(idade, classe, palavra):
+    texto = _texto_da_analise(idade)
+    assert classe in texto
+    assert palavra in texto
+    # A asserção da classe sozinha é fraca: "carimbo " casa com todos os
+    # estados. As outras duas variantes têm que estar ausentes.
+    outras = {"carimbo-fresco", "carimbo-vencido", "carimbo-ausente"} - set(
+        c for c in ("carimbo-fresco", "carimbo-vencido") if c in classe
+    )
+    for outra in outras:
+        assert outra not in texto
+
+
+def test_carimbo_de_ausencia_quando_a_bptf_nao_precifica(cliente):
+    """O índice padrão do teste é vazio: nenhum efeito tem preço."""
+    r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
+    assert "carimbo-ausente" in r.text
+    assert "sem avaliação" in r.text
+
+
+def test_busca_nova_apaga_efeito_e_avaliacao(cliente):
+    """Sem isto, a avaliação do item anterior fica na tela sob outro item."""
+    r = cliente.get("/buscar", params={"q": "Chairholder"})
+    assert r.text.count('hx-swap-oob="true"') == 2
+    assert 'id="efeitos"' in r.text and 'id="analise"' in r.text
+
+
+def test_trocar_de_item_apaga_a_avaliacao(cliente):
+    r = cliente.get("/efeitos", params={"nome": NOME})
+    assert 'id="analise"' in r.text and 'hx-swap-oob="true"' in r.text
+
+
+def test_a_cotacao_da_chave_aparece_no_timbre(cliente):
+    """Os valores em chaves não significam nada sem o preço que os converteu."""
+    assert str(CHAVE) in cliente.get("/").text

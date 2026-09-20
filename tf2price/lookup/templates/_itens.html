@@ -1,7 +1,17 @@
+{# Uma busca nova invalida o que estava embaixo: sem estes dois swaps
+   fora de banda, a avaliação do item anterior ficaria na tela ao lado dos
+   resultados de outro item. #}
+<div id="efeitos" class="opcoes colunas" hx-swap-oob="true">
+  <p class="vazio">aguardando item</p>
+</div>
+<div id="analise" aria-live="polite" hx-swap-oob="true">
+  <p class="vazio">aguardando efeito</p>
+</div>
 {% if nomes %}
-<p class="nivel">itens encontrados</p>
 {% for nome in nomes %}
-  <button hx-get="/efeitos" hx-vals='{"nome": {{ nome | tojson }}}'
-          hx-target="#efeitos">{{ nome }}</button>
+<button hx-get="/efeitos" hx-vals='{"nome": {{ nome | tojson }}}'
+        hx-target="#efeitos">{{ nome }}</button>
 {% endfor %}
+{% else %}
+<p class="vazio">nenhum unusual com esse nome à venda</p>
 {% endif %}
