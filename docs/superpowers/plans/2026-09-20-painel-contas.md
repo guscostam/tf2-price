@@ -39,7 +39,10 @@ Duas regras do projeto valem para todo código deste plano:
   regra não óbvia carrega o comentário que diz por que ela existe.
 - Commits em português, no imperativo, com as duas linhas de atribuição que os
   commits existentes usam (veja `git log -1`).
-- Uma réplica só: freio e período de calma vivem na memória do processo.
+- Uma réplica só: **o freio de requisições à Steam** e o período de calma vivem
+  na memória do processo. Não confundir com o **freio de login**, que é de banco
+  (tabela `tentativa`) de propósito: ele precisa sobreviver a reinício, senão
+  reiniciar o serviço zera as tentativas de quem está tentando adivinhar senha.
 - Os totais de teste citados em cada task (`Expected: 221 passed`) são
   referência para você perceber que nada sumiu, não contrato. O que vale é a
   suíte inteira verde.
