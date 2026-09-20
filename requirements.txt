@@ -1,0 +1,8 @@
+# Existe para o construtor do Railway reconhecer isto como projeto Python: sem
+# este arquivo ele monta uma imagem sem dependência nenhuma, e o start falha
+# com "uvicorn: command not found".
+#
+# A lista de dependências de verdade está no pyproject.toml. A linha abaixo
+# manda instalar o próprio projeto, para não existirem duas fontes de verdade
+# que possam divergir.
+.
