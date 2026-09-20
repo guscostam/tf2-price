@@ -293,7 +293,10 @@ def _pagina_da_fixture() -> SearchPage:
     # banner de execução incompleta apareceria por um motivo que NÃO é o
     # testado — e o teste do caminho feliz passaria a ser uma mentira.
     payload["total_count"] = len(payload["results"])
-    return parse_search_page(payload)
+    # Taxa 1,0: a busca real responde em dólar e parse_search_page agora
+    # exige a taxa USD->BRL, mas aqui o que importa é o fluxo de main(),
+    # não a conversão. 1,0 mantém os números da fixture como estavam.
+    return parse_search_page(payload, 1.0)
 
 
 class _SteamMainFake:

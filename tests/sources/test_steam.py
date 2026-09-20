@@ -9,13 +9,32 @@ import pytest
 from tf2price.domain.money import Brl
 from tf2price.sources.ratelimit import RateLimiter
 from tf2price.sources.steam import (
+    CURRENCY_USD,
     SteamClient,
     parse_listings,
     parse_price_text,
     parse_search_page,
+    parse_usd_price_text,
 )
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
+
+# A busca responde em DÓLAR (currency é ignorado lá), então todo teste do
+# parser precisa de uma taxa explícita. 5,0 é escolhida só para a conta
+# ficar conferível de olho: 2214 centavos de dólar -> 11070 centavos de real.
+TAXA_REDONDA = 5.0
+
+# Resposta do priceoverview em USD usada pelo transporte de teste. A chave
+# em BRL vale R$ 22,14 (steam_priceoverview.json) e aqui US$ 3,69, então a
+# taxa derivada é 2214/369 = 6,0 exatos — a ordem de grandeza medida na API
+# real é ~5,4, e o valor exato só existe para a conta fechar sem resíduo.
+PRICEOVERVIEW_USD = {
+    "success": True,
+    "lowest_price": "$3.69",
+    "volume": "6,482",
+    "median_price": "$3.75",
+}
+TAXA_DO_TRANSPORTE = 6.0
 
 
 def _fixture(name: str) -> dict:
@@ -64,22 +83,72 @@ def test_parse_price_text_rejeita_grupo_de_milhar_malformado():
         parse_price_text("R$ 1.23,45")
 
 
+@pytest.mark.parametrize(
+    "texto,centavos",
+    [
+        ("$22.14", 2214),
+        ("$1,880.07 USD", 188007),
+        ("$0.99", 99),
+        ("$3.69", 369),
+        ("$12", 1200),
+        ("$1,234", 123400),
+    ],
+)
+def test_parse_usd_price_text(texto, centavos):
+    assert parse_usd_price_text(texto) == centavos
+
+
+def test_parse_usd_price_text_rejeita_formato_ptbr():
+    # "R$ 22,14" chegando aqui significaria que o cache do priceoverview
+    # devolveu o payload em real para o pedido em dólar. Falhar alto é o
+    # ponto: uma taxa calculada sobre a moeda errada sai 1,0 e reintroduz
+    # exatamente o bug que esta correção mata.
+    with pytest.raises(ValueError):
+        parse_usd_price_text("R$ 22,14")
+
+
 def test_parse_search_page_le_total_e_resultados():
-    page = parse_search_page(_fixture("steam_search_page.json"))
+    page = parse_search_page(_fixture("steam_search_page.json"), TAXA_REDONDA)
     assert page.total_count == 21543
     assert len(page.results) == 3
 
 
 def test_parse_search_page_converte_sell_price_de_centavos():
-    page = parse_search_page(_fixture("steam_search_page.json"))
+    # sell_price vem em centavos de DÓLAR: 2214 * 5,0 = 11070 centavos de
+    # real. Ler 2214 como centavos de real era o bug — dava R$ 22,14 para
+    # um item de R$ 110,70.
+    page = parse_search_page(_fixture("steam_search_page.json"), TAXA_REDONDA)
     chave = page.results[0]
     assert chave.hash_name == "Mann Co. Supply Crate Key"
-    assert chave.lowest_price == Brl.from_float(22.14)
+    assert chave.lowest_price == Brl.from_cents(11070)
     assert chave.sell_listings == 4821
 
 
+def test_parse_search_page_converte_todos_os_resultados():
+    page = parse_search_page(_fixture("steam_search_page.json"), TAXA_REDONDA)
+    assert [r.lowest_price for r in page.results] == [
+        Brl.from_cents(11070),  # 2214 * 5
+        Brl.from_cents(445000),  # 89000 * 5
+        Brl.from_cents(79950),  # 15990 * 5
+    ]
+
+
+def test_parse_search_page_taxa_1_nao_altera_o_valor():
+    # Guarda contra a conversão ser pulada em silêncio (ou aplicada duas
+    # vezes): com taxa 1,0 o número tem que sair idêntico ao da resposta.
+    page = parse_search_page(_fixture("steam_search_page.json"), 1.0)
+    assert [r.lowest_price.cents for r in page.results] == [2214, 89000, 15990]
+
+
+def test_parse_search_page_arredonda_uma_vez_na_conversao():
+    payload = {"total_count": 1, "results": [{"hash_name": "X", "sell_listings": 1, "sell_price": 333}]}
+    # 333 * 5,4 = 1798,2 -> 1798 centavos, arredondado uma única vez.
+    page = parse_search_page(payload, 5.4)
+    assert page.results[0].lowest_price == Brl.from_cents(1798)
+
+
 def test_parse_search_page_sem_resultados():
-    page = parse_search_page({"total_count": 0, "results": None})
+    page = parse_search_page({"total_count": 0, "results": None}, TAXA_REDONDA)
     assert page.results == []
 
 
@@ -180,10 +249,30 @@ def test_parse_listings_asset_presente_sem_linha_de_nao_craftavel_e_craftavel():
 # --- cliente HTTP --------------------------------------------------------
 
 
+def _e_priceoverview(request: httpx.Request) -> bool:
+    return "priceoverview" in request.url.path
+
+
+def _priceoverview_response(request: httpx.Request) -> httpx.Response:
+    """Serve o priceoverview POR MOEDA.
+
+    search_page passou a derivar a taxa USD->BRL de duas chamadas a este
+    endpoint, então o transporte de teste precisa distinguir currency=7 de
+    currency=1. Devolver o payload em real para o pedido em dólar faria
+    parse_usd_price_text estourar — que é o comportamento desejado, e é
+    por isso que o transporte não pode "ajudar" respondendo igual aos dois.
+    """
+    if request.url.params.get("currency") == str(CURRENCY_USD):
+        return httpx.Response(200, json=PRICEOVERVIEW_USD)
+    return httpx.Response(200, json=_fixture("steam_priceoverview.json"))
+
+
 def _cliente(payload: dict, capturadas: list[httpx.Request] | None = None):
     def handler(request: httpx.Request) -> httpx.Response:
         if capturadas is not None:
             capturadas.append(request)
+        if _e_priceoverview(request):
+            return _priceoverview_response(request)
         return httpx.Response(200, json=payload)
 
     return httpx.Client(transport=httpx.MockTransport(handler))
@@ -238,6 +327,10 @@ def test_429_e_repetido_com_backoff_e_registrado():
     payload = _fixture("steam_search_page.json")
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if _e_priceoverview(request):
+            # A taxa USD->BRL é buscada depois da página; ela não consome a
+            # sequência de respostas que este teste está exercitando.
+            return _priceoverview_response(request)
         status = respostas.pop(0)
         if status == 429:
             return httpx.Response(429, text="")
@@ -279,6 +372,8 @@ def test_5xx_e_repetido_e_nao_conta_como_throttle():
     payload = _fixture("steam_search_page.json")
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if _e_priceoverview(request):
+            return _priceoverview_response(request)
         status = respostas.pop(0)
         if status == 500:
             return httpx.Response(500, text="")
@@ -305,6 +400,9 @@ def test_timeout_e_repetido():
     payload = _fixture("steam_search_page.json")
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if _e_priceoverview(request):
+            # Só as tentativas da própria busca são contadas aqui.
+            return _priceoverview_response(request)
         tentativas["n"] += 1
         if tentativas["n"] == 1:
             raise httpx.ReadTimeout("tempo esgotado", request=request)
@@ -435,3 +533,154 @@ def test_cache_do_priceoverview_nao_vaza_entre_instancias():
     segundo.key_price()
 
     assert len(capturadas) == 2
+
+
+def test_search_page_converte_o_preco_em_dolar_para_real():
+    # A busca responde em dólar e ignora currency=7 (medido em 2026-09-19).
+    # A chave da fixture sai por 2214 centavos de DÓLAR; com a taxa de 6,0
+    # derivada do priceoverview, o preço em real é 13284 centavos.
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_cliente(_fixture("steam_search_page.json")),
+    )
+
+    page = client.search_page(start=0)
+
+    assert page.results[0].lowest_price == Brl.from_cents(round(2214 * TAXA_DO_TRANSPORTE))
+    assert page.results[0].lowest_price == Brl.from_cents(13284)
+
+
+def test_taxa_e_a_chave_em_brl_dividida_pela_chave_em_usd():
+    # R$ 22,14 / US$ 3,69 = 6,0. O teste amarra a definição da taxa: se ela
+    # virasse USD/BRL, ou uma cotação externa, o número mudaria.
+    capturadas: list[httpx.Request] = []
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_cliente(_fixture("steam_search_page.json"), capturadas),
+    )
+
+    page = client.search_page(start=0)
+
+    brl_cents = parse_price_text(_fixture("steam_priceoverview.json")["lowest_price"]).cents
+    usd_cents = parse_usd_price_text(PRICEOVERVIEW_USD["lowest_price"])
+    taxa = brl_cents / usd_cents
+    assert taxa == 6.0
+    assert page.results[0].lowest_price == Brl.from_cents(round(2214 * taxa))
+
+    moedas = {
+        r.url.params["currency"] for r in capturadas if "priceoverview" in r.url.path
+    }
+    assert moedas == {"7", "1"}
+
+
+def test_taxa_e_calculada_uma_vez_por_instancia():
+    # Duas páginas não podem custar dois pares de priceoverview: a taxa é
+    # calculada uma vez e guardada na instância.
+    capturadas: list[httpx.Request] = []
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_cliente(_fixture("steam_search_page.json"), capturadas),
+    )
+
+    client.search_page(start=0)
+    client.search_page(start=100)
+
+    priceoverviews = [r for r in capturadas if "priceoverview" in r.url.path]
+    assert len(priceoverviews) == 2
+
+
+def test_cache_do_priceoverview_e_por_moeda():
+    # A chave em real continua vindo em reais depois de a taxa ter pedido a
+    # mesma chave em dólar. Um cache de payload único devolveria o dólar
+    # aqui — ou o real para o pedido em dólar — e a taxa sairia 1,0.
+    capturadas: list[httpx.Request] = []
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_cliente(_fixture("steam_search_page.json"), capturadas),
+    )
+
+    client.search_page(start=0)
+
+    assert client.key_price() == Brl.from_float(22.14)
+    assert client.key_median_price() == Brl.from_float(22.49)
+    # O pedido em BRL da taxa já preencheu o cache: nenhuma requisição nova.
+    priceoverviews = [r for r in capturadas if "priceoverview" in r.url.path]
+    assert len(priceoverviews) == 2
+
+
+def test_taxa_nao_vaza_entre_instancias():
+    capturadas: list[httpx.Request] = []
+    payload = _fixture("steam_search_page.json")
+
+    primeiro = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_cliente(payload, capturadas),
+    )
+    primeiro.search_page(start=0)
+
+    segundo = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_cliente(payload, capturadas),
+    )
+    segundo.search_page(start=0)
+
+    priceoverviews = [r for r in capturadas if "priceoverview" in r.url.path]
+    assert len(priceoverviews) == 4
+
+
+def test_listings_levanta_runtime_error_quando_a_steam_devolve_html():
+    # Medido em 2026-09-19: o endpoint passou a devolver a página HTML
+    # inteira com status 200. O JSONDecodeError que vazava daqui não é
+    # RuntimeError nem httpx.HTTPError, então o except por alvo de quem
+    # chama não o pegava e o estágio profundo inteiro morria no alvo 1/27.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            text="<!DOCTYPE html><html><head><title>Steam Community Market</title></head></html>",
+            headers={"content-type": "text/html; charset=UTF-8"},
+        )
+
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(RuntimeError, match="HTML"):
+        client.listings("Unusual Team Captain")
+
+
+def test_listings_com_html_nao_deixa_jsondecodeerror_escapar():
+    # O contrato com quem chama é (RuntimeError, httpx.HTTPError). Qualquer
+    # outra exceção derruba o estágio inteiro.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html></html>", headers={"content-type": "text/html"})
+
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    try:
+        client.listings("Unusual Team Captain")
+    except (RuntimeError, httpx.HTTPError) as error:
+        assert "HTML" in str(error)
+        # 380 KB de corpo não entram na mensagem de erro.
+        assert len(str(error)) < 400
+    else:
+        raise AssertionError("listings deveria ter falhado com HTML")
+
+
+def test_listings_com_json_continua_parseando():
+    # Guarda de regressão da detecção: o caminho feliz não pode ser
+    # sacrificado pela checagem de content-type.
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_cliente(_fixture("steam_listings_unusual.json")),
+    )
+
+    listings = client.listings("Unusual Team Captain")
+
+    assert len(listings) == 2
+    assert {l.effect for l in listings} == {"Burning Flames", "Green Confetti"}

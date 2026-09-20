@@ -13,6 +13,7 @@ from tf2price.sources.ratelimit import RateLimiter, backoff_delays
 
 APPID = 440
 CURRENCY_BRL = 7
+CURRENCY_USD = 1
 BASE = "https://steamcommunity.com"
 KEY_HASH_NAME = "Mann Co. Supply Crate Key"
 
@@ -28,6 +29,20 @@ _NON_NUMERIC = re.compile(r"[^\d,.]")
 _PTBR_THOUSANDS_AND_CENTS = re.compile(r"^\d{1,3}(\.\d{3})*,\d{2}$")
 _PTBR_THOUSANDS_ONLY = re.compile(r"^\d{1,3}(\.\d{3})+$")
 _PTBR_INTEGER = re.compile(r"^\d+$")
+
+# Forma en-US inequívoca: vírgula para milhar, ponto para decimal. Usada só
+# para ler a chave em dólar no priceoverview (currency=1), que é o
+# denominador da taxa USD->BRL.
+_EN_US_PRICE = re.compile(r"^\d{1,3}(,\d{3})*(\.\d{1,2})?$")
+
+# Mensagem única do modo de falha do endpoint de listagens (ver
+# SteamClient.listings). Fica fora da função para que o teste e o código
+# falem do mesmo texto.
+_LISTINGS_NOT_JSON = (
+    "o endpoint de listagens do mercado da Steam devolveu HTML em vez de "
+    "JSON; sem ele os dados por listagem — efeito do Unusual e "
+    "craftabilidade — não podem ser resolvidos"
+)
 
 
 @dataclass(frozen=True)
@@ -76,18 +91,56 @@ def parse_price_text(text: str) -> Brl:
     raise ValueError(f"texto de preço não está em formato pt-BR reconhecido: {text!r}")
 
 
-def parse_search_page(payload: dict[str, Any]) -> SearchPage:
-    # `sell_price` é lido como o preço em CENTAVOS já com a taxa do
-    # comprador embutida — o equivalente, na busca, a
-    # converted_price + converted_fee das listagens. Ele alimenta a poda, o
-    # caminho garantido e a amostragem em USD, ou seja, a maior parte das
-    # oportunidades líquidas. ATENÇÃO: isso é item de verificação da
-    # execução real, não fato provado; se for o líquido do vendedor, todo
-    # desconto da passada rasa está inflado em ~15%.
+def parse_usd_price_text(text: str) -> int:
+    """'$1,880.07 USD' -> 188007 centavos de dólar.
+
+    Só existe para ler a chave em dólar no priceoverview. É o espelho en-US
+    de parse_price_text e, pelo mesmo motivo, só aceita a forma inequívoca:
+    ponto para decimal, vírgula para milhar.
+    """
+    cleaned = _NON_NUMERIC.sub("", text)
+
+    if not _EN_US_PRICE.match(cleaned):
+        raise ValueError(f"texto de preço não está em formato en-US reconhecido: {text!r}")
+
+    whole, _, frac = cleaned.replace(",", "").partition(".")
+    return int(whole) * 100 + int(frac.ljust(2, "0"))
+
+
+def parse_search_page(payload: dict[str, Any], usd_to_brl: float) -> SearchPage:
+    """Converte uma página da busca de DÓLAR para REAL.
+
+    `sell_price` chega em CENTAVOS DE DÓLAR. Medido contra a API real em
+    2026-09-19: /market/search/render/ ignora o parâmetro `currency` e
+    responde sempre em USD — testado com currency=7, com country=BR, com os
+    dois e com nenhum, sempre `sell_price=188007` e
+    `sell_price_text="$1,880.07 USD"`. Ler esse número como centavos de real
+    (o que o código fazia até aqui) deixa todo preço da Steam ~5,4x baixo
+    demais e fabrica descontos de 40-80% que não existem.
+
+    `usd_to_brl` vem de SteamClient._usd_to_brl_rate(): a chave precificada
+    em BRL dividida pela mesma chave precificada em USD, ambas pelo
+    /market/priceoverview/, que — ao contrário da busca — honra `currency`.
+    Não é uma cotação comercial de câmbio, e não deve ser trocada por uma:
+    a comparação que o spike faz é VALOR DO ITEM EM CHAVES. Converter o
+    preço do item para BRL com uma taxa derivada da chave e depois dividir
+    pelo preço da chave em BRL é algebricamente idêntico a dividir o preço
+    do item em USD pelo preço da chave em USD — a moeda se cancela. Derivar
+    a taxa do próprio mercado evita depender de uma fonte externa de câmbio
+    e mantém os números exibidos em reais, que é o que o relatório precisa.
+
+    `sell_price` é lido como o preço já com a taxa do comprador embutida —
+    o equivalente, na busca, a converted_price + converted_fee das
+    listagens. ATENÇÃO: isso é item de verificação da execução real, não
+    fato provado; se for o líquido do vendedor, todo desconto da passada
+    rasa está inflado em ~15%.
+    """
     results = [
         SearchResult(
             hash_name=row["hash_name"],
-            lowest_price=Brl.from_cents(int(row["sell_price"])),
+            # Arredonda uma única vez, na conversão: centavos de dólar *
+            # taxa -> centavos de real.
+            lowest_price=Brl.from_cents(round(int(row["sell_price"]) * usd_to_brl)),
             sell_listings=int(row["sell_listings"]),
         )
         for row in (payload.get("results") or [])
@@ -168,8 +221,14 @@ class SteamClient:
     ) -> None:
         self._limiter = limiter
         self._sleep = sleep
-        # Cache de instância: nunca compartilhado entre dois SteamClient.
-        self._priceoverview_cache: dict[str, Any] | None = None
+        # Caches de instância: nunca compartilhados entre dois SteamClient.
+        #
+        # O cache do priceoverview é POR MOEDA. Um cache de payload único
+        # devolveria o payload em BRL para um pedido em USD (ou o
+        # contrário), e a taxa sairia 1,0 — exatamente a mesma classe de
+        # bug que esta correção existe para matar, só que silenciosa.
+        self._priceoverview_cache: dict[int, dict[str, Any]] = {}
+        self._usd_to_brl: float | None = None
         self._http = client or httpx.Client(
             timeout=30.0,
             headers={"User-Agent": "tf2price-spike/0.1"},
@@ -177,6 +236,9 @@ class SteamClient:
         )
 
     def _get(self, url: str, params: dict[str, Any]) -> dict[str, Any]:
+        return self._get_response(url, params).json()
+
+    def _get_response(self, url: str, params: dict[str, Any]) -> httpx.Response:
         last_reason = "sem tentativas"
 
         for delay in [0.0, *backoff_delays(5)]:
@@ -210,7 +272,7 @@ class SteamClient:
             # 4xx que não é 429 significa pedido errado: repetir só queima
             # orçamento de requisições. Falha na primeira tentativa.
             response.raise_for_status()
-            return response.json()
+            return response
 
         raise RuntimeError(f"Steam não respondeu após backoff (último: {last_reason})")
 
@@ -257,11 +319,14 @@ class SteamClient:
         if query:
             params["query"] = query
         payload = self._get(f"{BASE}/market/search/render/", params)
-        return parse_search_page(payload)
+        # `currency` continua sendo enviado por honestidade de pedido, mas a
+        # busca o ignora e responde em dólar: quem traz o número para reais
+        # é a taxa derivada da chave, não a Steam.
+        return parse_search_page(payload, self._usd_to_brl_rate())
 
     def listings(self, hash_name: str, count: int = 100) -> list[Listing]:
         quoted = urllib.parse.quote(hash_name, safe="")
-        payload = self._get(
+        response = self._get_response(
             f"{BASE}/market/listings/{APPID}/{quoted}/render/",
             {
                 "start": 0,
@@ -271,25 +336,81 @@ class SteamClient:
                 "l": "english",
             },
         )
+
+        # Medido em 2026-09-19: este endpoint passou a devolver a PÁGINA
+        # HTML inteira (~380 KB, content-type text/html) com status 200 para
+        # toda combinação de parâmetros testada — com l=english, com
+        # language=english, com country=BR, com cabeçalho de AJAX, com
+        # User-Agent de navegador. O fragmento JSON sumiu, e com ele as
+        # variáveis g_rgAssets / g_rgListingInfo que a página carregava.
+        #
+        # Falhar aqui como RuntimeError é deliberado: quem chama já captura
+        # (RuntimeError, httpx.HTTPError) por alvo, então cada candidato
+        # degrada com um motivo no log. Deixar o JSONDecodeError escapar
+        # derrubou o estágio profundo inteiro no alvo 1 de 27, porque ele
+        # não é nem RuntimeError nem httpx.HTTPError.
+        content_type = response.headers.get("content-type", "")
+        if "json" not in content_type.lower():
+            # Só o content-type entra na mensagem; 380 KB de HTML, não.
+            raise RuntimeError(f"{_LISTINGS_NOT_JSON} (content-type: {content_type[:80]!r})")
+
+        try:
+            payload = response.json()
+        except ValueError as error:
+            # json.JSONDecodeError é subclasse de ValueError. Content-type
+            # mentindo é mais raro que o caso acima, mas o decode não pode
+            # vazar de jeito nenhum.
+            raise RuntimeError(f"{_LISTINGS_NOT_JSON} (corpo não decodifica como JSON)") from error
+
         return parse_listings(payload)
 
-    def _priceoverview(self) -> dict[str, Any]:
-        """Um único payload para os dois preços da chave.
+    def _priceoverview(self, currency: int = CURRENCY_BRL) -> dict[str, Any]:
+        """Um único payload por moeda para os preços da chave.
 
-        Duas requisições seriam duas fotos de um mercado em movimento: o
-        menor preço poderia vir de um instante e a mediana de outro, e a
-        comparação de sanidade entre eles perderia o sentido.
+        Em BRL: duas requisições seriam duas fotos de um mercado em
+        movimento — o menor preço poderia vir de um instante e a mediana de
+        outro, e a comparação de sanidade entre eles perderia o sentido.
+        Por isso key_price e key_median_price custam uma requisição juntas.
+
+        O cache é por moeda: devolver o payload em BRL para um pedido em USD
+        zeraria a taxa de conversão sem ninguém perceber.
         """
-        if self._priceoverview_cache is None:
-            self._priceoverview_cache = self._get(
+        cached = self._priceoverview_cache.get(currency)
+        if cached is None:
+            cached = self._get(
                 f"{BASE}/market/priceoverview/",
                 {
                     "appid": APPID,
-                    "currency": CURRENCY_BRL,
+                    "currency": currency,
                     "market_hash_name": KEY_HASH_NAME,
                 },
             )
-        return self._priceoverview_cache
+            self._priceoverview_cache[currency] = cached
+        return cached
+
+    def _usd_to_brl_rate(self) -> float:
+        """Taxa dólar->real tirada da própria economia da Steam.
+
+        usd_to_brl = preço_da_chave_em_BRL_centavos / preço_da_chave_em_USD_centavos
+
+        Os dois lados vêm do /market/priceoverview/, que honra `currency` —
+        é essa assimetria com a busca (que não honra) que torna a correção
+        possível. Ver parse_search_page para por que uma taxa derivada da
+        chave é a taxa CERTA aqui, e não um remendo: a conta do spike é
+        valor em chaves, e a moeda se cancela.
+
+        Calculada uma vez por instância e guardada.
+        """
+        if self._usd_to_brl is None:
+            brl_cents = parse_price_text(self._priceoverview(CURRENCY_BRL)["lowest_price"]).cents
+            usd_cents = parse_usd_price_text(self._priceoverview(CURRENCY_USD)["lowest_price"])
+            if usd_cents <= 0:
+                raise RuntimeError(
+                    "priceoverview devolveu preço de chave em USD não positivo; "
+                    "sem denominador não há como converter a busca para reais"
+                )
+            self._usd_to_brl = brl_cents / usd_cents
+        return self._usd_to_brl
 
     def key_price(self) -> Brl:
         """Taxa de câmbio do spike: a listagem mais barata de chave.
