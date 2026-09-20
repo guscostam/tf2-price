@@ -92,11 +92,22 @@ deste item — a Steam não separa".
 
 ## Achados técnicos
 
-### O filtro da busca descarta 30% dos nomes
+### O filtro da busca descartava 30% dos nomes — corrigido em `73fcccb`
 `startswith("Unusual ")` na rota de busca eliminou **24 de 80 nomes** lidos. Entre
 os descartados estão itens de dupla qualidade como `Strange Unusual <War Paint>`,
-que existem no mercado e são de alto valor. É a maior limitação conhecida da
-aplicação.
+que existem no mercado e são de alto valor.
+
+Uma leitura de 100 nomes em 2026-09-20 confirmou a proporção: **28 descartados, todos
+`Strange Unusual ...`**. O filtro agora casa a palavra inteira em qualquer posição do
+nome e recupera os 28. A correção expôs um segundo defeito no mesmo caminho: o parser
+de identidade consome um prefixo de qualidade só, então esses nomes procuravam preço
+na bp.tf sob `Unusual Bonk Boy` em vez de `Bonk Boy` e nunca achariam — diriam "a
+backpack.tf não precifica este efeito", indistinguível de um efeito de fato sem preço.
+
+Na mesma leitura apareceu o defeito inverso, que ninguém tinha notado: as ferramentas
+`Unusual Taunt: X Unusualifier` **passavam** pelo filtro antigo sem serem itens
+Unusual. Elas aplicam um efeito, não o têm; a tela de efeitos abria vazia. Agora são
+recusadas por nome.
 
 ### `uvicorn` não estava declarado
 A função que sobe o servidor o importa, e a dependência faltava no `pyproject.toml`.
