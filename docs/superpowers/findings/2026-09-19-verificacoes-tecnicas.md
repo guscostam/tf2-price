@@ -40,6 +40,57 @@ falso positivo que a guarda existe para impedir.
 
 ---
 
+## 0-bis. O erro de lógica que invalida as 24 "oportunidades"
+
+Levantado pelo usuário: *"você está listando apenas o nome do hat unusual, e esse
+hat tem vários efeitos com preços diferentes."*
+
+Está certo, e a consequência é maior que o problema de frescor.
+
+A classificação "garantida" compara o preço da Steam contra o **mínimo entre os
+efeitos que a backpack.tf precifica**, assumindo que isso seja um piso para
+qualquer listagem daquele nome. **Não é.** O mínimo é sobre os efeitos
+*precificados*, não sobre os efeitos *existentes*.
+
+### Verificação num caso
+
+`Unusual Taunt: Chairholder`, o maior desconto da lista (56%):
+
+| | |
+|---|---|
+| Efeitos à venda na Steam | Midnight Whirlwind, Silver Cyclone, Deep Dive, Screaming Tiger |
+| Efeitos precificados na bp.tf | 8, do id 3213 (24 chaves) a Scorching Sensation (150 chaves) |
+| **Interseção** | **vazia** |
+
+O relatório comparou uma listagem de *Midnight Whirlwind* a R$ 124,52 contra o
+preço do efeito *3213* a 24 chaves. São itens diferentes. O "desconto de 56%" não
+compara nada.
+
+### Por que é sistemático e não azar
+
+A backpack.tf precifica os efeitos que **circulam no mercado de troca** — os caros
+e desejados. A Steam Market carrega os efeitos **comuns e baratos**, porque
+Unusual de alto valor é negociado fora da Steam (§2.7). Os dois catálogos quase
+não se sobrepõem, por construção do mercado.
+
+### Consequência
+
+As 24 oportunidades do §0 estão **retiradas**. O número correto de oportunidades
+confirmadas em Unusual não é zero por preço velho — é **desconhecido e não
+apurável**, porque para cada listagem falta o preço do efeito que ela de fato tem.
+
+O `ValueRange` como piso só é válido quando a faixa cobre as variantes realmente
+existentes. Para Unusual na Steam, não cobre. A poda das três vias, que é o
+coração do desenho, apoia-se nessa premissa e portanto não se sustenta neste
+escopo.
+
+### Achado lateral
+O efeito de id 3213 não consta do mapa de 569 efeitos extraído do schema oficial
+da Valve. O `priceindex` da backpack.tf e o schema da Valve também não se alinham
+inteiramente.
+
+---
+
 ## 1. As oito verificações
 
 | # | Item | Observado |
