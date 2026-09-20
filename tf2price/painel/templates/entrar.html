@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block titulo %}Entrar{% endblock %}
+{% block cabecalho %}Entrar{% endblock %}
+{% block conteudo %}
+<section class="campo">
+  {% if erro %}<div class="erro"><b>Não deu para entrar</b>{{ erro }}</div>{% endif %}
+  <form method="post" action="/entrar">
+    <div class="campo-form">
+      <label for="nome">Nome</label>
+      <input id="nome" name="nome" autocomplete="username" autofocus required>
+    </div>
+    <div class="campo-form">
+      <label for="senha">Senha</label>
+      <input id="senha" name="senha" type="password" autocomplete="current-password" required>
+    </div>
+    <button class="acao" type="submit">Entrar</button>
+  </form>
+  <p class="dica">Este painel é fechado. Quem entra, entra por um convite.</p>
+</section>
+{% endblock %}

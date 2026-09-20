@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block titulo %}Avaliação de Unusual{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    /* A guia de avaliação: papel manilha, tinta industrial, carimbo de
+       borracha. O carimbo é o único elemento alto da página, e o que ele
+       carrega é a regra que governa o projeto — a idade do preço. */
+    :root {
+      --papel:   #d4c9a8;
+      --slip:    #e9e1c8;
+      --tinta:   #221e19;
+      --tinta-2: #5f5849;
+      --carimbo: #9c2a22;
+      --aprovado:#2e5a38;
+      --linha:   rgba(34, 30, 25, .25);
+      --display: "Big Shoulders Display", "Haettenschweiler", "Arial Narrow", sans-serif;
+      --corpo:   "IBM Plex Sans", system-ui, sans-serif;
+      --mono:    "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: clamp(.75rem, 3vw, 3rem) clamp(.75rem, 3vw, 2rem);
+      background: var(--papel);
+      color: var(--tinta);
+      font-family: var(--corpo);
+      font-size: 16px;
+      line-height: 1.5;
+    }
+
+    /* Grão do papel. Fixo, para não rolar junto e virar textura de tela. */
+    body::before {
+      content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      opacity: .055;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/></filter><rect width='180' height='180' filter='url(%23g)'/></svg>");
+    }
+
+    .guia {
+      position: relative; z-index: 1;
+      max-width: 58rem; margin: 0 auto;
+      background: var(--slip);
+      border: 1px solid rgba(34, 30, 25, .4);
+      box-shadow: 0 18px 42px -30px rgba(34, 30, 25, .85);
+    }
+
+    /* --- cabeçalho -------------------------------------------------- */
+    .timbre {
+      padding: clamp(1.1rem, 4vw, 2rem) clamp(1.1rem, 4vw, 2.4rem) 1.1rem;
+      border-bottom: 3px double var(--tinta);
+    }
+    .timbre h1 {
+      margin: 0;
+      font-family: var(--display); font-weight: 800;
+      font-size: clamp(2.3rem, 9vw, 3.6rem); line-height: .9;
+      text-transform: uppercase; letter-spacing: .005em;
+    }
+    .cotacao {
+      margin: .7rem 0 0;
+      font-family: var(--mono); font-size: .72rem; font-weight: 500;
+      text-transform: uppercase; letter-spacing: .09em; color: var(--tinta-2);
+    }
+    .cotacao b { color: var(--tinta); font-weight: 600; }
+
+    /* --- campos do formulário ---------------------------------------- */
+    .campo { padding: clamp(1.1rem, 4vw, 1.7rem) clamp(1.1rem, 4vw, 2.4rem); }
+    .campo + .campo { border-top: 1px dashed var(--linha); }
+
+    .rotulo {
+      display: block; margin-bottom: .55rem;
+      font-family: var(--display); font-weight: 700; font-size: 1rem;
+      text-transform: uppercase; letter-spacing: .14em; color: var(--tinta-2);
+    }
+
+    .dica { margin: .55rem 0 0; font-size: .82rem; color: var(--tinta-2); }
+    .dica b { font-weight: 600; color: var(--tinta); }
+
+    .erro {
+      border: 2px solid var(--carimbo); border-left-width: 6px;
+      padding: .8rem 1rem; color: var(--carimbo);
+      font-family: var(--mono); font-size: .88rem;
+    }
+    .erro b {
+      display: block; font-family: var(--display); font-weight: 700;
+      font-size: 1.05rem; text-transform: uppercase; letter-spacing: .08em;
+    }
+
+    a { color: var(--tinta); text-underline-offset: .2em; }
+    a:hover { color: var(--carimbo); }
+    :focus-visible { outline: 2px solid var(--carimbo); outline-offset: 3px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+    @media print {
+      body { background: #fff; padding: 0; }
+      body::before, .campo[data-campo="item"] .opcoes, #espera { display: none; }
+      .guia { border: 0; box-shadow: none; max-width: none; }
+    }
+
+    .topo-conta {
+      display: flex; justify-content: space-between; align-items: baseline;
+      gap: 1rem; margin-bottom: .6rem;
+      font-family: var(--mono); font-size: .72rem; letter-spacing: .09em;
+      text-transform: uppercase; color: var(--tinta-2);
+    }
+    .topo-conta form { margin: 0; }
+    .topo-conta button {
+      background: none; border: 0; padding: 0; cursor: pointer;
+      font: inherit; color: var(--tinta-2); text-decoration: underline;
+    }
+    .topo-conta button:hover { color: var(--carimbo); }
+    .campo-form { margin-bottom: 1rem; }
+    .campo-form label {
+      display: block; margin-bottom: .3rem;
+      font-family: var(--display); font-weight: 700; font-size: .95rem;
+      text-transform: uppercase; letter-spacing: .14em; color: var(--tinta-2);
+    }
+    .campo-form input {
+      width: 100%; padding: .45rem .1rem;
+      border: 0; border-bottom: 2px solid var(--tinta); border-radius: 0;
+      background: transparent; color: var(--tinta);
+      font-family: var(--corpo); font-size: 1.1rem;
+    }
+    .campo-form input:focus { outline: 0; border-bottom-color: var(--carimbo); }
+    .acao {
+      font-family: var(--display); font-weight: 700; font-size: 1rem;
+      text-transform: uppercase; letter-spacing: .12em;
+      background: var(--tinta); color: var(--slip);
+      border: 0; padding: .6rem 1.4rem; cursor: pointer;
+    }
+    .acao:hover { background: var(--carimbo); }
+  </style>
+</head>
+<body{% block corpo_attrs %}{% endblock %}>
+  <main class="guia">
+    <header class="timbre">
+      {% if usuario %}
+      <div class="topo-conta">
+        <span>{{ usuario.nome }}{% if usuario.admin %} · <a href="/admin">admin</a>{% endif %}</span>
+        <form method="post" action="/sair"><button type="submit">sair</button></form>
+      </div>
+      {% endif %}
+      <h1>{% block cabecalho %}Avaliação de Unusual{% endblock %}</h1>
+      {% block subtitulo %}{% endblock %}
+    </header>
+    {% block conteudo %}{% endblock %}
+  </main>
+</body>
+</html>
