@@ -49,3 +49,40 @@ Nenhum teste toca a rede.
 - Plano: `docs/superpowers/plans/2026-09-19-tf2-arbitragem-spike.md`
 - Verificações: `docs/superpowers/findings/2026-09-19-verificacoes-tecnicas.md`
   (pendente: depende da execução real, que depende das chaves de API)
+
+## Consulta de Unusual
+
+A aplicação atual. Você escolhe um chapéu Unusual e um efeito, e a tela diz quanto
+ele custa na Steam, quanto vale na troca, e quanto alguém está disposto a pagar
+agora.
+
+```bash
+.venv/Scripts/python -m tf2price.lookup.app
+```
+
+Abre em `http://127.0.0.1:8000`. A subida baixa o índice de preços da backpack.tf
+uma vez; cada consulta depois custa duas requisições à Steam.
+
+A tela separa com rigor dois níveis de dado, porque confundi-los invalidou a versão
+anterior deste projeto:
+
+- **por efeito** — as listagens do efeito escolhido e o preço da backpack.tf dele,
+  sempre com a idade do preço à vista
+- **todos os efeitos do item** — o livro de ofertas e o histórico de vendas, que a
+  Steam não separa por efeito
+
+Quando a backpack.tf não precifica o efeito escolhido, a tela diz isso em vez de
+mostrar o preço de outro efeito.
+
+### O que a varredura anterior descobriu, e por que foi aposentada
+
+Uma versão que varria o mercado inteiro foi construída, executada e reprovada. Ela
+comparava o preço de um efeito contra o preço sugerido de outro, porque os efeitos
+que a backpack.tf precifica quase não se sobrepõem aos que estão à venda na Steam.
+O relato está em `docs/superpowers/findings/2026-09-19-verificacoes-tecnicas.md`.
+
+### O que o primeiro uso real mostrou
+
+O preço da Steam fica, na mediana, **1,72× acima** do valor de troca. A arbitragem
+que este projeto procurava corre na direção contrária. Os números estão em
+`docs/superpowers/findings/2026-09-19-consulta-primeiro-uso.md`.
