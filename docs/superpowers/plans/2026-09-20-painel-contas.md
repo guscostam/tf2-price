@@ -2705,7 +2705,9 @@ git commit -m "Adiciona a administracao de contas"
 - Consumes: `analysis.patient_exit`.
 - Produces: `analysis.RAZAO_SEM_INDICE`; `analyse(page, effect, index, key_brl, ...)`
   passa a aceitar `index: PriceIndex | None`; `consulta.IndiceSobDemanda` com
-  `obter() -> PriceIndex | None`.
+  `obter() -> PriceIndex | None`; `consulta.Cotacao` (dataclass com `key_brl: Brl`
+  e `usd_to_brl: float`) e `consulta.CotacaoSobDemanda` com
+  `obter() -> Cotacao | None`; `consulta.SEM_COTACAO` (mensagem).
 
 - [ ] **Step 1: Escrever o teste que falha**
 
@@ -2824,7 +2826,155 @@ def test_analise_sem_indice_nao_mente_sobre_a_bptf(engine):
 Run: `.venv/Scripts/python -m pytest`
 Expected: 266 passed
 
-- [ ] **Step 6: Criar o `Procfile`**
+- [ ] **Step 6: Tornar a cotação preguiçosa também**
+
+O índice da bp.tf deixou de ser pré-condição de subida, mas `construir_contexto`
+ainda faz **duas requisições à Steam na partida** — preço da chave e taxa do
+dólar. Se a Steam responder 429 na hora do deploy, a aplicação não sobe e o
+Railway reinicia em laço. É a mesma razão que a spec deu para o índice, e vale
+igual aqui.
+
+Acrescente a `tf2price/painel/consulta.py`:
+
+```python
+SEM_COTACAO = (
+    "a cotação da chave ainda não carregou; tente de novo em alguns minutos"
+)
+
+
+@dataclass(frozen=True)
+class Cotacao:
+    """Preço da chave e taxa do dólar, que a tela inteira usa para converter."""
+
+    key_brl: Brl
+    usd_to_brl: float
+
+
+class CotacaoSobDemanda:
+    """Busca a cotação na primeira necessidade, não na subida.
+
+    As duas vêm juntas porque as duas saem do mesmo cliente da Steam e são
+    inúteis separadas: preço em chaves sem taxa de conversão não vira tela.
+    """
+
+    def __init__(
+        self,
+        steam: SteamClient,
+        espera_apos_falha_s: float = 300.0,
+        relogio: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._steam = steam
+        self._espera = espera_apos_falha_s
+        self._relogio = relogio
+        self._cotacao: Cotacao | None = None
+        self._proxima_tentativa = 0.0
+
+    def obter(self) -> Cotacao | None:
+        if self._cotacao is not None:
+            return self._cotacao
+        if self._relogio() < self._proxima_tentativa:
+            return None
+        try:
+            self._cotacao = Cotacao(
+                key_brl=self._steam.key_price(), usd_to_brl=self._steam.usd_to_brl()
+            )
+        except Exception:
+            self._proxima_tentativa = self._relogio() + self._espera
+            return None
+        return self._cotacao
+```
+
+Em `Contexto`, troque os campos `key_brl: Brl` e `usd_to_brl: float` pelo único
+campo `cotacao: CotacaoSobDemanda`. Em `construir_contexto`, monte
+`CotacaoSobDemanda(steam)` em vez de chamar `steam.key_price()` e
+`steam.usd_to_brl()` na hora.
+
+As quatro rotas passam a lidar com a ausência:
+
+```python
+@ROTEADOR.get("/", response_class=HTMLResponse)
+def painel(request: Request, usuario: Usuario = Depends(ses.usuario_obrigatorio)):
+    # A cotação pode não ter carregado ainda; o painel abre assim mesmo e o
+    # timbre diz isso, em vez de a aplicação não subir.
+    cotacao = _contexto(request).cotacao.obter()
+    return TEMPLATES.TemplateResponse(
+        request=request,
+        name="painel.html",
+        context={"usuario": usuario, "cotacao": cotacao},
+    )
+```
+
+`/buscar` não precisa de cotação e fica como está. `/efeitos` e `/analise`
+precisam, e devolvem o erro próprio quando falta:
+
+```python
+    cotacao = contexto.cotacao.obter()
+    if cotacao is None:
+        return _erro(request, SEM_COTACAO)
+```
+
+Ponha esse bloco logo no começo das duas, antes de buscar a página, e troque
+`contexto.usd_to_brl` por `cotacao.usd_to_brl` e `contexto.key_brl` por
+`cotacao.key_brl` nas chamadas seguintes. `_pagina_do_item` passa a receber a
+taxa como parâmetro: `_pagina_do_item(contexto, nome, usd_to_brl)`.
+
+No `painel.html`, o bloco do timbre passa a ser:
+
+```html
+{% block subtitulo %}
+  {% if cotacao %}
+  <p class="cotacao">
+    chave <b>{{ cotacao.key_brl }}</b> · dólar <b>{{ cotacao.usd_brl_formatado }}</b> ·
+    preços da Steam já com a taxa de 15%
+  </p>
+  {% else %}
+  <p class="cotacao">cotação da chave indisponível no momento</p>
+  {% endif %}
+{% endblock %}
+```
+
+Para `usd_brl_formatado` existir, acrescente à dataclass `Cotacao`:
+
+```python
+    @property
+    def usd_brl_formatado(self) -> Brl:
+        return Brl.from_float(self.usd_to_brl)
+```
+
+Nos testes, `tests/painel/conftest.py` monta o contexto falso: troque
+`key_brl=CHAVE, usd_to_brl=1.0` por `cotacao=_CotacaoFalsa(Cotacao(CHAVE, 1.0))`,
+com o duplo:
+
+```python
+class _CotacaoFalsa:
+    def __init__(self, cotacao):
+        self.cotacao = cotacao
+
+    def obter(self):
+        return self.cotacao
+```
+
+E acrescente a `tests/painel/test_consulta.py`:
+
+```python
+def test_sem_cotacao_a_tela_diz_e_nao_quebra(engine):
+    """A Steam limitando na subida nao pode derrubar o painel inteiro."""
+    ctx = _contexto()
+    ctx.cotacao = _CotacaoFalsa(None)
+    cliente = cliente_logado(engine, ctx)
+
+    assert "indisponível" in cliente.get("/").text
+    assert "ainda não carregou" in cliente.get(
+        "/analise", params={"nome": NOME, "efeito": "Deep Dive"}
+    ).text
+```
+
+- [ ] **Step 7: Rodar tudo de novo**
+
+Run: `.venv/Scripts/python -m pytest`
+Expected: tudo verde, com o teste novo da cotação ausente
+
+- [ ] **Step 8: Criar o `Procfile`**
 
 O Procfile final está logo abaixo; primeiro a fábrica que ele chama.
 
@@ -2859,7 +3009,7 @@ Nenhuma variável de módulo é criada. O `--factory` do uvicorn chama a funçã
 web: uvicorn --factory tf2price.painel.app:construir_aplicacao --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips=*
 ```
 
-- [ ] **Step 7: Atualizar `.env.example` e `README.md`**
+- [ ] **Step 9: Atualizar `.env.example` e `README.md`**
 
 `.env.example` ganha:
 
@@ -2901,7 +3051,7 @@ Uma réplica só: o freio de requisições à Steam e o período de calma vivem 
 memória do processo.
 ````
 
-- [ ] **Step 8: Conferir que a aplicação sobe de verdade**
+- [ ] **Step 10: Conferir que a aplicação sobe de verdade**
 
 ```bash
 .venv/Scripts/python -m tf2price.painel.app
@@ -2911,7 +3061,7 @@ Esperado: o log imprime o convite de administrador, a página `/entrar` abre em
 `http://127.0.0.1:8000/entrar`, o link do convite cria a conta, e a consulta de
 um Unusual funciona como antes. Encerre com Ctrl+C.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
 git add -A
@@ -2934,6 +3084,7 @@ git commit -m "Prepara o painel para o Railway"
 | §6 CSRF por origem | Task 5 (`mesma_origem`) |
 | §6 desativar derruba sessão | Task 8 |
 | §8 índice da bp.tf sob demanda | Task 9 |
+| §8 subida não depende de terceiro (cotação da Steam também sob demanda) | Task 9 |
 | §11 rotas de conta, convite e admin | Tasks 5, 6, 8 |
 | §12 erros indistinguíveis de convite e de login | Tasks 4 e 6 |
 | §13 testes sem rede, em SQLite na memória | Task 1 (fixture) e todas as demais |
