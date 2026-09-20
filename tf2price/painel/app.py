@@ -134,7 +134,13 @@ def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
         ses.gravar_cookie(resposta, request, sessao_token)
         return resposta
 
-    def _tela_admin(request: Request, conn: Connection, usuario: Usuario, link=None):
+    def _tela_admin(
+        request: Request,
+        conn: Connection,
+        usuario: Usuario,
+        link=None,
+        erro: str | None = None,
+    ):
         return TEMPLATES.TemplateResponse(
             request=request,
             name="admin.html",
@@ -142,6 +148,7 @@ def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
                 "usuario": usuario,
                 "usuarios": repo.listar_usuarios(conn),
                 "link": link,
+                "erro": erro,
             },
         )
 
@@ -190,6 +197,13 @@ def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
         usuario: Usuario = Depends(ses.exigir_admin),
         conn: Connection = Depends(ses.conexao),
     ):
+        if usuario_id == usuario.id:
+            return _tela_admin(
+                request,
+                conn,
+                usuario,
+                erro="Você não pode desativar a própria conta.",
+            )
         ligado = ativo == "1"
         repo.definir_ativo(conn, usuario_id, ligado)
         if not ligado:

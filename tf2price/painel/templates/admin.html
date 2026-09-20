@@ -3,6 +3,7 @@
 {% block cabecalho %}Administração{% endblock %}
 {% block conteudo %}
 <section class="campo">
+  {% if erro %}<div class="erro"><b>Não deu</b>{{ erro }}</div>{% endif %}
   {% if link %}
   <div class="aviso">
     <b>Link gerado.</b> Ele aparece uma vez só — copie agora.<br>
@@ -23,10 +24,12 @@
     <form method="post" action="/admin/redefinir/{{ u.id }}" style="display:inline">
       <button type="submit">redefinir senha</button>
     </form>
+    {% if u.id != usuario.id %}
     <form method="post" action="/admin/ativo/{{ u.id }}" style="display:inline">
       <input type="hidden" name="ativo" value="{{ '0' if u.ativo else '1' }}">
       <button type="submit">{{ 'desativar' if u.ativo else 'reativar' }}</button>
     </form>
+    {% endif %}
   </div>
   {% endfor %}
 </section>

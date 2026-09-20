@@ -5,8 +5,9 @@ from fastapi.testclient import TestClient
 
 from tf2price import db
 from tf2price.contas import repositorio as repo
-from tf2price.contas import servico
+from tf2price.contas import servico, tokens
 from tf2price.painel.app import criar_app
+from tf2price.painel.sessao import NOME_COOKIE
 
 SENHA = "uma senha longa"
 
@@ -75,6 +76,7 @@ def test_redefinir_gera_link_para_aquele_usuario(admin, engine):
 def test_desativar_derruba_a_sessao_da_pessoa(admin, engine):
     comum = _entra(engine, "amiga", admin=False)
     assert comum.get("/admin").status_code == 403  # sessão viva
+    token = comum.cookies.get(NOME_COOKIE)
 
     with engine.begin() as conn:
         alvo = repo.usuario_por_nome(conn, "amiga").id
@@ -82,3 +84,30 @@ def test_desativar_derruba_a_sessao_da_pessoa(admin, engine):
 
     comum.follow_redirects = False
     assert comum.get("/admin").status_code == 303  # sessão morta
+
+    # A checagem de conta ativa já bastaria para barrar /admin, mesmo com a
+    # linha da sessão viva no banco. O que prova que a sessão foi de fato
+    # apagada — e não apenas mascarada pela checagem — é consultar o banco
+    # diretamente.
+    with engine.begin() as conn:
+        assert repo.sessao_por_hash(conn, tokens.hash_de(token)) is None
+
+
+def test_admin_nao_consegue_se_desativar(admin, engine):
+    with engine.begin() as conn:
+        eu = repo.usuario_por_nome(conn, "gusco")
+    admin.post(f"/admin/ativo/{eu.id}", data={"ativo": "0"})
+
+    with engine.begin() as conn:
+        assert repo.usuario_por_nome(conn, "gusco").ativo is True
+    assert admin.get("/admin").status_code == 200
+
+
+def test_admin_nao_ve_botao_de_desativar_a_propria_linha(admin, engine):
+    _entra(engine, "amiga", admin=False)
+    texto = admin.get("/admin").text
+    with engine.begin() as conn:
+        eu = repo.usuario_por_nome(conn, "gusco")
+        outra = repo.usuario_por_nome(conn, "amiga")
+    assert f'/admin/ativo/{eu.id}' not in texto
+    assert f'/admin/ativo/{outra.id}' in texto
