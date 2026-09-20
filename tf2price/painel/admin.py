@@ -45,7 +45,7 @@ def tela_admin(
 
 
 @ROTEADOR.post("/admin/convite", response_class=HTMLResponse,
-          dependencies=[Depends(ses.mesma_origem)])
+                  dependencies=[Depends(ses.mesma_origem)])
 def gerar_convite(
     request: Request,
     usuario: Usuario = Depends(ses.exigir_admin),
@@ -57,7 +57,7 @@ def gerar_convite(
 
 
 @ROTEADOR.post("/admin/redefinir/{usuario_id}", response_class=HTMLResponse,
-          dependencies=[Depends(ses.mesma_origem)])
+                  dependencies=[Depends(ses.mesma_origem)])
 def gerar_redefinicao(
     request: Request,
     usuario_id: int,
@@ -79,7 +79,7 @@ def gerar_redefinicao(
 
 
 @ROTEADOR.post("/admin/ativo/{usuario_id}", response_class=HTMLResponse,
-          dependencies=[Depends(ses.mesma_origem)])
+                  dependencies=[Depends(ses.mesma_origem)])
 def mudar_ativo(
     request: Request,
     usuario_id: int,
