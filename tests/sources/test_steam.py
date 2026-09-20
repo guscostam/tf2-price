@@ -269,3 +269,127 @@ def test_erro_persistente_levanta():
 
     with pytest.raises(RuntimeError, match="não respondeu"):
         client.search_page(start=0)
+
+
+def test_5xx_e_repetido_e_nao_conta_como_throttle():
+    # 5xx é a Steam falhando, não o IP sendo barrado. Repetir é certo;
+    # contar como 429 corromperia a medição de quantas requisições o IP
+    # aguenta antes do primeiro throttle, que é entregável do spike.
+    respostas = [500, 200]
+    payload = _fixture("steam_search_page.json")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        status = respostas.pop(0)
+        if status == 500:
+            return httpx.Response(500, text="")
+        return httpx.Response(200, json=payload)
+
+    limiter = RateLimiter(min_interval_s=0.0)
+    client = SteamClient(
+        limiter=limiter,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    page = client.search_page(start=0)
+
+    assert page.total_count == 21543
+    assert limiter.throttled == 0
+    assert limiter.first_429_after is None
+
+
+def test_timeout_e_repetido():
+    # Um timeout estoura antes de existir resposta: sem retry, ele derrubaria
+    # uma passada de ~11 minutos na primeira oscilação de rede.
+    tentativas = {"n": 0}
+    payload = _fixture("steam_search_page.json")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        tentativas["n"] += 1
+        if tentativas["n"] == 1:
+            raise httpx.ReadTimeout("tempo esgotado", request=request)
+        return httpx.Response(200, json=payload)
+
+    limiter = RateLimiter(min_interval_s=0.0)
+    client = SteamClient(
+        limiter=limiter,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    page = client.search_page(start=0)
+
+    assert page.total_count == 21543
+    assert tentativas["n"] == 2
+    assert limiter.throttled == 0
+
+
+def test_404_falha_na_primeira_tentativa():
+    # 4xx que não é 429 significa pedido errado. Repetir um pedido errado
+    # só queima orçamento de requisições.
+    tentativas = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        tentativas["n"] += 1
+        return httpx.Response(404, text="")
+
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        client.search_page(start=0)
+
+    assert tentativas["n"] == 1
+
+
+def test_search_page_ordena_por_nome_para_paginacao_estavel():
+    # Sem sort explícito a Steam ordena por popularidade, que muda durante
+    # os ~11 min da passada: itens migram entre páginas e viram duplicata
+    # ou buraco.
+    capturadas: list[httpx.Request] = []
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_cliente(_fixture("steam_search_page.json"), capturadas),
+    )
+
+    client.search_page(start=0)
+
+    params = capturadas[0].url.params
+    assert params["sort_column"] == "name"
+    assert params["sort_dir"] == "asc"
+
+
+def test_preco_da_chave_usa_uma_unica_requisicao():
+    # Dois GETs seriam duas fotos de um mercado em movimento: o menor preço
+    # de um instante e a mediana de outro.
+    capturadas: list[httpx.Request] = []
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_cliente(_fixture("steam_priceoverview.json"), capturadas),
+    )
+
+    assert client.key_price() == Brl.from_float(22.14)
+    assert client.key_median_price() == Brl.from_float(22.49)
+    assert len(capturadas) == 1
+
+
+def test_cache_do_priceoverview_nao_vaza_entre_instancias():
+    capturadas: list[httpx.Request] = []
+    payload = _fixture("steam_priceoverview.json")
+
+    primeiro = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_cliente(payload, capturadas),
+    )
+    primeiro.key_price()
+
+    segundo = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_cliente(payload, capturadas),
+    )
+    segundo.key_price()
+
+    assert len(capturadas) == 2

@@ -72,6 +72,10 @@ def check_guards(
 
     # Guarda 4: preço em USD é o sinal candidato de origem Steam Market.
     # Hipótese a confirmar no Task 11.
+    # Defesa em profundidade: no pipeline este ramo não dispara, porque
+    # to_keys() devolve None para USD e a entrada é descartada antes de
+    # chegar aqui. A guarda fica como rede de segurança para chamadas
+    # futuras que não passem por aquele filtro.
     if price.currency == "usd":
         return Guard.MARKET_DERIVED
 
@@ -83,6 +87,9 @@ def check_guards(
 
     # Guarda 1: só se aplica a candidatas. Uma garantida já foi provada no
     # pior cenário pela poda e não precisa de fetch profundo.
+    # Defesa em profundidade: no pipeline este ramo não dispara, porque uma
+    # candidata sem fetch profundo nunca vira Opportunity. A guarda fica
+    # como rede de segurança, não como comportamento observável da execução.
     if classification is Classification.CANDIDATE and not deep_fetched:
         return Guard.UNRESOLVED
 

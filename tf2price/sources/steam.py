@@ -77,6 +77,13 @@ def parse_price_text(text: str) -> Brl:
 
 
 def parse_search_page(payload: dict[str, Any]) -> SearchPage:
+    # `sell_price` é lido como o preço em CENTAVOS já com a taxa do
+    # comprador embutida — o equivalente, na busca, a
+    # converted_price + converted_fee das listagens. Ele alimenta a poda, o
+    # caminho garantido e a amostragem em USD, ou seja, a maior parte das
+    # oportunidades líquidas. ATENÇÃO: isso é item de verificação da
+    # execução real, não fato provado; se for o líquido do vendedor, todo
+    # desconto da passada rasa está inflado em ~15%.
     results = [
         SearchResult(
             hash_name=row["hash_name"],
@@ -161,6 +168,8 @@ class SteamClient:
     ) -> None:
         self._limiter = limiter
         self._sleep = sleep
+        # Cache de instância: nunca compartilhado entre dois SteamClient.
+        self._priceoverview_cache: dict[str, Any] | None = None
         self._http = client or httpx.Client(
             timeout=30.0,
             headers={"User-Agent": "tf2price-spike/0.1"},
@@ -168,23 +177,42 @@ class SteamClient:
         )
 
     def _get(self, url: str, params: dict[str, Any]) -> dict[str, Any]:
-        last_status: int | None = None
+        last_reason = "sem tentativas"
 
         for delay in [0.0, *backoff_delays(5)]:
             if delay:
                 self._sleep(delay)
             self._limiter.wait()
 
-            response = self._http.get(url, params=params)
-            if response.status_code == 429:
-                self._limiter.record_throttle()
-                last_status = 429
+            try:
+                response = self._http.get(url, params=params)
+            except httpx.TransportError as error:
+                # Falha de transporte (timeout, conexão, DNS, TLS, proxy):
+                # httpx.TimeoutException é subclasse de TransportError, então
+                # o catch cobre os dois. São falhas do canal, não do pedido —
+                # repetir é a resposta certa. Não são throttle.
+                last_reason = f"{type(error).__name__}: {error}"
                 continue
 
+            if response.status_code == 429:
+                self._limiter.record_throttle()
+                last_reason = "status 429"
+                continue
+
+            if response.status_code >= 500:
+                # 5xx é a Steam falhando, não o pedido. Repetimos, mas NÃO
+                # contamos como throttle: misturar 5xx com 429 corromperia a
+                # medição de quantas requisições o IP aguenta antes do
+                # primeiro 429, que é entregável do spike.
+                last_reason = f"status {response.status_code}"
+                continue
+
+            # 4xx que não é 429 significa pedido errado: repetir só queima
+            # orçamento de requisições. Falha na primeira tentativa.
             response.raise_for_status()
             return response.json()
 
-        raise RuntimeError(f"Steam não respondeu após backoff (último status {last_status})")
+        raise RuntimeError(f"Steam não respondeu após backoff (último: {last_reason})")
 
     def search_page(self, start: int, count: int = 100) -> SearchPage:
         payload = self._get(
@@ -196,6 +224,13 @@ class SteamClient:
                 "start": start,
                 "currency": CURRENCY_BRL,
                 "l": "english",
+                # Ordenação estável por nome. O padrão da Steam é por
+                # popularidade, que muda durante os ~11 min da passada: itens
+                # migram entre páginas, uns são lidos duas vezes e outros
+                # nunca. Duplicatas inflam as contagens que alimentam o
+                # veredito — justamente na direção de "vale construir".
+                "sort_column": "name",
+                "sort_dir": "asc",
             },
         )
         return parse_search_page(payload)
@@ -215,14 +250,22 @@ class SteamClient:
         return parse_listings(payload)
 
     def _priceoverview(self) -> dict[str, Any]:
-        return self._get(
-            f"{BASE}/market/priceoverview/",
-            {
-                "appid": APPID,
-                "currency": CURRENCY_BRL,
-                "market_hash_name": KEY_HASH_NAME,
-            },
-        )
+        """Um único payload para os dois preços da chave.
+
+        Duas requisições seriam duas fotos de um mercado em movimento: o
+        menor preço poderia vir de um instante e a mediana de outro, e a
+        comparação de sanidade entre eles perderia o sentido.
+        """
+        if self._priceoverview_cache is None:
+            self._priceoverview_cache = self._get(
+                f"{BASE}/market/priceoverview/",
+                {
+                    "appid": APPID,
+                    "currency": CURRENCY_BRL,
+                    "market_hash_name": KEY_HASH_NAME,
+                },
+            )
+        return self._priceoverview_cache
 
     def key_price(self) -> Brl:
         """Taxa de câmbio do spike: a listagem mais barata de chave.
