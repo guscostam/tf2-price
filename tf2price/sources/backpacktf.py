@@ -5,11 +5,23 @@ from typing import Any, Iterator
 
 import httpx
 
-from tf2price.domain.prefilter import ValueRange
-from tf2price.domain.valuation import BptfPrice
-
 BASE = "https://backpack.tf/api"
 APPID = 440
+
+
+@dataclass(frozen=True)
+class BptfPrice:
+    """Uma entrada de preço do índice da backpack.tf.
+
+    `value` é o piso da faixa sugerida e é o único que entra no cálculo.
+    `value_high` fica registrado porque é o que revela uma faixa larga
+    demais para sustentar decisão.
+    """
+
+    value: float
+    value_high: float | None
+    currency: str
+    last_update: int
 
 
 @dataclass(frozen=True)
@@ -123,22 +135,6 @@ class PriceIndex:
             return entry.price
         return None
 
-    def value_range_keys(self, item_name: str, quality_id: int) -> ValueRange | None:
-        """Faixa de valor sobre TODAS as interpretações do nome.
-
-        É esta faixa que a poda das três vias consome: o mínimo é o pior
-        cenário possível, o máximo é o melhor.
-        """
-        values = [
-            keys
-            for entry in self._iter_entries(item_name, quality_id)
-            if (keys := self.to_keys(entry.price)) is not None and keys > 0
-        ]
-        if not values:
-            return None
-        return ValueRange(min_keys=min(values), max_keys=max(values))
-
-
 class BackpackTfClient:
     def __init__(self, api_key: str, client: httpx.Client | None = None) -> None:
         if not api_key:
@@ -146,7 +142,7 @@ class BackpackTfClient:
         self._api_key = api_key
         self._http = client or httpx.Client(
             timeout=180.0,  # IGetPrices devolve dezenas de MB
-            headers={"User-Agent": "tf2price-spike/0.1"},
+            headers={"User-Agent": "tf2price/0.1"},
             follow_redirects=True,
         )
 

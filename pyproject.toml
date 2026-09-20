@@ -1,7 +1,7 @@
 [project]
 name = "tf2price"
 version = "0.1.0"
-description = "Spike de validação de arbitragem TF2 entre Steam Market e backpack.tf"
+description = "Consulta de preço de um Unusual do TF2 na Steam e na backpack.tf"
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.27",

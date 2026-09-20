@@ -106,29 +106,6 @@ def test_lookup_sem_priceindex_nao_devolve_variante(index: PriceIndex):
     assert index.lookup("Team Captain", 5) is None
 
 
-# --- faixa de valor ------------------------------------------------------
-
-
-def test_value_range_cobre_todos_os_efeitos(index: PriceIndex):
-    faixa = index.value_range_keys("Team Captain", 5)
-    assert faixa.min_keys == pytest.approx(9.0)
-    assert faixa.max_keys == pytest.approx(45.0)
-
-
-def test_value_range_cobre_craftavel_e_nao_craftavel(index: PriceIndex):
-    faixa = index.value_range_keys("Rocket Launcher", 6)
-    assert faixa.min_keys == pytest.approx(0.05 / KEY_IN_REFINED)
-    assert faixa.max_keys == pytest.approx(0.11 / KEY_IN_REFINED)
-
-
-def test_value_range_de_item_so_em_usd_e_none(index: PriceIndex):
-    assert index.value_range_keys("Mildly Disturbing Halloween Mask", 6) is None
-
-
-def test_value_range_de_item_inexistente_e_none(index: PriceIndex):
-    assert index.value_range_keys("Item Que Não Existe", 6) is None
-
-
 def test_item_names(index: PriceIndex):
     assert "Team Captain" in index.item_names()
     assert len(index.item_names()) == 3

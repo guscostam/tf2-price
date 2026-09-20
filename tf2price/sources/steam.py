@@ -231,7 +231,7 @@ class SteamClient:
         self._usd_to_brl: float | None = None
         self._http = client or httpx.Client(
             timeout=30.0,
-            headers={"User-Agent": "tf2price-spike/0.1"},
+            headers={"User-Agent": "tf2price/0.1"},
             follow_redirects=True,
         )
 
