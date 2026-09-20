@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block titulo %}{{ "Nova senha" if redefinicao else "Criar conta" }}{% endblock %}
+{% block cabecalho %}{{ "Nova senha" if redefinicao else "Criar conta" }}{% endblock %}
+{% block conteudo %}
+<section class="campo">
+  {% if erro %}<div class="erro"><b>Não deu para continuar</b>{{ erro }}</div>{% endif %}
+  <form method="post" action="/convite/{{ token }}">
+    {% if not redefinicao %}
+    <div class="campo-form">
+      <label for="nome">Nome</label>
+      <input id="nome" name="nome" autocomplete="username" autofocus required>
+    </div>
+    {% endif %}
+    <div class="campo-form">
+      <label for="senha">{{ "Nova senha" if redefinicao else "Senha" }}</label>
+      <input id="senha" name="senha" type="password" autocomplete="new-password"
+             minlength="10" required {% if redefinicao %}autofocus{% endif %}>
+    </div>
+    <button class="acao" type="submit">{{ "Trocar senha" if redefinicao else "Criar conta" }}</button>
+  </form>
+  <p class="dica">A senha precisa de pelo menos 10 caracteres. Este link vale uma vez só.</p>
+</section>
+{% endblock %}

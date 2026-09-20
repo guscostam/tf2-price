@@ -34,9 +34,15 @@ Duas regras do projeto valem para todo código deste plano:
   serviço recebe o instante como parâmetro para o teste poder mentir sobre ele.
 - **Tokens nunca são guardados em claro** — só o SHA-256 hexadecimal, 64 caracteres.
 - Mensagens e nomes de código em português, como o resto do projeto.
+- **CSS próprio, sem Tailwind nem framework de estilo.** As variáveis de tema
+  (`--papel`, `--tinta`, `--carimbo`…) ficam no `:root` de `base.html`, e cada
+  regra não óbvia carrega o comentário que diz por que ela existe.
 - Commits em português, no imperativo, com as duas linhas de atribuição que os
   commits existentes usam (veja `git log -1`).
-- Uma réplica só: freio e período de calma vivem na memória do processo.
+- Uma réplica só: **o freio de requisições à Steam** e o período de calma vivem
+  na memória do processo. Não confundir com o **freio de login**, que é de banco
+  (tabela `tentativa`) de propósito: ele precisa sobreviver a reinício, senão
+  reiniciar o serviço zera as tentativas de quem está tentando adivinhar senha.
 - Os totais de teste citados em cada task (`Expected: 221 passed`) são
   referência para você perceber que nada sumiu, não contrato. O que vale é a
   suíte inteira verde.
@@ -1584,9 +1590,21 @@ def apagar_cookie(resposta: Response) -> None:
 
 - [ ] **Step 4: Criar `tf2price/painel/templates/base.html`**
 
-O bloco `<style>` inteiro sai **verbatim** de `tf2price/lookup/templates/index.html`
-(as linhas entre `<style>` e `</style>`, inclusive os comentários). Não reescreva
-o CSS: é o mesmo visual, e a tela nova só chega no plano 3.
+O `base.html` carrega **apenas o que as telas de conta usam**. Copie de
+`tf2price/lookup/templates/index.html`, verbatim e com os comentários, só estes
+trechos:
+
+- o bloco `:root` inteiro (as variáveis de tema)
+- `*, *::before, *::after`, `body`, `body::before`
+- `.guia`, `.timbre`, `.timbre h1`, `.cotacao`, `.cotacao b`
+- `.campo`, `.campo + .campo`, `.rotulo`, `.dica`, `.dica b`
+- `.erro`, `.erro b`, `a`, `a:hover`, `:focus-visible`
+- as duas media queries, de `prefers-reduced-motion` e de impressão
+
+**Não copie** as regras de `.opcoes`, `.linha`, `.bloco`, `.carimbo`, `.tag`,
+`.numero-grande` e companhia: elas pertencem à análise, continuam em
+`index.html` enquanto ele existir, e a Task 7 as traz para cá junto com o
+template. Assim nenhuma regra vive em dois arquivos ao mesmo tempo.
 
 ```html
 <!doctype html>
@@ -1600,8 +1618,7 @@ o CSS: é o mesmo visual, e a tela nova só chega no plano 3.
   <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <style>
-    /* COLE AQUI, VERBATIM, o conteúdo do <style> de
-       tf2price/lookup/templates/index.html, e acrescente ao final: */
+    /* COLE AQUI os trechos listados acima, verbatim, e acrescente: */
 
     .topo-conta {
       display: flex; justify-content: space-between; align-items: baseline;
@@ -2095,10 +2112,20 @@ git mv tests/lookup/test_app.py tests/painel/test_consulta.py
 
 - [ ] **Step 2: Transformar `painel.html` em filho de `base.html`**
 
-O arquivo movido ainda é uma página inteira. Troque o que está **fora** do
-`<main class="guia">` pelas diretivas de herança, e mova o bloco `<style>` para
-`base.html` (Task 5 já pediu isso — se ainda não foi feito, faça agora e apague
-daqui). O arquivo passa a ser:
+O arquivo movido ainda é uma página inteira. Duas coisas:
+
+1. **Leve o CSS que sobrou para `base.html`.** A Task 5 levou as variáveis e a
+   casca; agora vão as regras da análise — `.opcoes`, `.vazio`, `.niveis`,
+   `.tag*`, `.cruz`, `.avaliacao`, `.pago`, `.cifrao`, `.numero-grande`,
+   `.em-chaves`, `.bloco*`, `.explica`, `.linha*`, `.fio`, `.valor`, `.bom`,
+   `.ruim`, `.nota`, `.carimbo*`, `#espera`, `#q` e as keyframes. Ao colar,
+   **não repita** o que já está lá (`:root`, `body`, `.guia`, `.timbre`,
+   `.campo`, `.rotulo`, `.dica`, `.erro`, `a`, `:focus-visible`): confira uma a
+   uma e descarte as repetidas.
+2. Troque o que está **fora** do `<main class="guia">` pelas diretivas de
+   herança.
+
+O arquivo passa a ser:
 
 ```html
 {% extends "base.html" %}
@@ -2324,7 +2351,45 @@ if __name__ == "__main__":
     servir()
 ```
 
-- [ ] **Step 5: Adaptar `tests/painel/test_consulta.py`**
+- [ ] **Step 5: Mover o contexto falso para `tests/painel/conftest.py`**
+
+`test_entrar.py` também bate em `/`, que a partir daqui só existe quando há
+contexto. Para os dois arquivos usarem o mesmo duplo, mova de
+`tests/painel/test_consulta.py` para um `tests/painel/conftest.py` novo: as
+classes `_SteamFalso` e `_PaginasFalsas`, a função `_pagina`, as constantes
+`FIXTURES`, `NOME` e `CHAVE`, e a função `_contexto`. Acrescente ali o auxiliar
+de login, que os dois arquivos vão usar:
+
+```python
+SENHA = "uma senha longa"
+
+
+def cliente_logado(engine, ctx):
+    """TestClient autenticado, com a primeira conta vinda do convite de partida."""
+    from fastapi.testclient import TestClient
+
+    from tf2price import db as _db
+    from tf2price.contas import servico
+    from tf2price.painel.app import criar_app
+
+    with engine.begin() as conn:
+        token = servico.convite_de_partida(conn, _db.agora())
+        servico.aceitar_convite(
+            conn, token, nome="gusco", senha=SENHA, quando=_db.agora()
+        )
+    cliente = TestClient(criar_app(engine, ctx))
+    cliente.post("/entrar", data={"nome": "gusco", "senha": SENHA})
+    cliente.ctx = ctx
+    return cliente
+```
+
+Em `tests/painel/test_entrar.py`, troque `criar_app(engine)` por
+`criar_app(engine, _contexto())` na fixture. Os três testes que batem em `/` —
+`test_painel_sem_cookie_manda_para_entrar`,
+`test_fragmento_htmx_sem_cookie_devolve_401_com_redirecionamento` e
+`test_com_cookie_o_painel_abre` — continuam valendo palavra por palavra.
+
+- [ ] **Step 6: Adaptar `tests/painel/test_consulta.py`**
 
 O corpo dos testes **não muda** — as asserções sobre dupla qualidade, Unusualifier,
 carimbo, limpeza fora de banda e cotação no timbre continuam palavra por palavra.
@@ -2340,29 +2405,15 @@ from tf2price.painel.consulta import Contexto, PageCache
 E troque a fixture `cliente` por esta:
 
 ```python
-SENHA = "uma senha longa"
-
-
-def _cliente_logado(engine, ctx):
-    from tf2price import db as _db
-    from tf2price.contas import servico
-
-    with engine.begin() as conn:
-        token = servico.convite_de_partida(conn, _db.agora())
-        servico.aceitar_convite(conn, token, nome="gusco", senha=SENHA, quando=_db.agora())
-    cliente = TestClient(criar_app(engine, ctx))
-    cliente.post("/entrar", data={"nome": "gusco", "senha": SENHA})
-    cliente.ctx = ctx
-    return cliente
-
-
 @pytest.fixture
 def cliente(engine):
-    return _cliente_logado(engine, _contexto())
+    return cliente_logado(engine, _contexto())
 ```
 
+importando `cliente_logado`, `_contexto`, `NOME` e `CHAVE` do `conftest.py`.
+
 Nos testes que montam contexto próprio, troque `TestClient(criar_app(ctx))` por
-`_cliente_logado(engine, ctx)` e acrescente `engine` aos parâmetros do teste:
+`cliente_logado(engine, ctx)` e acrescente `engine` aos parâmetros do teste:
 
 - `test_busca_mantem_a_dupla_qualidade(engine)`
 - `test_busca_descarta_o_unusualifier(engine)`
@@ -2380,7 +2431,7 @@ def test_a_consulta_exige_sessao(engine):
         assert cliente.get(caminho, params={"q": "x", "nome": "x", "efeito": "x"}).status_code in (303, 401)
 ```
 
-- [ ] **Step 6: Apagar o que sobrou de `lookup/app.py`**
+- [ ] **Step 7: Apagar o que sobrou de `lookup/app.py`**
 
 ```bash
 git rm tf2price/lookup/app.py
@@ -2391,12 +2442,12 @@ Confira que nada mais o referencia:
 Run: `grep -rn "lookup.app\|lookup/app" --include="*.py" --include="*.toml" --include="*.md" . | grep -v ".venv"`
 Expected: só ocorrências em `docs/` e no `README.md`, que a Task 9 atualiza.
 
-- [ ] **Step 7: Rodar tudo**
+- [ ] **Step 8: Rodar tudo**
 
 Run: `.venv/Scripts/python -m pytest`
 Expected: 256 passed (os mesmos de antes, mais o teste de sessão)
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add -A
@@ -2654,7 +2705,9 @@ git commit -m "Adiciona a administracao de contas"
 - Consumes: `analysis.patient_exit`.
 - Produces: `analysis.RAZAO_SEM_INDICE`; `analyse(page, effect, index, key_brl, ...)`
   passa a aceitar `index: PriceIndex | None`; `consulta.IndiceSobDemanda` com
-  `obter() -> PriceIndex | None`.
+  `obter() -> PriceIndex | None`; `consulta.Cotacao` (dataclass com `key_brl: Brl`
+  e `usd_to_brl: float`) e `consulta.CotacaoSobDemanda` com
+  `obter() -> Cotacao | None`; `consulta.SEM_COTACAO` (mensagem).
 
 - [ ] **Step 1: Escrever o teste que falha**
 
@@ -2763,7 +2816,7 @@ na função `_contexto`. Acrescente:
 def test_analise_sem_indice_nao_mente_sobre_a_bptf(engine):
     ctx = _contexto()
     ctx.indice = _IndiceFalso(None)
-    cliente = _cliente_logado(engine, ctx)
+    cliente = cliente_logado(engine, ctx)
     r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
     assert "ainda não carregou" in r.text
 ```
@@ -2773,7 +2826,155 @@ def test_analise_sem_indice_nao_mente_sobre_a_bptf(engine):
 Run: `.venv/Scripts/python -m pytest`
 Expected: 266 passed
 
-- [ ] **Step 6: Criar o `Procfile`**
+- [ ] **Step 6: Tornar a cotação preguiçosa também**
+
+O índice da bp.tf deixou de ser pré-condição de subida, mas `construir_contexto`
+ainda faz **duas requisições à Steam na partida** — preço da chave e taxa do
+dólar. Se a Steam responder 429 na hora do deploy, a aplicação não sobe e o
+Railway reinicia em laço. É a mesma razão que a spec deu para o índice, e vale
+igual aqui.
+
+Acrescente a `tf2price/painel/consulta.py`:
+
+```python
+SEM_COTACAO = (
+    "a cotação da chave ainda não carregou; tente de novo em alguns minutos"
+)
+
+
+@dataclass(frozen=True)
+class Cotacao:
+    """Preço da chave e taxa do dólar, que a tela inteira usa para converter."""
+
+    key_brl: Brl
+    usd_to_brl: float
+
+
+class CotacaoSobDemanda:
+    """Busca a cotação na primeira necessidade, não na subida.
+
+    As duas vêm juntas porque as duas saem do mesmo cliente da Steam e são
+    inúteis separadas: preço em chaves sem taxa de conversão não vira tela.
+    """
+
+    def __init__(
+        self,
+        steam: SteamClient,
+        espera_apos_falha_s: float = 300.0,
+        relogio: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._steam = steam
+        self._espera = espera_apos_falha_s
+        self._relogio = relogio
+        self._cotacao: Cotacao | None = None
+        self._proxima_tentativa = 0.0
+
+    def obter(self) -> Cotacao | None:
+        if self._cotacao is not None:
+            return self._cotacao
+        if self._relogio() < self._proxima_tentativa:
+            return None
+        try:
+            self._cotacao = Cotacao(
+                key_brl=self._steam.key_price(), usd_to_brl=self._steam.usd_to_brl()
+            )
+        except Exception:
+            self._proxima_tentativa = self._relogio() + self._espera
+            return None
+        return self._cotacao
+```
+
+Em `Contexto`, troque os campos `key_brl: Brl` e `usd_to_brl: float` pelo único
+campo `cotacao: CotacaoSobDemanda`. Em `construir_contexto`, monte
+`CotacaoSobDemanda(steam)` em vez de chamar `steam.key_price()` e
+`steam.usd_to_brl()` na hora.
+
+As quatro rotas passam a lidar com a ausência:
+
+```python
+@ROTEADOR.get("/", response_class=HTMLResponse)
+def painel(request: Request, usuario: Usuario = Depends(ses.usuario_obrigatorio)):
+    # A cotação pode não ter carregado ainda; o painel abre assim mesmo e o
+    # timbre diz isso, em vez de a aplicação não subir.
+    cotacao = _contexto(request).cotacao.obter()
+    return TEMPLATES.TemplateResponse(
+        request=request,
+        name="painel.html",
+        context={"usuario": usuario, "cotacao": cotacao},
+    )
+```
+
+`/buscar` não precisa de cotação e fica como está. `/efeitos` e `/analise`
+precisam, e devolvem o erro próprio quando falta:
+
+```python
+    cotacao = contexto.cotacao.obter()
+    if cotacao is None:
+        return _erro(request, SEM_COTACAO)
+```
+
+Ponha esse bloco logo no começo das duas, antes de buscar a página, e troque
+`contexto.usd_to_brl` por `cotacao.usd_to_brl` e `contexto.key_brl` por
+`cotacao.key_brl` nas chamadas seguintes. `_pagina_do_item` passa a receber a
+taxa como parâmetro: `_pagina_do_item(contexto, nome, usd_to_brl)`.
+
+No `painel.html`, o bloco do timbre passa a ser:
+
+```html
+{% block subtitulo %}
+  {% if cotacao %}
+  <p class="cotacao">
+    chave <b>{{ cotacao.key_brl }}</b> · dólar <b>{{ cotacao.usd_brl_formatado }}</b> ·
+    preços da Steam já com a taxa de 15%
+  </p>
+  {% else %}
+  <p class="cotacao">cotação da chave indisponível no momento</p>
+  {% endif %}
+{% endblock %}
+```
+
+Para `usd_brl_formatado` existir, acrescente à dataclass `Cotacao`:
+
+```python
+    @property
+    def usd_brl_formatado(self) -> Brl:
+        return Brl.from_float(self.usd_to_brl)
+```
+
+Nos testes, `tests/painel/conftest.py` monta o contexto falso: troque
+`key_brl=CHAVE, usd_to_brl=1.0` por `cotacao=_CotacaoFalsa(Cotacao(CHAVE, 1.0))`,
+com o duplo:
+
+```python
+class _CotacaoFalsa:
+    def __init__(self, cotacao):
+        self.cotacao = cotacao
+
+    def obter(self):
+        return self.cotacao
+```
+
+E acrescente a `tests/painel/test_consulta.py`:
+
+```python
+def test_sem_cotacao_a_tela_diz_e_nao_quebra(engine):
+    """A Steam limitando na subida nao pode derrubar o painel inteiro."""
+    ctx = _contexto()
+    ctx.cotacao = _CotacaoFalsa(None)
+    cliente = cliente_logado(engine, ctx)
+
+    assert "indisponível" in cliente.get("/").text
+    assert "ainda não carregou" in cliente.get(
+        "/analise", params={"nome": NOME, "efeito": "Deep Dive"}
+    ).text
+```
+
+- [ ] **Step 7: Rodar tudo de novo**
+
+Run: `.venv/Scripts/python -m pytest`
+Expected: tudo verde, com o teste novo da cotação ausente
+
+- [ ] **Step 8: Criar o `Procfile`**
 
 O Procfile final está logo abaixo; primeiro a fábrica que ele chama.
 
@@ -2808,7 +3009,7 @@ Nenhuma variável de módulo é criada. O `--factory` do uvicorn chama a funçã
 web: uvicorn --factory tf2price.painel.app:construir_aplicacao --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips=*
 ```
 
-- [ ] **Step 7: Atualizar `.env.example` e `README.md`**
+- [ ] **Step 9: Atualizar `.env.example` e `README.md`**
 
 `.env.example` ganha:
 
@@ -2850,7 +3051,7 @@ Uma réplica só: o freio de requisições à Steam e o período de calma vivem 
 memória do processo.
 ````
 
-- [ ] **Step 8: Conferir que a aplicação sobe de verdade**
+- [ ] **Step 10: Conferir que a aplicação sobe de verdade**
 
 ```bash
 .venv/Scripts/python -m tf2price.painel.app
@@ -2860,11 +3061,192 @@ Esperado: o log imprime o convite de administrador, a página `/entrar` abre em
 `http://127.0.0.1:8000/entrar`, o link do convite cria a conta, e a consulta de
 um Unusual funciona como antes. Encerre com Ctrl+C.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
 git add -A
 git commit -m "Prepara o painel para o Railway"
+```
+
+---
+
+### Task 10: fechar a transação antes de falar com terceiro
+
+Acrescentada depois da revisão do branch inteiro, por decisão do dono do projeto.
+
+**Files:**
+- Modify: `tf2price/painel/sessao.py`
+- Test: `tests/painel/test_transacao.py` (novo)
+
+**Interfaces:**
+- Consumes: `db.agora`, `contas.servico.usuario_da_sessao`.
+- Produces: `sessao.usuario_opcional` e `sessao.usuario_obrigatorio` deixam de
+  depender de `sessao.conexao` e passam a abrir e fechar conexão própria.
+  `sessao.conexao` continua existindo, sem mudança, para as rotas que escrevem.
+
+**O defeito.** `conexao` é dependência com `yield` sobre `engine.begin()`: a
+transação abre antes da rota e só fecha depois da resposta pronta. O roteador da
+consulta inteiro depende dela, por tabela, via `usuario_obrigatorio`. Então uma
+requisição a `/analise` que dispare a primeira carga do índice segura uma conexão
+do Postgres em *idle in transaction* enquanto baixa dezenas de MB da backpack.tf,
+com `timeout=180.0`, e enquanto o `RateLimiter` dorme. Com o pool padrão do
+SQLAlchemy e algumas pessoas clicando logo depois de um deploy, dá para prender
+todas as conexões em transações que não estão fazendo nada.
+
+**Por que a ordem dos parâmetros importa.** Depois da mudança, uma rota que
+declare `usuario` e `conn` vai abrir duas conexões. O FastAPI resolve as
+dependências na ordem em que os parâmetros aparecem, e hoje `usuario` vem antes
+de `conn` em todas as rotas — então a conexão da autenticação fecha antes de a
+outra abrir, e nunca há duas ao mesmo tempo. Isso não é acidente feliz que se
+possa deixar implícito: o dublê de teste usa `StaticPool`, que serve **a mesma**
+conexão a todo mundo, então uma sobreposição vira erro de transação aninhada na
+hora. Escreva isso como comentário em `conexao`, para quem for reordenar
+parâmetros saber o que vai quebrar.
+
+- [ ] **Step 1: Escrever o teste que falha**
+
+**Primeira tentativa, e por que ela não serviu.** A versão anterior deste step
+mandava o dublê da página abrir uma conexão nova e executar `SELECT 1`, supondo
+que o `StaticPool` levantaria por transação aninhada. Não levanta: o driver
+`sqlite3` só abre transação de verdade antes de uma escrita, e tanto a
+autenticação quanto o dublê só fazem leitura. O teste passava antes da correção,
+ou seja, não provava nada. Em Postgres o problema existe — qualquer SQL já deixa
+a conexão *idle in transaction* — mas o dublê de teste não reproduz isso.
+
+**A prova que serve** não depende de semântica de dialeto nenhum: conte as
+conexões emprestadas pelo pool, com os eventos `checkout` e `checkin` do
+SQLAlchemy, e meça **durante** a chamada ao terceiro. Medido nesta máquina: com
+uma transação aberta o contador marca 1, e volta a 0 ao fechar, em todas as
+voltas, desde que as conexões não se aninhem — que é o caso aqui.
+
+Crie `tests/painel/test_transacao.py`:
+
+```python
+from __future__ import annotations
+
+from sqlalchemy import event
+
+from tests.painel.conftest import NOME, _contexto, _pagina, cliente_logado
+
+
+def _contar_conexoes(motor) -> dict:
+    """Conta conexões emprestadas pelo pool, a qualquer momento.
+
+    Não depende de dialeto: mede a propriedade que interessa ao Postgres —
+    conexão emprestada é conexão indisponível para os outros — sem depender
+    de o SQLite levantar erro, que ele não levanta em leitura pura.
+    """
+    estado = {"emprestadas": 0}
+    event.listen(motor, "checkout", lambda *a: estado.__setitem__("emprestadas", estado["emprestadas"] + 1))
+    event.listen(motor, "checkin", lambda *a: estado.__setitem__("emprestadas", estado["emprestadas"] - 1))
+    return estado
+
+
+class _PaginasQueObservamOPool:
+    """Dublê que anota quantas conexões estavam emprestadas quando foi chamado.
+
+    É o instante que importa: aqui, na aplicação de verdade, o processo está
+    baixando dezenas de MB da backpack.tf com timeout de 180 s.
+    """
+
+    def __init__(self, contador, pagina):
+        self.contador = contador
+        self.pagina = pagina
+        self.emprestadas_durante_o_io = None
+
+    def item_page(self, hash_name, usd_to_brl):
+        self.emprestadas_durante_o_io = self.contador["emprestadas"]
+        return self.pagina
+
+
+def test_nenhuma_conexao_fica_emprestada_durante_o_io(engine):
+    """Uma consulta lenta não pode prender conexão do banco sem usá-la.
+
+    A primeira carga do índice baixa dezenas de MB. Se a transação da
+    requisição ficar aberta durante isso, algumas pessoas clicando depois de
+    um deploy esgotam o pool do Postgres com conexões ociosas.
+    """
+    contador = _contar_conexoes(engine)
+    ctx = _contexto()
+    paginas = _PaginasQueObservamOPool(contador, _pagina())
+    ctx.paginas = paginas
+    cliente = cliente_logado(engine, ctx)
+
+    resposta = cliente.get("/efeitos", params={"nome": NOME})
+
+    assert resposta.status_code == 200
+    assert paginas.emprestadas_durante_o_io == 0
+
+
+def test_rota_de_escrita_continua_funcionando(engine):
+    """A mudança não pode quebrar quem legitimamente escreve no banco."""
+    cliente = cliente_logado(engine, _contexto())
+    assert cliente.get("/admin").status_code == 200
+    assert cliente.post("/admin/convite").status_code == 200
+```
+
+- [ ] **Step 2: Rodar e confirmar que falha**
+
+Run: `.venv/Scripts/python -m pytest tests/painel/test_transacao.py`
+Expected: `test_nenhuma_conexao_fica_emprestada_durante_o_io` FALHA, com
+`assert 1 == 0` — a conexão da autenticação está emprestada enquanto a rota
+fala com o terceiro. O segundo teste passa desde já; ele existe para provar que
+a correção não quebra o caminho de escrita.
+
+**Se o primeiro teste passar aqui, pare e reporte.** Um teste que já passa não
+prova correção nenhuma, e foi exatamente assim que a primeira versão deste step
+falhou.
+
+- [ ] **Step 3: Abrir conexão curta na autenticação**
+
+Em `tf2price/painel/sessao.py`, `usuario_opcional` deixa de receber
+`conn: Connection = Depends(conexao)` e passa a abrir a sua:
+
+```python
+def usuario_opcional(request: Request) -> Usuario | None:
+    # Conexão curta, aberta e fechada aqui dentro: se a autenticação usasse a
+    # conexão da requisição, ela ficaria aberta durante as chamadas à Steam e
+    # à backpack.tf, que levam segundos e não tocam o banco.
+    token = request.cookies.get(NOME_COOKIE, "")
+    if not token:
+        return None
+    with request.app.state.engine.begin() as conn:
+        return servico.usuario_da_sessao(conn, token, db.agora())
+```
+
+O curto-circuito em token ausente não é otimização: sem ele, toda requisição sem
+cookie abriria conexão para nada.
+
+`usuario_obrigatorio` e `exigir_admin` não mudam — continuam dependendo de
+`usuario_opcional`.
+
+Acrescente a `conexao` o comentário sobre ordem de parâmetros descrito acima.
+
+- [ ] **Step 4: Rodar e confirmar que passa**
+
+Run: `.venv/Scripts/python -m pytest tests/painel/test_transacao.py`
+Expected: PASS nos dois
+
+- [ ] **Step 5: Registrar a diferença de dialeto perto da fixture**
+
+Em `tests/conftest.py`, acrescente ao docstring da fixture `engine` que o
+`sqlite3` só abre transação de verdade antes de uma escrita, então o dublê
+**não** reproduz o aperto que o Postgres sente em caminho de leitura pura. Quem
+escrever o próximo teste de concorrência precisa saber disso antes de presumir
+cobertura que não existe.
+
+- [ ] **Step 6: Suíte inteira**
+
+Run: `.venv/Scripts/python -m pytest`
+Expected: tudo verde. Preste atenção especial a `tests/painel/test_admin.py` e
+`tests/painel/test_convite.py`, que são as rotas que declaram as duas
+dependências.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add -A
+git commit -m "Fecha a transacao antes de falar com terceiro"
 ```
 
 ---
@@ -2883,10 +3265,12 @@ git commit -m "Prepara o painel para o Railway"
 | §6 CSRF por origem | Task 5 (`mesma_origem`) |
 | §6 desativar derruba sessão | Task 8 |
 | §8 índice da bp.tf sob demanda | Task 9 |
+| §8 subida não depende de terceiro (cotação da Steam também sob demanda) | Task 9 |
 | §11 rotas de conta, convite e admin | Tasks 5, 6, 8 |
 | §12 erros indistinguíveis de convite e de login | Tasks 4 e 6 |
 | §13 testes sem rede, em SQLite na memória | Task 1 (fixture) e todas as demais |
 | §14 implantação, uma réplica, `--proxy-headers` | Task 9 |
+| §16 risco 3 (uma réplica): conexão não fica presa durante I/O | Task 10 |
 
 **Fica para os planos 2 e 3:** retrato compartilhado, acompanhamento, coleta da
 arte, tela nova em duas colunas. Nada disso aparece aqui.

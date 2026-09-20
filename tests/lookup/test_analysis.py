@@ -8,6 +8,8 @@ from tf2price.domain.money import Brl
 from tf2price.sources.backpacktf import PriceIndex
 from tf2price.sources.steam_page import ItemPage, OrderBook, parse_item_page
 from tf2price.lookup.analysis import (
+    RAZAO_SEM_INDICE,
+    RAZAO_SEM_PRECO,
     Analysis,
     analyse,
     effects_available,
@@ -178,3 +180,18 @@ def test_analise_de_efeito_sem_listagem_levanta(pagina: ItemPage):
     idx = _indice({"Taunt: Chairholder": {"prices": {}}})
     with pytest.raises(ValueError, match="Burning Flames"):
         analyse(pagina, "Burning Flames", idx, CHAVE, now=AGORA, effects_path=EFEITOS)
+
+
+def test_sem_indice_a_saida_paciente_diz_que_falta_o_indice(pagina):
+    """Diferente de "a bp.tf não precifica este efeito".
+
+    Um é falha nossa de carregar o índice, o outro é ausência de preço.
+    Misturar os dois faria a tela mentir sobre o mercado.
+    """
+    # Sem effects_path: usa o mapa real (DEFAULT_EFFECTS_PATH), onde "Deep
+    # Dive" existe. O fixture EFEITOS deste módulo é uma amostra que não o
+    # contém, e o teste é sobre índice ausente, não sobre efeito desconhecido.
+    r = analyse(pagina, "Deep Dive", None, CHAVE, now=AGORA)
+    assert r.patient.available is False
+    assert r.patient.reason == RAZAO_SEM_INDICE
+    assert RAZAO_SEM_PRECO != RAZAO_SEM_INDICE

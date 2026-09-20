@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Avaliação de Unusual</title>
+  <title>{% block titulo %}Avaliação de Unusual{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -80,6 +80,9 @@
       text-transform: uppercase; letter-spacing: .14em; color: var(--tinta-2);
     }
 
+    .dica { margin: .55rem 0 0; font-size: .82rem; color: var(--tinta-2); }
+    .dica b { font-weight: 600; color: var(--tinta); }
+
     /* O campo de busca é uma linha para escrever em cima, não uma caixa. */
     #q {
       width: 100%; padding: .35rem .1rem;
@@ -89,8 +92,6 @@
     }
     #q::placeholder { color: rgba(34, 30, 25, .35); }
     #q:focus { outline: 0; border-bottom-color: var(--carimbo); }
-    .dica { margin: .55rem 0 0; font-size: .82rem; color: var(--tinta-2); }
-    .dica b { font-weight: 600; color: var(--tinta); }
 
     /* --- opções selecionáveis ---------------------------------------- */
     .opcoes { margin-top: .9rem; display: grid; gap: .3rem; }
@@ -206,20 +207,6 @@
       from { opacity: 0; transform: rotate(var(--giro)) scale(1.3); }
     }
 
-    .erro {
-      border: 2px solid var(--carimbo); border-left-width: 6px;
-      padding: .8rem 1rem; color: var(--carimbo);
-      font-family: var(--mono); font-size: .88rem;
-    }
-    .erro b {
-      display: block; font-family: var(--display); font-weight: 700;
-      font-size: 1.05rem; text-transform: uppercase; letter-spacing: .08em;
-    }
-
-    a { color: var(--tinta); text-underline-offset: .2em; }
-    a:hover { color: var(--carimbo); }
-    :focus-visible { outline: 2px solid var(--carimbo); outline-offset: 3px; }
-
     /* Espera: a linha do campo pulsa enquanto a Steam responde. */
     #espera { height: 2px; background: var(--carimbo); opacity: 0; transform-origin: left; }
     .htmx-request#espera, .htmx-request #espera { opacity: 1; animation: carrega 1.1s ease-in-out infinite; }
@@ -234,6 +221,36 @@
       .linha .fio { display: none; }
       .linha .valor { margin-left: auto; }
     }
+
+    /* O link de convite aparece uma vez so: o banco guarda apenas o hash do
+       token, entao quem fechar a pagina sem copiar precisa gerar outro. Por
+       isso ele ganha destaque em vez de virar mais uma linha de texto. */
+    .aviso {
+      margin: 0 0 1rem; padding: .7rem .9rem;
+      border-left: 4px solid var(--carimbo);
+      background: rgba(156, 42, 34, .07);
+      font-size: .9rem;
+    }
+    .aviso code {
+      display: block; margin-top: .4rem;
+      font-family: var(--mono); font-size: .85rem;
+      word-break: break-all; color: var(--tinta);
+    }
+
+    .erro {
+      border: 2px solid var(--carimbo); border-left-width: 6px;
+      padding: .8rem 1rem; color: var(--carimbo);
+      font-family: var(--mono); font-size: .88rem;
+    }
+    .erro b {
+      display: block; font-family: var(--display); font-weight: 700;
+      font-size: 1.05rem; text-transform: uppercase; letter-spacing: .08em;
+    }
+
+    a { color: var(--tinta); text-underline-offset: .2em; }
+    a:hover { color: var(--carimbo); }
+    :focus-visible { outline: 2px solid var(--carimbo); outline-offset: 3px; }
+
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation: none !important; transition: none !important; }
     }
@@ -242,54 +259,54 @@
       body::before, .campo[data-campo="item"] .opcoes, #espera { display: none; }
       .guia { border: 0; box-shadow: none; max-width: none; }
     }
+
+    .topo-conta {
+      display: flex; justify-content: space-between; align-items: baseline;
+      gap: 1rem; margin-bottom: .6rem;
+      font-family: var(--mono); font-size: .72rem; letter-spacing: .09em;
+      text-transform: uppercase; color: var(--tinta-2);
+    }
+    .topo-conta form { margin: 0; }
+    .topo-conta button {
+      background: none; border: 0; padding: 0; cursor: pointer;
+      font: inherit; color: var(--tinta-2); text-decoration: underline;
+    }
+    .topo-conta button:hover { color: var(--carimbo); }
+    .campo-form { margin-bottom: 1rem; }
+    .campo-form label {
+      display: block; margin-bottom: .3rem;
+      font-family: var(--display); font-weight: 700; font-size: .95rem;
+      text-transform: uppercase; letter-spacing: .14em; color: var(--tinta-2);
+    }
+    .campo-form input {
+      width: 100%; padding: .45rem .1rem;
+      border: 0; border-bottom: 2px solid var(--tinta); border-radius: 0;
+      background: transparent; color: var(--tinta);
+      font-family: var(--corpo); font-size: 1.1rem;
+    }
+    .campo-form input:focus { outline: 0; border-bottom-color: var(--carimbo); }
+    .acao {
+      font-family: var(--display); font-weight: 700; font-size: 1rem;
+      text-transform: uppercase; letter-spacing: .12em;
+      background: var(--tinta); color: var(--slip);
+      border: 0; padding: .6rem 1.4rem; cursor: pointer;
+    }
+    .acao:hover { background: var(--carimbo); }
   </style>
 </head>
-<body hx-indicator="#espera">
+<body{% block corpo_attrs %}{% endblock %}>
   <main class="guia">
     <header class="timbre">
-      <h1>Avaliação de Unusual</h1>
-      <p class="cotacao">
-        chave <b>{{ key_brl }}</b> · dólar <b>{{ usd_brl }}</b> ·
-        preços da Steam já com a taxa de 15%
-      </p>
+      {% if usuario %}
+      <div class="topo-conta">
+        <span>{{ usuario.nome }}{% if usuario.admin %} · <a href="/admin">admin</a>{% endif %}</span>
+        <form method="post" action="/sair"><button type="submit">sair</button></form>
+      </div>
+      {% endif %}
+      <h1>{% block cabecalho %}Avaliação de Unusual{% endblock %}</h1>
+      {% block subtitulo %}{% endblock %}
     </header>
-
-    <section class="campo" data-campo="item">
-      <label class="rotulo" for="q">Item</label>
-      <input id="q" name="q" autocomplete="off" placeholder="parte do nome, ex: Chairholder"
-             hx-get="/buscar" hx-target="#itens" hx-trigger="keyup changed delay:400ms">
-      <div id="espera"></div>
-      <p class="dica">Parte do nome basta. A busca aceita dupla qualidade —
-        <b>Strange Unusual</b> — e ignora as ferramentas <b>Unusualifier</b>.</p>
-      <div id="itens" class="opcoes"></div>
-    </section>
-
-    <section class="campo" data-campo="efeito">
-      <span class="rotulo">Efeito</span>
-      <div id="efeitos" class="opcoes colunas">
-        <p class="vazio">aguardando item</p>
-      </div>
-    </section>
-
-    <section class="campo" data-campo="avaliacao">
-      <span class="rotulo">Avaliação</span>
-      <div id="analise" aria-live="polite">
-        <p class="vazio">aguardando efeito</p>
-      </div>
-    </section>
+    {% block conteudo %}{% endblock %}
   </main>
-
-  <script>
-    // Marca a opção escolhida dentro do próprio grupo: sem isso, depois de
-    // dois cliques não dá para saber de qual item a avaliação abaixo fala.
-    document.addEventListener("click", function (evento) {
-      var botao = evento.target.closest(".opcoes button");
-      if (!botao) return;
-      botao.parentElement.querySelectorAll("button").forEach(function (outro) {
-        outro.removeAttribute("data-escolhido");
-      });
-      botao.setAttribute("data-escolhido", "");
-    });
-  </script>
 </body>
 </html>
