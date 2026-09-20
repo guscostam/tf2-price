@@ -24,12 +24,15 @@ class PrecisaSerAdmin(Exception):
 
 
 def conexao(request: Request) -> Iterator[Connection]:
-    # Ordem dos parâmetros importa para quem escreve: uma rota que declare
-    # `usuario` antes de `conn` fecha a conexão da autenticação (veja
-    # usuario_opcional) antes de abrir esta, e nunca há duas ao mesmo tempo.
-    # Inverter a ordem abre as duas juntas — inofensivo em produção, mas o
-    # dublê de teste usa StaticPool (a mesma conexão para todo mundo), e duas
-    # transações abertas ao mesmo tempo na mesma conexão levantam na hora.
+    # Declare `usuario` (ou `exigir_admin`) antes de `conn` nas rotas que
+    # precisam dos dois: `usuario_opcional` abre e fecha a conexão dele
+    # sozinho, então declarado primeiro nunca há duas emprestadas ao mesmo
+    # tempo. Invertido, são duas durante a consulta da autenticação e uma
+    # daí em diante — medido, não suposto. Nada estoura, nem no teste nem em
+    # produção: é uma conexão a mais por um instante curto.
+    #
+    # As rotas da consulta, que são as que falam com terceiros, não declaram
+    # `conn` e não têm essa escolha — é delas que esta separação trata.
     with request.app.state.engine.begin() as conn:
         yield conn
 
