@@ -31,6 +31,24 @@ CACHE_TTL_S = 300.0
 BUSCA_MAX = 25
 INTERVALO_S = 1.0
 
+
+def _registra_falha_sob_demanda(origem: str, erro: Exception, espera_s: float) -> None:
+    """Log mínimo para uma falha de terceiro não esconder um bug nosso.
+
+    `IndiceSobDemanda` e `CotacaoSobDemanda` capturam `Exception` de
+    propósito: a resiliência a um terceiro fora do ar é o objetivo da
+    classe, e um `AttributeError` de programação precisa do mesmo
+    comportamento na tela (avisa e segue de pé) que uma falha de rede.
+    Só que os dois não podem ficar igualmente silenciosos, senão o bug
+    nunca é descoberto — daí o print, no mesmo padrão do convite de
+    partida em `app.py`, que o Railway já capta no log do serviço.
+    """
+    print(
+        f"[sob-demanda] {origem}: {type(erro).__name__}: {erro}; "
+        f"nova tentativa em {espera_s:.0f}s",
+        flush=True,
+    )
+
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
@@ -75,7 +93,8 @@ class IndiceSobDemanda:
             self._indice = PriceIndex.from_payload(
                 self._cliente.prices_payload(), moedas.key_in_refined
             )
-        except Exception:
+        except Exception as erro:
+            _registra_falha_sob_demanda("IndiceSobDemanda", erro, self._espera)
             self._proxima_tentativa = self._relogio() + self._espera
             return None
         return self._indice
@@ -126,7 +145,8 @@ class CotacaoSobDemanda:
             self._cotacao = Cotacao(
                 key_brl=self._steam.key_price(), usd_to_brl=self._steam.usd_to_brl()
             )
-        except Exception:
+        except Exception as erro:
+            _registra_falha_sob_demanda("CotacaoSobDemanda", erro, self._espera)
             self._proxima_tentativa = self._relogio() + self._espera
             return None
         return self._cotacao
