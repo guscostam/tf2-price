@@ -85,7 +85,7 @@ ser descoberto em produção.
 
 ```
 usuario(id, nome único, senha_hash, admin bool, ativo bool, criado_em)
-convite(hash_do_token PK, tipo, concede_admin bool, criado_por, criado_em, expira_em, usado_em, usado_por)
+convite(hash_do_token PK, tipo, concede_admin bool, alvo, criado_por, criado_em, expira_em, usado_em, usado_por)
 sessao(hash_do_token PK, usuario_id, criado_em, expira_em)
 acompanhado(id, usuario_id, hash_name, efeito, criado_em)   -- único (usuario_id, hash_name, efeito)
 retrato(hash_name PK, json, buscado_em)                      -- compartilhado por todos
@@ -94,7 +94,8 @@ tentativa(id, nome, quando)                                  -- freio de login
 
 `tipo` do convite é `conta` ou `redefinicao`: o mesmo mecanismo serve para criar
 conta e para trocar senha esquecida. `concede_admin` só é verdadeiro no convite de
-partida descrito em §6 — um convite comum nunca cria administrador.
+partida descrito em §6 — um convite comum nunca cria administrador. `alvo` só
+é usado no convite de redefinição: é de quem é a senha que aquele link troca.
 
 O `retrato` guarda a `ItemPage` serializada, não HTML — alguns KB por item em vez
 de 266 KB. `serial.py` tem teste de ida e volta: serializar e desserializar
