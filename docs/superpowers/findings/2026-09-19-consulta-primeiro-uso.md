@@ -92,7 +92,7 @@ deste item — a Steam não separa".
 
 ## Achados técnicos
 
-### O filtro da busca descartava 30% dos nomes — corrigido em `73fcccb`
+### O filtro da busca descartava 30% dos nomes — corrigido em `ef9fa70`
 `startswith("Unusual ")` na rota de busca eliminou **24 de 80 nomes** lidos. Entre
 os descartados estão itens de dupla qualidade como `Strange Unusual <War Paint>`,
 que existem no mercado e são de alto valor.
@@ -133,7 +133,7 @@ pedido diz que essas listagens não são o mercado: são âncoras paradas. Zero
 
 ### `uvicorn` não estava declarado
 A função que sobe o servidor o importa, e a dependência faltava no `pyproject.toml`.
-Só apareceu na primeira tentativa de rodar. Corrigido em `054c5b5`.
+Só apareceu na primeira tentativa de rodar. Corrigido em `b38e08f`.
 
 ### Subida e custo
 O índice da backpack.tf é baixado uma vez na subida. Consultas subsequentes custam

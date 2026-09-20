@@ -92,7 +92,7 @@ preço sugerido de outro, porque os efeitos que a backpack.tf precifica quase n�
 se sobrepõem aos que estão à venda na Steam. O código saiu do repositório quando
 a tela provou ser o produto; o relato está em
 `docs/superpowers/findings/2026-09-19-verificacoes-tecnicas.md` e o código, no
-histórico do git até `8f99176`.
+histórico do git até `520d654`.
 
 ## Documentos
 
