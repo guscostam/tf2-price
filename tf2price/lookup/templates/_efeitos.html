@@ -1,0 +1,11 @@
+<h2>{{ nome }}</h2>
+{% if efeitos %}
+<p class="nivel">efeitos à venda agora</p>
+{% for e in efeitos %}
+  <button hx-get="/analise"
+          hx-vals='{"nome": {{ nome | tojson }}, "efeito": {{ e | tojson }}}'
+          hx-target="#analise">{{ e }}</button>
+{% endfor %}
+{% else %}
+<p>Nenhuma listagem com efeito legível nesta página.</p>
+{% endif %}

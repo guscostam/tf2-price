@@ -1,0 +1,7 @@
+{% if nomes %}
+<p class="nivel">itens encontrados</p>
+{% for nome in nomes %}
+  <button hx-get="/efeitos" hx-vals='{"nome": {{ nome | tojson }}}'
+          hx-target="#efeitos">{{ nome }}</button>
+{% endfor %}
+{% endif %}

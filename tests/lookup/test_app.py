@@ -1,0 +1,145 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from tf2price.domain.money import Brl
+from tf2price.lookup.app import Contexto, PageCache, criar_app
+from tf2price.sources.backpacktf import PriceIndex
+from tf2price.sources.steam import SearchPage, SearchResult
+from tf2price.sources.steam_page import PageStructureError, parse_item_page
+
+FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
+NOME = "Unusual Taunt: Chairholder"
+CHAVE = Brl.from_float(11.73)
+
+
+def _pagina():
+    html = (FIXTURES / "steam_listing_page.html").read_text(encoding="utf-8")
+    return parse_item_page(html, NOME)
+
+
+class _SteamFalso:
+    def __init__(self, nomes=(NOME, "Unusual Team Captain")):
+        self.nomes = nomes
+        self.chamadas = 0
+
+    def search_page(self, start=0, count=100, query=None):
+        self.chamadas += 1
+        return SearchPage(
+            total_count=len(self.nomes),
+            results=[
+                SearchResult(hash_name=n, lowest_price=Brl.from_cents(1000), sell_listings=1)
+                for n in self.nomes
+            ],
+        )
+
+
+class _PaginasFalsas:
+    def __init__(self, pagina=None, erro=None):
+        self._pagina = pagina
+        self._erro = erro
+        self.chamadas = 0
+
+    def item_page(self, hash_name):
+        self.chamadas += 1
+        if self._erro:
+            raise self._erro
+        return self._pagina
+
+
+def _contexto(steam=None, paginas=None, indice=None):
+    return Contexto(
+        steam=steam or _SteamFalso(),
+        paginas=paginas or _PaginasFalsas(_pagina()),
+        index=indice or PriceIndex.from_payload(
+            {"response": {"items": {}}}, key_in_refined=64.11
+        ),
+        key_brl=CHAVE,
+        cache=PageCache(),
+    )
+
+
+@pytest.fixture
+def cliente():
+    ctx = _contexto()
+    app = criar_app(ctx)
+    cliente = TestClient(app)
+    cliente.ctx = ctx
+    return cliente
+
+
+# --- rotas ---------------------------------------------------------------
+
+
+def test_raiz_serve_o_formulario(cliente):
+    r = cliente.get("/")
+    assert r.status_code == 200
+    assert "form" in r.text.lower()
+
+
+def test_busca_lista_os_nomes(cliente):
+    r = cliente.get("/buscar", params={"q": "Chairholder"})
+    assert r.status_code == 200
+    assert NOME in r.text
+
+
+def test_busca_vazia_nao_chama_a_steam(cliente):
+    cliente.get("/buscar", params={"q": "  "})
+    assert cliente.ctx.steam.chamadas == 0
+
+
+def test_efeitos_lista_os_quatro_a_venda(cliente):
+    r = cliente.get("/efeitos", params={"nome": NOME})
+    assert r.status_code == 200
+    for efeito in ("Deep Dive", "Midnight Whirlwind", "Screaming Tiger", "Silver Cyclone"):
+        assert efeito in r.text
+
+
+def test_analise_mostra_preco_e_oferta(cliente):
+    r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
+    assert r.status_code == 200
+    assert "180,44" in r.text        # listagem mais barata do efeito
+    assert "106,31" in r.text        # melhor oferta de compra
+
+
+def test_analise_de_efeito_sem_listagem_avisa(cliente):
+    r = cliente.get("/analise", params={"nome": NOME, "efeito": "Burning Flames"})
+    assert r.status_code == 200
+    assert "Burning Flames" in r.text
+
+
+# --- cache ---------------------------------------------------------------
+
+
+def test_efeitos_e_analise_do_mesmo_item_buscam_a_pagina_uma_vez(cliente):
+    cliente.get("/efeitos", params={"nome": NOME})
+    cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
+    assert cliente.ctx.paginas.chamadas == 1
+
+
+def test_cache_expira_pelo_relogio_injetado():
+    agora = {"t": 0.0}
+    cache = PageCache(ttl_s=10.0, clock=lambda: agora["t"])
+    cache.put(NOME, _pagina())
+
+    agora["t"] = 9.0
+    assert cache.get(NOME) is not None
+
+    agora["t"] = 11.0
+    assert cache.get(NOME) is None
+
+
+# --- falha de estrutura --------------------------------------------------
+
+
+def test_mudanca_na_valve_vira_mensagem_e_nao_traceback():
+    ctx = _contexto(paginas=_PaginasFalsas(erro=PageStructureError("renderContext sumiu")))
+    cliente = TestClient(criar_app(ctx), raise_server_exceptions=False)
+
+    r = cliente.get("/efeitos", params={"nome": NOME})
+
+    assert r.status_code == 200
+    assert "renderContext sumiu" in r.text

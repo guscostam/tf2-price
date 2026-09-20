@@ -1,0 +1,47 @@
+<h3>{{ a.effect }}</h3>
+
+<p class="nivel">para este efeito</p>
+<table>
+  <tr><th>Listagem</th><th>Preço</th></tr>
+  {% for l in a.listings %}
+  <tr>
+    <td><a href="https://steamcommunity.com/market/listings/440/{{ a.hash_name | urlencode }}">{{ l.listing_id }}</a></td>
+    <td>{{ l.total_price }}</td>
+  </tr>
+  {% endfor %}
+</table>
+<p>Mais barata: <strong>{{ a.cheapest.total_price }}</strong> ({{ "%.1f"|format(a.price_in_keys) }} chaves)</p>
+
+<p class="nivel">saída imediata — ordens reais agora</p>
+{% if a.immediate.top_bid %}
+<p>
+  Melhor oferta de compra: {{ a.immediate.top_bid }} ({{ a.immediate.buy_orders }} ordens).<br>
+  Você receberia {{ a.immediate.net_received }} após a taxa de 15%.<br>
+  Resultado:
+  <span class="{{ 'bom' if a.immediate.result.cents > 0 else 'ruim' }}">{{ a.immediate.result }}</span>
+</p>
+{% else %}
+<p>Não há ordem de compra para este item.</p>
+{% endif %}
+
+<p class="nivel">saída paciente — troca via backpack.tf</p>
+{% if a.patient.available %}
+<p>
+  Valor sugerido: {{ "%.1f"|format(a.patient.keys) }} chaves = {{ a.patient.fair_value }}.<br>
+  Resultado:
+  <span class="{{ 'bom' if a.patient.result.cents > 0 else 'ruim' }}">{{ a.patient.result }}</span>
+</p>
+<div class="aviso">
+  Preço atualizado há <strong>{{ a.patient.age_days }} dias</strong>.
+  É preço <em>sugerido</em>, não oferta de compra: ninguém se comprometeu a pagar isso.
+</div>
+{% else %}
+<div class="aviso">Sem saída paciente: {{ a.patient.reason }}.</div>
+{% endif %}
+
+<p class="nivel">todos os efeitos deste item — a Steam não separa</p>
+<p>
+  Menor venda {{ a.orderbook.min_sell_order }} · maior compra {{ a.orderbook.max_buy_order }} ·
+  {{ a.orderbook.buy_orders }} ordens de compra · {{ a.orderbook.sell_orders }} de venda.<br>
+  Histórico: mediana {{ a.history_median }} em {{ a.history_purchases }} vendas.
+</p>

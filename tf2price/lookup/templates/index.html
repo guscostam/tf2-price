@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Consulta de Unusual</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 62rem; margin: 2rem auto; padding: 0 1rem; }
+    input { font-size: 1rem; padding: .5rem; width: 24rem; }
+    table { border-collapse: collapse; margin: .5rem 0; }
+    td, th { padding: .35rem .7rem; border-bottom: 1px solid #ddd; text-align: left; }
+    .bom { color: #0a7c2f; font-weight: 600; }
+    .ruim { color: #b3261e; font-weight: 600; }
+    .nivel { font-size: .8rem; color: #666; text-transform: uppercase; letter-spacing: .04em; }
+    .aviso { background: #fff4e5; border-left: 4px solid #d08b00; padding: .6rem .9rem; margin: .6rem 0; }
+    .erro { background: #fdeceb; border-left: 4px solid #b3261e; padding: .6rem .9rem; }
+    button { font-size: .95rem; padding: .35rem .8rem; margin: .15rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Consulta de Unusual</h1>
+  <form onsubmit="return false">
+    <input name="q" placeholder="parte do nome, ex: Chairholder"
+           hx-get="/buscar" hx-target="#itens" hx-trigger="keyup changed delay:400ms">
+  </form>
+  <div id="itens"></div>
+  <div id="efeitos"></div>
+  <div id="analise"></div>
+</body>
+</html>
