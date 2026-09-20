@@ -34,3 +34,14 @@ def test_efeito_desconhecido_devolve_none():
 def test_arquivo_ausente_levanta_erro_claro(tmp_path: Path):
     with pytest.raises(FileNotFoundError, match="effects.json"):
         load_effect_map(tmp_path / "nao_existe.json")
+
+
+def test_mapa_real_do_projeto_existe_e_tem_centenas_de_efeitos():
+    """O effects.json de produção precisa estar gerado.
+
+    Sem ele, effect_id_for levanta FileNotFoundError no primeiro Unusual do
+    fetch profundo — depois de a varredura já ter gasto as requisições caras.
+    """
+    mapa = load_effect_map()
+    assert len(mapa) > 100
+    assert "Burning Flames" in mapa
