@@ -504,15 +504,7 @@ def novo() -> tuple[str, str]:
 Run: `.venv/Scripts/python -m pytest tests/contas -q`
 Expected: PASS, 9 testes
 
-- [ ] **Step 5: Registrar a diferença de dialeto perto da fixture**
-
-Em `tests/conftest.py`, acrescente ao docstring da fixture `engine` que o
-`sqlite3` só abre transação de verdade antes de uma escrita, então o dublê
-**não** reproduz o aperto que o Postgres sente em caminho de leitura pura. Quem
-escrever o próximo teste de concorrência precisa saber disso antes de presumir
-cobertura que não existe.
-
-- [ ] **Step 6: Suíte inteira**
+- [ ] **Step 5: Suíte inteira**
 
 Run: `.venv/Scripts/python -m pytest`
 Expected: 210 passed
@@ -3235,7 +3227,15 @@ Acrescente a `conexao` o comentário sobre ordem de parâmetros descrito acima.
 Run: `.venv/Scripts/python -m pytest tests/painel/test_transacao.py`
 Expected: PASS nos dois
 
-- [ ] **Step 5: Suíte inteira**
+- [ ] **Step 5: Registrar a diferença de dialeto perto da fixture**
+
+Em `tests/conftest.py`, acrescente ao docstring da fixture `engine` que o
+`sqlite3` só abre transação de verdade antes de uma escrita, então o dublê
+**não** reproduz o aperto que o Postgres sente em caminho de leitura pura. Quem
+escrever o próximo teste de concorrência precisa saber disso antes de presumir
+cobertura que não existe.
+
+- [ ] **Step 6: Suíte inteira**
 
 Run: `.venv/Scripts/python -m pytest`
 Expected: tudo verde. Preste atenção especial a `tests/painel/test_admin.py` e
