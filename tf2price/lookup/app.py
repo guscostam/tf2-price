@@ -61,6 +61,20 @@ class Contexto:
     paginas: Any
     index: PriceIndex
     key_brl: Brl
+    # Taxa dólar->real do próprio SteamClient. A página de listagens ignora
+    # o parâmetro `currency` e alterna entre dólar e real entre requisições,
+    # então o que vier em dólar precisa desta taxa para virar real.
+    #
+    # O cache de páginas guarda ItemPage já convertida e é chaveado só pelo
+    # nome do item — e isso basta: a taxa é uma foto por processo
+    # (`_usd_to_brl_rate` calcula uma vez por instância de SteamClient e
+    # guarda), então ela não muda enquanto alguma entrada do cache vive.
+    # Se um dia a taxa passar a ser reavaliada em tempo de execução, a
+    # chave do cache precisa incluí-la.
+    #
+    # Sem valor padrão, pelo mesmo motivo de `parse_item_page`: um padrão
+    # deixa a conversão esquecível em quem monta o contexto.
+    usd_to_brl: float
     cache: PageCache = field(default_factory=PageCache)
 
 
@@ -77,7 +91,7 @@ def criar_app(contexto: Contexto) -> FastAPI:
         em_cache = contexto.cache.get(nome)
         if em_cache is not None:
             return em_cache
-        pagina = contexto.paginas.item_page(nome)
+        pagina = contexto.paginas.item_page(nome, contexto.usd_to_brl)
         contexto.cache.put(nome, pagina)
         return pagina
 
@@ -152,6 +166,7 @@ def construir_contexto() -> Contexto:
         paginas=SteamPageClient(limitador),
         index=index,
         key_brl=steam.key_price(),
+        usd_to_brl=steam.usd_to_brl(),
     )
 
 

@@ -412,6 +412,16 @@ class SteamClient:
             self._usd_to_brl = brl_cents / usd_cents
         return self._usd_to_brl
 
+    def usd_to_brl(self) -> float:
+        """A mesma taxa dólar->real já usada na busca, exposta aos chamadores.
+
+        A página de listagens também vem em dólar em parte das requisições e
+        precisa converter. Existe um acessor para que ninguém re-derive a
+        taxa nem invente uma segunda fonte de verdade: o valor é o mesmo
+        cache por instância de `_usd_to_brl_rate`.
+        """
+        return self._usd_to_brl_rate()
+
     def key_price(self) -> Brl:
         """Taxa de câmbio do spike: a listagem mais barata de chave.
 

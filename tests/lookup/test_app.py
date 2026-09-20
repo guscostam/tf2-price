@@ -18,7 +18,8 @@ CHAVE = Brl.from_float(11.73)
 
 def _pagina():
     html = (FIXTURES / "steam_listing_page.html").read_text(encoding="utf-8")
-    return parse_item_page(html, NOME)
+    # Taxa 1.0: a fixture declara BRL e nenhum teste daqui é sobre moeda.
+    return parse_item_page(html, NOME, 1.0)
 
 
 class _SteamFalso:
@@ -42,15 +43,17 @@ class _PaginasFalsas:
         self._pagina = pagina
         self._erro = erro
         self.chamadas = 0
+        self.taxas: list[float] = []
 
-    def item_page(self, hash_name):
+    def item_page(self, hash_name, usd_to_brl):
         self.chamadas += 1
+        self.taxas.append(usd_to_brl)
         if self._erro:
             raise self._erro
         return self._pagina
 
 
-def _contexto(steam=None, paginas=None, indice=None):
+def _contexto(steam=None, paginas=None, indice=None, usd_to_brl=1.0):
     return Contexto(
         steam=steam or _SteamFalso(),
         paginas=paginas or _PaginasFalsas(_pagina()),
@@ -58,6 +61,7 @@ def _contexto(steam=None, paginas=None, indice=None):
             {"response": {"items": {}}}, key_in_refined=64.11
         ),
         key_brl=CHAVE,
+        usd_to_brl=usd_to_brl,
         cache=PageCache(),
     )
 
@@ -143,3 +147,29 @@ def test_mudanca_na_valve_vira_mensagem_e_nao_traceback():
 
     assert r.status_code == 200
     assert "renderContext sumiu" in r.text
+
+
+# --- taxa de conversão ---------------------------------------------------
+
+
+def test_contexto_carrega_a_taxa_e_a_repassa_para_a_pagina():
+    """A página da Steam alterna entre dólar e real; sem a taxa ela é lida errado."""
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas, usd_to_brl=5.15)
+    cliente = TestClient(criar_app(ctx))
+
+    cliente.get("/efeitos", params={"nome": NOME})
+
+    assert ctx.usd_to_brl == 5.15
+    assert paginas.taxas == [5.15]
+
+
+def test_contexto_exige_a_taxa_explicitamente():
+    """Sem valor padrão: um padrão deixa a conversão esquecível no chamador."""
+    with pytest.raises(TypeError):
+        Contexto(
+            steam=_SteamFalso(),
+            paginas=_PaginasFalsas(_pagina()),
+            index=PriceIndex.from_payload({"response": {"items": {}}}, key_in_refined=64.11),
+            key_brl=CHAVE,
+        )

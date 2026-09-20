@@ -27,7 +27,8 @@ AGORA = 1_790_000_000
 @pytest.fixture
 def pagina() -> ItemPage:
     html = (FIXTURES / "steam_listing_page.html").read_text(encoding="utf-8")
-    return parse_item_page(html, NOME)
+    # Taxa 1.0: a fixture declara BRL e este teste não é sobre moeda.
+    return parse_item_page(html, NOME, 1.0)
 
 
 def _indice(entradas: dict) -> PriceIndex:

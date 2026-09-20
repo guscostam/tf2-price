@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import httpx
@@ -25,7 +26,9 @@ def _html() -> str:
 
 @pytest.fixture
 def pagina() -> ItemPage:
-    return parse_item_page(_html(), NOME)
+    # Taxa 1.0 onde o teste não é sobre moeda: a conversão vira no-op e as
+    # asserções mantêm os valores originais.
+    return parse_item_page(_html(), NOME, 1.0)
 
 
 # --- preço em formato en-US, diferente do priceoverview ------------------
@@ -127,13 +130,13 @@ def test_historico_de_vendas(pagina: ItemPage):
 
 def test_pagina_sem_render_context_falha_com_mensagem_clara():
     with pytest.raises(PageStructureError, match="renderContext"):
-        parse_item_page("<html><body>nada aqui</body></html>", NOME)
+        parse_item_page("<html><body>nada aqui</body></html>", NOME, 1.0)
 
 
 def test_render_context_sem_query_esperada_falha_nomeando_qual():
     html = 'x<script>window.SSR.renderContext="{\\"queryData\\":\\"{}\\"}";</script>'
     with pytest.raises(PageStructureError, match="market_item_search"):
-        parse_item_page(html, NOME)
+        parse_item_page(html, NOME, 1.0)
 
 
 # --- cliente HTTP --------------------------------------------------------
@@ -155,7 +158,7 @@ def test_cliente_escapa_o_nome_e_pede_moeda_brl():
         client=_cliente(_html(), capturadas),
     )
 
-    pagina = cliente.item_page(NOME)
+    pagina = cliente.item_page(NOME, 1.0)
 
     assert len(pagina.listings) == 7
     url = str(capturadas[0].url)
@@ -180,5 +183,161 @@ def test_cliente_repete_em_429_e_registra():
         sleep=lambda _: None,
     )
 
-    assert len(cliente.item_page(NOME).listings) == 7
+    assert len(cliente.item_page(NOME, 1.0).listings) == 7
     assert limiter.throttled == 1
+
+
+# --- moeda declarada pelo payload ----------------------------------------
+#
+# Medido em 2026-09-20: a página de listagens IGNORA o parâmetro `currency`
+# e alterna entre dólar e real de uma requisição para outra. `parse_page_price`
+# só conhece o formato en-US, então '$1,746.01' entrava como R$ 1.746,01 —
+# 5,15x menos que os R$ 8.999,99 reais do item. Cada parte do renderContext
+# declara a sua moeda ao lado do valor; estes testes prendem essa leitura.
+
+
+def _pagina_sintetica(
+    *,
+    moeda_listagem: int,
+    moeda_livro: int,
+    moeda_historico: int,
+    subtotal: str = "$100.00",
+    campo_listagem: str = "eCurrency",
+) -> str:
+    """HTML mínimo com o renderContext duplamente escapado da página real.
+
+    Os escapes aninhados são construídos com `json.dumps` em vez de escritos
+    à mão: assim o teste continua legível e não pode divergir da forma que a
+    Valve serve — uma string JSON (o renderContext) que carrega outra string
+    JSON (o queryData) dentro.
+    """
+    query_data = {
+        "queries": [
+            {
+                "queryKey": ["market_item_search", NOME],
+                "state": {
+                    "data": {
+                        "pages": [
+                            {
+                                "listings": [
+                                    {
+                                        "listingid": "1",
+                                        "strSubtotal": subtotal,
+                                        campo_listagem: moeda_listagem,
+                                        "description": {
+                                            "descriptions": [
+                                                {"value": "Unusual Effect: Deep Dive"}
+                                            ]
+                                        },
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                },
+            },
+            {
+                "queryKey": ["orderbook", NOME],
+                "state": {
+                    "data": {
+                        "eCurrency": moeda_livro,
+                        "amtMaxBuyOrder": 5000,
+                        "amtMinSellOrder": 10000,
+                        "cBuyOrders": 3,
+                        "cSellOrders": 2,
+                    }
+                },
+            },
+            {
+                "queryKey": ["pricehistory", NOME],
+                "state": {
+                    "data": {
+                        # Minúsculo no histórico, diferente das outras partes.
+                        "ecurrency": moeda_historico,
+                        "prices": [
+                            {"time": 1_790_000_000, "price_median": 20.0, "purchases": 4}
+                        ],
+                    }
+                },
+            },
+        ]
+    }
+    contexto = json.dumps({"queryData": json.dumps(query_data)})
+    return f"<script>window.SSR.renderContext={json.dumps(contexto)};</script>"
+
+
+def test_fixture_real_declara_brl_e_a_taxa_nao_a_toca():
+    """A fixture veio em real: com taxa 5,15 o preço tem de continuar igual."""
+    pagina = parse_item_page(_html(), NOME, 5.15)
+
+    barata = min(pagina.listings, key=lambda x: x.total_price)
+    assert barata.total_price == Brl.from_cents(12452)
+    assert pagina.orderbook.max_buy_order == Brl.from_cents(10631)
+    assert pagina.orderbook.min_sell_order == Brl.from_cents(12452)
+
+
+def test_pagina_em_dolar_converte_as_tres_partes():
+    html = _pagina_sintetica(moeda_listagem=1, moeda_livro=1, moeda_historico=1)
+
+    pagina = parse_item_page(html, NOME, 5.0)
+
+    # '$100.00' lido como real daria R$ 100,00; declarado em dólar, R$ 500,00.
+    assert pagina.listings[0].total_price == Brl.from_cents(50_000)
+    assert pagina.orderbook.max_buy_order == Brl.from_cents(25_000)
+    assert pagina.orderbook.min_sell_order == Brl.from_cents(50_000)
+    assert pagina.history[0].median == Brl.from_cents(10_000)
+
+
+def test_listagem_em_moeda_desconhecida_levanta_com_o_codigo():
+    html = _pagina_sintetica(moeda_listagem=23, moeda_livro=7, moeda_historico=7)
+
+    with pytest.raises(PageStructureError, match="listagem veio na moeda 23"):
+        parse_item_page(html, NOME, 5.0)
+
+
+def test_livro_em_moeda_desconhecida_levanta_com_o_codigo():
+    html = _pagina_sintetica(moeda_listagem=7, moeda_livro=23, moeda_historico=7)
+
+    with pytest.raises(PageStructureError, match="livro de ofertas veio na moeda 23"):
+        parse_item_page(html, NOME, 5.0)
+
+
+def test_historico_em_moeda_desconhecida_levanta_com_o_codigo():
+    html = _pagina_sintetica(moeda_listagem=7, moeda_livro=7, moeda_historico=23)
+
+    with pytest.raises(PageStructureError, match="veio na moeda 23"):
+        parse_item_page(html, NOME, 5.0)
+
+
+def test_campo_de_moeda_ausente_levanta():
+    """Sem o campo não há como saber a moeda — adivinhar é o bug de novo."""
+    html = _pagina_sintetica(
+        moeda_listagem=7,
+        moeda_livro=7,
+        moeda_historico=7,
+        campo_listagem="naoEhMoeda",
+    )
+
+    with pytest.raises(PageStructureError, match="listagem veio na moeda None"):
+        parse_item_page(html, NOME, 5.0)
+
+
+def test_as_partes_sao_lidas_de_forma_independente():
+    """Livro em dólar, listagens em real: só o livro converte.
+
+    É o teste que pega quem depois "simplificar" lendo um campo de moeda só
+    e aplicando o mesmo fator na página inteira.
+    """
+    html = _pagina_sintetica(
+        moeda_listagem=7,
+        moeda_livro=1,
+        moeda_historico=7,
+        subtotal="R$100.00",
+    )
+
+    pagina = parse_item_page(html, NOME, 5.0)
+
+    assert pagina.listings[0].total_price == Brl.from_cents(10_000)
+    assert pagina.orderbook.max_buy_order == Brl.from_cents(25_000)
+    assert pagina.orderbook.min_sell_order == Brl.from_cents(50_000)
+    assert pagina.history[0].median == Brl.from_cents(2_000)

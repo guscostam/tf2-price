@@ -11,11 +11,17 @@ import httpx
 
 from tf2price.domain.money import Brl
 from tf2price.sources.ratelimit import RateLimiter, backoff_delays
-from tf2price.sources.steam import APPID, CURRENCY_BRL
+from tf2price.sources.steam import APPID, CURRENCY_BRL, CURRENCY_USD
 
 BASE = "https://steamcommunity.com"
 RENDER_CONTEXT_MARKER = "window.SSR.renderContext="
 UNUSUAL_EFFECT_PREFIX = "Unusual Effect: "
+
+# Campo de moeda de cada parte do renderContext. O histórico escreve em
+# minúsculas — `ecurrency` — ao contrário da listagem e do livro de ofertas.
+# Não é engano de digitação; é assim que a Valve manda.
+CURRENCY_FIELD = "eCurrency"
+CURRENCY_FIELD_HISTORY = "ecurrency"
 
 # A página usa formato en-US: vírgula para milhar, ponto para decimal.
 # priceoverview usa pt-BR. Ver "Duas convenções de preço" no plano.
@@ -117,6 +123,39 @@ def _por_chave(qd: dict[str, Any], fragmento: str) -> Any:
     )
 
 
+def _fator(
+    dados: dict[str, Any],
+    parte: str,
+    usd_to_brl: float,
+    campo: str = CURRENCY_FIELD,
+) -> float:
+    """Fator que leva o valor DESTA parte para reais.
+
+    Medido em 2026-09-20: a página de listagens IGNORA o parâmetro
+    `currency` e alterna de moeda entre requisições — o mesmo
+    `Unusual HazMat Headcase` veio 'R$124.52' quando a fixture foi capturada,
+    em real vinte minutos atrás e '$1,746.01' (eCurrency=1) agora, com
+    currency=7, com country=BR e sem parâmetro nenhum, todos idênticos em
+    dólar. Lido como real, o dólar vira um preço cinco vezes menor que o
+    verdadeiro (R$ 8.999,99 confirmado no priceoverview) sem nada avisar.
+
+    O próprio payload declara a moeda ao lado do valor, então é ela que
+    mandamos — nunca o símbolo '$' ou 'R$' do `strSubtotal`, que é
+    apresentação e não dado estruturado.
+
+    Cada parte é lida com o seu campo. Não assuma que concordam entre si.
+    """
+    moeda = dados.get(campo)
+    if moeda == CURRENCY_BRL:
+        return 1.0
+    if moeda == CURRENCY_USD:
+        return usd_to_brl
+    raise PageStructureError(
+        f"{parte} veio na moeda {moeda!r}, esperava "
+        f"{CURRENCY_USD} (USD) ou {CURRENCY_BRL} (BRL)"
+    )
+
+
 def _efeito(listagem: dict[str, Any]) -> str | None:
     descricoes = ((listagem.get("description") or {}).get("descriptions")) or []
     for d in descricoes:
@@ -126,7 +165,7 @@ def _efeito(listagem: dict[str, Any]) -> str | None:
     return None
 
 
-def _listagens(qd: dict[str, Any]) -> list[PageListing]:
+def _listagens(qd: dict[str, Any], usd_to_brl: float) -> list[PageListing]:
     dados = _por_chave(qd, "market_item_search") or {}
     paginas = dados.get("pages") or []
     saida: list[PageListing] = []
@@ -135,32 +174,37 @@ def _listagens(qd: dict[str, Any]) -> list[PageListing]:
             bruto = item.get("strSubtotal")
             if not bruto:
                 continue  # sem preço não dá para avaliar; pular é honesto
+            # A moeda vem por listagem, ao lado do valor.
+            fator = _fator(item, "listagem", usd_to_brl)
             saida.append(
                 PageListing(
                     listing_id=str(item.get("listingid", "")),
-                    total_price=parse_page_price(str(bruto)),
+                    # Arredonda uma única vez, na conversão.
+                    total_price=parse_page_price(str(bruto)) * fator,
                     effect=_efeito(item),
                 )
             )
     return saida
 
 
-def _centavos(valor: Any) -> Brl | None:
-    return Brl.from_cents(int(valor)) if valor else None
+def _centavos(valor: Any, fator: float) -> Brl | None:
+    return Brl.from_cents(round(int(valor) * fator)) if valor else None
 
 
-def _livro(qd: dict[str, Any]) -> OrderBook:
+def _livro(qd: dict[str, Any], usd_to_brl: float) -> OrderBook:
     d = _por_chave(qd, "orderbook") or {}
+    fator = _fator(d, "livro de ofertas", usd_to_brl)
     return OrderBook(
-        max_buy_order=_centavos(d.get("amtMaxBuyOrder")),
-        min_sell_order=_centavos(d.get("amtMinSellOrder")),
+        max_buy_order=_centavos(d.get("amtMaxBuyOrder"), fator),
+        min_sell_order=_centavos(d.get("amtMinSellOrder"), fator),
         buy_orders=int(d.get("cBuyOrders") or 0),
         sell_orders=int(d.get("cSellOrders") or 0),
     )
 
 
-def _historico(qd: dict[str, Any]) -> list[SalePoint]:
+def _historico(qd: dict[str, Any], usd_to_brl: float) -> list[SalePoint]:
     d = _por_chave(qd, "pricehistory") or {}
+    fator = _fator(d, "histórico", usd_to_brl, campo=CURRENCY_FIELD_HISTORY)
     saida: list[SalePoint] = []
     for ponto in d.get("prices") or []:
         mediana = ponto.get("price_median")
@@ -169,20 +213,29 @@ def _historico(qd: dict[str, Any]) -> list[SalePoint]:
         saida.append(
             SalePoint(
                 when=int(ponto.get("time", 0)),
-                median=Brl.from_float(float(mediana)),
+                # Unidades -> centavos e dólar -> real na mesma conta, para
+                # arredondar uma única vez.
+                median=Brl.from_cents(round(float(mediana) * 100 * fator)),
                 purchases=int(ponto.get("purchases") or 0),
             )
         )
     return saida
 
 
-def parse_item_page(html: str, hash_name: str) -> ItemPage:
+def parse_item_page(html: str, hash_name: str, usd_to_brl: float) -> ItemPage:
+    """Extrai a página de listagens, convertendo o que vier em dólar.
+
+    `usd_to_brl` é posicional e obrigatório de propósito. Um valor padrão é
+    justamente como esta classe de bug volta: torna a conversão esquecível
+    no ponto de chamada e deixa todo teste existente verde enquanto um
+    chamador novo pula a conversão em silêncio.
+    """
     qd = _query_data(_render_context(html))
     return ItemPage(
         hash_name=hash_name,
-        listings=_listagens(qd),
-        orderbook=_livro(qd),
-        history=_historico(qd),
+        listings=_listagens(qd, usd_to_brl),
+        orderbook=_livro(qd, usd_to_brl),
+        history=_historico(qd, usd_to_brl),
     )
 
 
@@ -207,9 +260,12 @@ class SteamPageClient:
             follow_redirects=True,
         )
 
-    def item_page(self, hash_name: str) -> ItemPage:
+    def item_page(self, hash_name: str, usd_to_brl: float) -> ItemPage:
         quoted = urllib.parse.quote(hash_name, safe="")
         url = f"{BASE}/market/listings/{APPID}/{quoted}"
+        # `currency` continua sendo enviado por honestidade de pedido, mas a
+        # página o ignora e alterna de moeda entre requisições; quem decide
+        # é o campo de moeda que cada parte do payload declara.
         params = {"currency": CURRENCY_BRL, "l": "english"}
 
         ultimo: int | None = None
@@ -227,6 +283,6 @@ class SteamPageClient:
                 ultimo = resposta.status_code
                 continue
             resposta.raise_for_status()
-            return parse_item_page(resposta.text, hash_name)
+            return parse_item_page(resposta.text, hash_name, usd_to_brl)
 
         raise RuntimeError(f"Steam não respondeu após backoff (último: {ultimo})")
