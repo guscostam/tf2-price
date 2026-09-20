@@ -32,7 +32,25 @@ Abre em `http://127.0.0.1:8000`. Na primeira subida, com o banco vazio, o
 terminal imprime um link de convite de administrador válido por 24 horas — é
 por ele que a primeira conta nasce. Depois, novas contas saem de `/admin`.
 
-Requer `BPTF_API_KEY` e `DATABASE_URL` no `.env`.
+Requer `BPTF_API_KEY` e `DATABASE_URL` no `.env`. A aplicação sobe mesmo quando
+a Steam ou a backpack.tf estão fora do ar: a cotação e o índice de preços são
+buscados na primeira necessidade, e a tela diz quando algum deles ainda não
+carregou.
+
+A tela separa com rigor dois níveis de dado, porque confundi-los invalidou a
+primeira versão deste projeto:
+
+- **por efeito** — as listagens do efeito escolhido e o preço da backpack.tf
+  dele, sempre com a idade do preço à vista
+- **todos os efeitos do item** — o livro de ofertas e o histórico de vendas, que
+  a Steam não separa por efeito
+
+Quando a backpack.tf não precifica o efeito escolhido, a tela diz isso em vez de
+mostrar o preço de outro efeito.
+
+A busca aceita a dupla qualidade (`Strange Unusual ...`), que é quase um terço
+dos nomes e a faixa mais cara do mercado, e recusa as ferramentas
+`Unusual Taunt: X Unusualifier` — elas aplicam um efeito, não o têm.
 
 ## Implantação (Railway)
 
