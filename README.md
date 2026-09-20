@@ -6,7 +6,7 @@ da backpack.tf e emite um veredito sobre construir ou não o app completo.
 ## Pré-requisitos
 
 - Python 3.12+
-- API key da backpack.tf: https://backpack.tf/developer/apikey/new (login via Steam)
+- API key da backpack.tf: https://next.backpack.tf/developer/ (login via Steam)
 - Steam Web API key, só para gerar o mapa de efeitos: https://steamcommunity.com/dev/apikey
 
 ## Instalação

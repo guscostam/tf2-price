@@ -272,5 +272,5 @@ O spike é descartável, mas `domain/` não é — ele vai para o projeto comple
 
 ## 12. Pré-requisito
 
-API key da backpack.tf, grátis, em `backpack.tf/developer/apikey/new` (login via Steam).
+API key da backpack.tf, grátis, em `next.backpack.tf/developer/` (login via Steam).
 É ela que libera o `IGetPrices/v4`. Sem ela o spike não roda.

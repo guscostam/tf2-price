@@ -187,7 +187,7 @@ addopts = "-q"
 - [ ] **Step 2: Criar `.env.example`**
 
 ```
-# backpack.tf: obrigatória. https://backpack.tf/developer/apikey/new (login via Steam)
+# backpack.tf: obrigatória. https://next.backpack.tf/developer/ (login via Steam)
 BPTF_API_KEY=
 
 # Steam Web API: só para gerar data/effects.json. https://steamcommunity.com/dev/apikey
@@ -4134,7 +4134,7 @@ da backpack.tf e emite um veredito sobre construir ou não o app completo.
 ## Pré-requisitos
 
 - Python 3.12+
-- API key da backpack.tf: https://backpack.tf/developer/apikey/new
+- API key da backpack.tf: https://next.backpack.tf/developer/
 - Steam Web API key (só para gerar o mapa de efeitos): https://steamcommunity.com/dev/apikey
 
 ## Instalação
