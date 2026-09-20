@@ -144,7 +144,7 @@ def guaranteed_opportunities(
                 hash_name=candidate.hash_name,
                 listing_id=None,
                 effect=None,
-                craftable=None,  # Craftability is unresolved at the shallow-pass stage, like effect
+                craftable=None,  # craftabilidade é incógnita na passada rasa, como o efeito
                 steam_total=candidate.steam_lowest,
                 valuation=evaluate(candidate.steam_lowest, keys, key_brl),
                 classification=candidate.classification,
@@ -157,20 +157,32 @@ def guaranteed_opportunities(
 
 
 def deep_targets(candidates: list[Candidate], key_brl: Brl, limit: int) -> list[Candidate]:
-    """Candidatas ordenadas pelo desconto no cenário mais favorável.
+    """Candidatas Unusual ordenadas pelo ganho ABSOLUTO no melhor cenário.
 
-    O fetch profundo é o recurso caro do spike; gastá-lo primeiro onde o
-    potencial é maior é o que faz 20 requisições valerem alguma coisa.
+    Só Unusuais: o spec escopa o fetch profundo nos 20 melhores candidatos
+    Unusual, que é o dado de maior valor do spike. As demais candidatas
+    continuam contadas no relatório, mas as incógnitas delas não são
+    resolvidas e por isso não entram no líquido.
+
+    Ordenar por valor absoluto, e não por proporção, porque o fetch profundo
+    é um orçamento FIXO de requisições caras: cada uma deve comprar o maior
+    ganho possível em reais. Por proporção, um cosmético de R$ 1 contra um
+    teto de uma chave (95%) passaria na frente de um chapéu Unusual de
+    R$ 500 contra um teto de 45 chaves (49%), e as ~20 requisições iriam
+    para itens cujo ganho máximo é de centavos.
     """
-    pending = [c for c in candidates if c.classification is Classification.CANDIDATE]
+    pending = [
+        c
+        for c in candidates
+        if c.classification is Classification.CANDIDATE
+        and c.identity.quality_id == QUALITY_UNUSUAL
+    ]
 
-    def best_case_discount(candidate: Candidate) -> float:
+    def best_case_gap_cents(candidate: Candidate) -> int:
         ceiling = key_brl * candidate.value_range.max_keys
-        if ceiling.cents <= 0:
-            return -1.0
-        return 1 - candidate.steam_lowest.cents / ceiling.cents
+        return ceiling.cents - candidate.steam_lowest.cents
 
-    pending.sort(key=best_case_discount, reverse=True)
+    pending.sort(key=best_case_gap_cents, reverse=True)
     return pending[:limit]
 
 
@@ -229,27 +241,38 @@ def collect_usd_items(
 ) -> list[tuple[float, Brl]]:
     """Pares (valor em USD na bp.tf, preço na Steam) para testar a guarda 4.
 
-    Estes itens são justamente os que `shallow_pass` descarta como não
-    casados, porque USD não converte para chaves. Coletá-los à parte é o
-    que permite verificar se o preço deles é derivado da Steam Market.
+    A amostra são exatamente os itens que `shallow_pass` descarta como não
+    casados: nenhum nome candidato tem faixa em chaves ou metal. Por isso a
+    resolução do nome passa pela MESMA `_resolve_bptf_name` — se ela casa,
+    o item foi avaliado normalmente e não pertence a esta amostra. Um item
+    com preço em chaves E em USD na mesma qualidade fica de fora: ele já
+    tem valor convertível, e o que se quer medir é o preço que só existe
+    em dólares.
+
+    Dentro do nome, só entradas sem `priceindex`. Uma entrada com
+    priceindex é uma variante (um efeito de Unusual específico), e pegar
+    uma delas compararia o dólar de um efeito arbitrário contra o preço
+    Steam do nome inteiro — dois itens diferentes no mesmo par.
     """
     pairs: list[tuple[float, Brl]] = []
 
     for result in results:
         identity = parse_market_hash_name(result.hash_name)
 
-        for name in bptf_name_candidates(identity, result.hash_name):
-            entries = index.entries(name, identity.quality_id)
-            if not entries:
-                continue
+        if _resolve_bptf_name(identity, result.hash_name, index) is not None:
+            continue
 
+        for name in bptf_name_candidates(identity, result.hash_name):
             usd = [
                 e
-                for e in entries
-                if e.price.currency == "usd" and e.craftable and e.price.value > 0
+                for e in index.entries(name, identity.quality_id)
+                if e.priceindex is None
+                and e.price.currency == "usd"
+                and e.craftable
+                and e.price.value > 0
             ]
             if usd:
                 pairs.append((usd[0].price.value, result.lowest_price))
-            break  # primeiro nome que existe no índice decide
+                break  # primeiro nome com preço em dólar decide
 
     return pairs

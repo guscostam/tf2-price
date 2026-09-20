@@ -36,8 +36,27 @@ def net_opportunities(opportunities: list[Opportunity]) -> list[Opportunity]:
     ]
 
 
+def _best_per_name(opportunities: list[Opportunity]) -> list[Opportunity]:
+    """Colapsa para uma linha por hash_name: a de maior desconto."""
+    melhores: dict[str, Opportunity] = {}
+    for o in opportunities:
+        atual = melhores.get(o.hash_name)
+        if atual is None or o.valuation.discount > atual.valuation.discount:
+            melhores[o.hash_name] = o
+    return list(melhores.values())
+
+
 def decide(opportunities: list[Opportunity]) -> Verdict:
-    """Veredito do §8 do spec, sobre as líquidas."""
+    """Veredito do §8 do spec, sobre as líquidas.
+
+    Conta NOMES distintos, não linhas. As duas fontes de oportunidade têm
+    granularidades incompatíveis: `guaranteed_opportunities` emite uma linha
+    por hash_name, enquanto `resolve_deep` emite uma por listagem, e um
+    fetch profundo traz até 100 listagens do MESMO item. Contando linhas,
+    um único chapéu subprecificado com 20 listagens baratas já dispararia
+    "construa a aplicação" sozinho — exatamente o falso positivo que o
+    spec manda evitar. Os cortes continuam os mesmos; só a unidade muda.
+    """
     strong = [
         o
         for o in net_opportunities(opportunities)
@@ -47,11 +66,15 @@ def decide(opportunities: list[Opportunity]) -> Verdict:
     if not strong:
         return Verdict.RED
 
-    mean_cents = sum(o.absolute_discount.cents for o in strong) / len(strong)
+    distintas = _best_per_name(strong)
+    mean_cents = sum(o.absolute_discount.cents for o in distintas) / len(distintas)
 
-    if len(strong) >= MIN_STRONG_COUNT_GREEN and mean_cents >= MIN_MEAN_DISCOUNT_BRL.cents:
+    if (
+        len(distintas) >= MIN_STRONG_COUNT_GREEN
+        and mean_cents >= MIN_MEAN_DISCOUNT_BRL.cents
+    ):
         return Verdict.GREEN
-    if len(strong) >= MIN_STRONG_COUNT_YELLOW:
+    if len(distintas) >= MIN_STRONG_COUNT_YELLOW:
         return Verdict.YELLOW
     return Verdict.RED
 
@@ -164,8 +187,13 @@ def render_markdown(
     net = net_opportunities(opportunities)
     verdict = decide(opportunities)
 
+    nomes_liquidos = _best_per_name(net)
+
     def faixa(minimo: float) -> int:
         return sum(1 for o in net if o.valuation.discount >= minimo)
+
+    def faixa_nomes(minimo: float) -> int:
+        return len({o.hash_name for o in net if o.valuation.discount >= minimo})
 
     linhas: list[str] = []
     add = linhas.append
@@ -176,13 +204,20 @@ def render_markdown(
     add("")
     add("### Oportunidades")
     add("")
-    add("| Faixa de desconto | Líquidas |")
-    add("|---|---|")
+    add("| Faixa de desconto | Líquidas | Nomes distintos |")
+    add("|---|---|---|")
     for bucket in DISPLAY_BUCKETS:
-        add(f"| >= {bucket * 100:.0f}% | {faixa(bucket)} |")
+        add(f"| >= {bucket * 100:.0f}% | {faixa(bucket)} | {faixa_nomes(bucket)} |")
     add("")
     add(f"- Brutas avaliadas: {len(opportunities)}")
-    add(f"- Líquidas (pós-guardas, desconto positivo): {len(net)}")
+    add(
+        f"- Líquidas (pós-guardas, desconto positivo): {len(net)} oportunidades "
+        f"líquidas em {len(nomes_liquidos)} nomes distintos"
+    )
+    add(
+        "  (uma listagem é uma linha; um fetch profundo traz até 100 listagens "
+        "do mesmo item, então o veredito conta nomes, não linhas)"
+    )
 
     if net:
         melhor = max(net, key=lambda o: o.absolute_discount.cents)
@@ -199,6 +234,23 @@ def render_markdown(
         o.guard for o in opportunities if o.guard is not Guard.OK
     ).most_common():
         add(f"| {guard.value} | {total} |")
+
+    add("")
+    add("**Excluídos ANTES das guardas** (não aparecem na tabela acima, e por")
+    add("isso a tabela subestima o quanto de sinal aparente foi descartado):")
+    add("")
+    usd_excluidos = market_derived.sample_size if market_derived is not None else 0
+    add(
+        f"- Itens precificados em USD: {usd_excluidos}. USD não converte para "
+        "chaves, então eles caem em 'nomes não casados' na passada rasa e "
+        "nunca chegam à guarda `derivado_da_steam`."
+    )
+    sem_fetch = max(candidate_count - deep_fetched_count, 0)
+    add(
+        f"- Candidatas sem fetch profundo: {sem_fetch}. Ficaram com as "
+        "incógnitas por resolver e não viraram oportunidade nenhuma, então a "
+        "guarda `incognitas_nao_resolvidas` também não as conta."
+    )
 
     add("")
     add("### Varredura")

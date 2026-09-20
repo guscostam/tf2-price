@@ -42,17 +42,3 @@ class Brl:
         formatted = formatted.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
         return f"R$ {formatted}"
 
-
-@dataclass(frozen=True, order=True)
-class Keys:
-    """Valor em chaves de TF2. Pode ser fracionário."""
-
-    amount: float
-
-    def to_brl(self, key_brl: Brl) -> Brl:
-        """Converte para reais pela taxa da chave na própria Steam Market.
-
-        Usar a chave da Steam (e não a cotação em dólar da bp.tf) é o que
-        cancela o prêmio de saldo travado dos dois lados da comparação.
-        """
-        return key_brl * self.amount

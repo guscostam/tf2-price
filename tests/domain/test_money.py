@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tf2price.domain.money import Brl, Keys
+from tf2price.domain.money import Brl
 
 
 def test_from_float_converte_para_centavos():
@@ -31,12 +31,3 @@ def test_ordenacao():
 def test_str_em_formato_brasileiro():
     assert str(Brl.from_float(1234.5)) == "R$ 1.234,50"
     assert str(Brl.from_float(0.99)) == "R$ 0,99"
-
-
-def test_keys_converte_para_brl_pela_taxa_da_steam():
-    # 10 chaves a R$ 22,00 cada
-    assert Keys(10).to_brl(Brl.from_float(22.00)) == Brl.from_float(220.00)
-
-
-def test_keys_fracionaria():
-    assert Keys(2.5).to_brl(Brl.from_float(20.00)) == Brl.from_float(50.00)

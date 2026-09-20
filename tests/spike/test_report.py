@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 from dataclasses import replace
 
 import pytest
@@ -19,13 +20,28 @@ from tf2price.spike.report import (
 CHAVE = Brl.from_float(22.00)
 
 
+_SEQUENCIA = itertools.count()
+
+
 def _oportunidade(
-    desconto_reais: float, fair_reais: float = 200.0, guard: Guard = Guard.OK
+    desconto_reais: float,
+    fair_reais: float = 200.0,
+    guard: Guard = Guard.OK,
+    hash_name: str | None = None,
 ) -> Opportunity:
+    """Uma oportunidade; sem `hash_name`, de um item distinto a cada chamada.
+
+    O veredito conta nomes distintos, não linhas. Um teste que pede N
+    oportunidades está descrevendo N itens do mercado — se o padrão fosse
+    um nome fixo, ele estaria descrevendo N listagens do mesmo chapéu, que
+    é justamente o que não deve contar. Passar `hash_name` força o mesmo
+    item para os testes que querem esse caso.
+    """
+    nome = hash_name if hash_name is not None else f"Unusual Hat #{next(_SEQUENCIA)}"
     fair_keys = fair_reais / 22.0
     pago = Brl.from_float(fair_reais - desconto_reais)
     return Opportunity(
-        hash_name="Unusual Team Captain",
+        hash_name=nome,
         listing_id="L1",
         effect="Burning Flames",
         craftable=True,
@@ -69,6 +85,38 @@ def test_veredito_vermelho():
 
 def test_veredito_vermelho_com_lista_vazia():
     assert decide([]) is Verdict.RED
+
+
+def test_vinte_listagens_do_mesmo_item_nao_dao_verde():
+    """Um item subprecificado não é um mercado.
+
+    Um fetch profundo devolve até 100 listagens do mesmo hash_name. Contando
+    linhas, um único chapéu barato com 20 listagens dispararia "construa a
+    aplicação" sozinho — o falso positivo que o spec manda evitar.
+    """
+    todas = [_oportunidade(60.0, hash_name="Unusual Team Captain") for _ in range(20)]
+    assert len(net_opportunities(todas)) == 20
+    assert decide(todas) is Verdict.RED
+
+
+def test_dez_nomes_distintos_dao_verde():
+    todas = [_oportunidade(60.0, hash_name=f"Chapeu {i}") for i in range(10)]
+    assert decide(todas) is Verdict.GREEN
+
+
+def test_desconto_medio_e_calculado_sobre_os_nomes_colapsados():
+    """A média sai de uma linha por nome, não de todas as linhas.
+
+    Vinte listagens de um mesmo item com R$ 100 de desconto puxariam a
+    média das linhas para R$ 81,70 e dariam VERDE. Colapsado, o mercado é
+    um item de R$ 100 e nove de R$ 41: média de R$ 46,90, abaixo do corte.
+    """
+    repetido = [_oportunidade(100.0, hash_name="Unusual Team Captain") for _ in range(20)]
+    outros = [_oportunidade(41.0, hash_name=f"Chapeu {i}") for i in range(9)]
+    todas = repetido + outros
+
+    assert len(net_opportunities(todas)) == 29
+    assert decide(todas) is Verdict.YELLOW
 
 
 def test_desconto_fraco_nao_conta_para_o_veredito():
@@ -170,6 +218,62 @@ def test_analise_da_guarda_4_com_amostra_pequena_nao_conclui():
         key_brl=CHAVE,
     )
     assert analise.hypothesis_supported is False
+
+
+def test_markdown_mostra_linhas_e_nomes_distintos():
+    """Quem lê o relatório precisa ver a largura do sinal, não só o volume."""
+    todas = [_oportunidade(60.0, hash_name="Unusual Team Captain") for _ in range(12)]
+    todas += [_oportunidade(60.0, hash_name="Unusual Killer's Kabuto")]
+
+    texto = render_markdown(
+        opportunities=todas,
+        key_brl=CHAVE,
+        key_median_brl=CHAVE,
+        total_names=100,
+        unmatched=[],
+        guaranteed_count=0,
+        candidate_count=2,
+        deep_fetched_count=2,
+        requests_made=5,
+        first_429_after=None,
+        market_derived=None,
+    )
+
+    assert "13 oportunidades líquidas em 2 nomes distintos" in texto
+    assert "| Faixa de desconto | Líquidas | Nomes distintos |" in texto
+    assert "| >= 25% | 13 | 2 |" in texto
+
+
+def test_markdown_declara_o_que_foi_excluido_antes_das_guardas():
+    """A tabela de guardas sozinha mente por omissão.
+
+    Itens em USD e candidatas sem fetch profundo são barrados a montante e
+    nunca chegam a `check_guards`. Sem dizer isso, a tabela parece afirmar
+    que essas duas guardas não pegaram nada.
+    """
+    from tf2price.spike.report import MarketDerivedAnalysis
+
+    texto = render_markdown(
+        opportunities=[_oportunidade(60.0)],
+        key_brl=CHAVE,
+        key_median_brl=CHAVE,
+        total_names=100,
+        unmatched=[],
+        guaranteed_count=0,
+        candidate_count=120,
+        deep_fetched_count=20,
+        requests_made=5,
+        first_429_after=None,
+        market_derived=MarketDerivedAnalysis(
+            sample_size=317,
+            median_discount=0.42,
+            fraction_near_15pct=0.1,
+            hypothesis_supported=False,
+        ),
+    )
+
+    assert "Itens precificados em USD: 317" in texto
+    assert "Candidatas sem fetch profundo: 100" in texto
 
 
 def test_tabela_de_reprovacao_exclui_aprovadas():

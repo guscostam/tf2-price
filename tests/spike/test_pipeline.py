@@ -157,6 +157,97 @@ def test_deep_targets_respeita_o_limite(index: PriceIndex):
     assert len(deep_targets(saida.candidates, CHAVE, limit=3)) == 3
 
 
+def _indice_inline(items: dict) -> PriceIndex:
+    """Índice mínimo montado no próprio teste.
+
+    O fixture compartilhado tem um único item Unusual, e outros testes
+    afirmam sobre a contagem de itens dele; cenários que precisam de dois
+    Unusuais com tetos diferentes montam o payload aqui.
+    """
+    return PriceIndex.from_payload({"response": {"items": items}}, KEY_IN_REFINED)
+
+
+def _unusual_em_chaves(barato: float, caro: float) -> dict:
+    return {
+        "prices": {
+            "5": {
+                "Tradable": {
+                    "Craftable": {
+                        "17": {
+                            "currency": "keys",
+                            "value": barato,
+                            "last_update": 1759900000,
+                        },
+                        "701": {
+                            "currency": "keys",
+                            "value": caro,
+                            "last_update": 1759900000,
+                        },
+                    }
+                }
+            }
+        }
+    }
+
+
+def test_deep_targets_so_leva_unusuais(index: PriceIndex):
+    """Só Unusual entra no fetch profundo, mesmo com proporção pior.
+
+    'Rocket Launcher' Unique a R$ 0,01 tem teto de R$ 0,03: proporção de
+    67%, muito acima dos 19% do Unusual. Por proporção ele passaria na
+    frente; o spec escopa o fetch nos Unusuais.
+    """
+    saida = shallow_pass(
+        [
+            _resultado("Unusual Team Captain", 800.0),
+            _resultado("Rocket Launcher", 0.01),
+        ],
+        index,
+        CHAVE,
+        0.15,
+    )
+    assert len(saida.candidates) == 2
+    assert {c.identity.quality_id for c in saida.candidates} == {5, 6}
+
+    alvos = deep_targets(saida.candidates, CHAVE, limit=10)
+    assert [a.hash_name for a in alvos] == ["Unusual Team Captain"]
+
+
+def test_deep_targets_ordena_por_ganho_absoluto_e_nao_por_proporcao():
+    """O ganho absoluto manda, porque o orçamento de requisições é fixo.
+
+    Chapéu caro: pago R$ 1.000 contra teto de 100 chaves (R$ 2.200) =
+    proporção de 55%, ganho de R$ 1.200.
+    Chapéu barato: pago R$ 100 contra teto de 20 chaves (R$ 440) =
+    proporção de 77%, ganho de R$ 340.
+
+    Por proporção o barato viria primeiro e as requisições caras
+    comprariam o menor ganho possível.
+    """
+    indice = _indice_inline(
+        {
+            "Chapeu Caro": _unusual_em_chaves(barato=10.0, caro=100.0),
+            "Chapeu Barato": _unusual_em_chaves(barato=5.0, caro=20.0),
+        }
+    )
+    saida = shallow_pass(
+        [
+            _resultado("Unusual Chapeu Barato", 100.0),
+            _resultado("Unusual Chapeu Caro", 1000.0),
+        ],
+        indice,
+        CHAVE,
+        0.15,
+    )
+    assert all(c.classification is Classification.CANDIDATE for c in saida.candidates)
+
+    alvos = deep_targets(saida.candidates, CHAVE, limit=10)
+    assert [a.hash_name for a in alvos] == [
+        "Unusual Chapeu Caro",
+        "Unusual Chapeu Barato",
+    ]
+
+
 def test_deep_targets_ignora_garantidas_e_descartadas(index: PriceIndex):
     saida = shallow_pass(
         [
@@ -267,3 +358,76 @@ def test_collect_usd_items_ignora_nome_fora_do_indice(index: PriceIndex):
     from tf2price.spike.pipeline import collect_usd_items
 
     assert collect_usd_items([_resultado("Item Inexistente", 10.0)], index) == []
+
+
+def _qualidade_unica(*entradas: dict) -> dict:
+    return {"prices": {"6": {"Tradable": {"Craftable": list(entradas)}}}}
+
+
+def test_collect_usd_items_ignora_item_com_preco_em_chaves_E_em_usd():
+    """Ter preço em chaves já basta para sair da amostra.
+
+    Este item casa em `shallow_pass` e é avaliado normalmente; medir o
+    dólar dele contra a Steam responderia sobre outro item que não o da
+    hipótese, que é o dos preços que SÓ existem em dólar.
+    """
+    from tf2price.spike.pipeline import collect_usd_items
+
+    indice = _indice_inline(
+        {
+            "Chapeu Misto": _qualidade_unica(
+                {"currency": "keys", "value": 2.0, "last_update": 1759900000},
+                {"currency": "usd", "value": 4.25, "last_update": 1759900000},
+            )
+        }
+    )
+    assert collect_usd_items([_resultado("Chapeu Misto", 30.0)], indice) == []
+
+
+def test_collect_usd_items_pega_item_so_com_preco_em_usd():
+    from tf2price.spike.pipeline import collect_usd_items
+
+    indice = _indice_inline(
+        {
+            "Chapeu Dolar": _qualidade_unica(
+                {"currency": "usd", "value": 4.25, "last_update": 1759900000}
+            )
+        }
+    )
+    itens = collect_usd_items([_resultado("Chapeu Dolar", 30.0)], indice)
+    assert itens == [(4.25, Brl.from_float(30.00))]
+
+
+def test_collect_usd_items_ignora_entrada_com_priceindex():
+    """Entrada com priceindex é uma variante, não o item do nome.
+
+    Pegar o dólar de um efeito arbitrário e casá-lo com o preço Steam do
+    nome inteiro compararia dois itens diferentes no mesmo par.
+    """
+    from tf2price.spike.pipeline import collect_usd_items
+
+    indice = _indice_inline(
+        {
+            "Chapeu Variante": {
+                "prices": {
+                    "6": {
+                        "Tradable": {
+                            "Craftable": {
+                                "13": {
+                                    "currency": "usd",
+                                    "value": 4.25,
+                                    "last_update": 1759900000,
+                                },
+                                "701": {
+                                    "currency": "usd",
+                                    "value": 9.99,
+                                    "last_update": 1759900000,
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+    assert collect_usd_items([_resultado("Chapeu Variante", 30.0)], indice) == []
