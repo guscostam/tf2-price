@@ -9,19 +9,18 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Callable
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 
 from tf2price.contas.modelo import Usuario
 from tf2price.domain.identity import is_unusual_name
 from tf2price.domain.money import Brl
 from tf2price.lookup.analysis import analyse, effects_available
 from tf2price.painel import sessao as ses
+from tf2price.painel.templates import TEMPLATES
 from tf2price.sources.backpacktf import BackpackTfClient, PriceIndex
 from tf2price.sources.ratelimit import RateLimiter
 from tf2price.sources.steam import SteamClient
@@ -60,16 +59,6 @@ def _registra_falha_sob_demanda(origem: str, erro: Exception, espera_s: float) -
         f"nova tentativa em {espera_s:.0f}s",
         flush=True,
     )
-
-TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
-
-
-def _chaves(valor: float) -> str:
-    """Quantidade de chaves com vírgula decimal, como o resto da tela."""
-    return f"{valor:.1f}".replace(".", ",")
-
-
-TEMPLATES.env.filters["chaves"] = _chaves
 
 ROTEADOR = APIRouter(dependencies=[Depends(ses.usuario_obrigatorio)])
 
