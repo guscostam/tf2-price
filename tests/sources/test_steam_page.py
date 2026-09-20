@@ -38,24 +38,32 @@ def pagina() -> ItemPage:
         ("R$1,880.07", 188007),
         ("R$0.99", 99),
         ("R$12,345,678.90", 1234567890),
+        ("R$1234.56", 123456),
     ],
 )
 def test_parse_page_price(texto, centavos):
     assert parse_page_price(texto) == Brl.from_cents(centavos)
 
 
-def test_parse_page_price_recusa_formato_ptbr():
-    """A página usa ponto decimal; priceoverview usa vírgula.
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "R$ 1.234,50",
+        "R$32,25",
+        "R$999,99",
+        "R$1,88",
+        "sob consulta",
+    ],
+)
+def test_parse_page_price_recusa_formato_ptbr(texto):
+    """Ler 'R$32,25' (pt-BR) como en-US dá R$3.225,00 — 100x o valor, sem exceção.
 
-    Aceitar os dois no mesmo parser é como um preço vira 100x o que é.
+    A validação precisa rodar antes de remover as vírgulas, senão a página
+    de listagens (en-US) e o priceoverview (pt-BR) ficam indistinguíveis e
+    esse erro de cem vezes passa batido.
     """
     with pytest.raises(PageStructureError):
-        parse_page_price("R$ 1.234,50")
-
-
-def test_parse_page_price_recusa_lixo():
-    with pytest.raises(PageStructureError):
-        parse_page_price("sob consulta")
+        parse_page_price(texto)
 
 
 # --- listagens -----------------------------------------------------------

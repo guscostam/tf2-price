@@ -19,8 +19,15 @@ UNUSUAL_EFFECT_PREFIX = "Unusual Effect: "
 
 # A página usa formato en-US: vírgula para milhar, ponto para decimal.
 # priceoverview usa pt-BR. Ver "Duas convenções de preço" no plano.
+#
+# A validação roda ANTES de remover as vírgulas, de propósito: uma vírgula só
+# é aceita onde um separador de milhar legítimo entraria (logo antes de
+# exatamente três dígitos). Se a vírgula for removida primeiro, o padrão não
+# tem mais como distinguir "1,880.07" (en-US, milhar) de "32,25" (pt-BR,
+# decimal curto) — e "32,25" vira silenciosamente R$ 3.225,00, cem vezes o
+# valor real, sem nenhuma exceção. Não inverta a ordem destas duas linhas.
 _SO_NUMERO = re.compile(r"[^\d.,]")
-_EN_US = re.compile(r"\d+(?:\.\d{1,2})?")
+_EN_US = re.compile(r"(?:\d{1,3}(?:,\d{3})*|\d+)(?:\.\d{1,2})?")
 
 
 class PageStructureError(RuntimeError):
@@ -69,10 +76,10 @@ def parse_page_price(text: str) -> Brl:
     recusa este de propósito; os dois são estritos porque confundir moeda e
     separador já produziu um resultado falso neste projeto.
     """
-    limpo = _SO_NUMERO.sub("", text).replace(",", "")
+    limpo = _SO_NUMERO.sub("", text)
     if not _EN_US.fullmatch(limpo):
         raise PageStructureError(f"preço em formato inesperado: {text!r}")
-    return Brl.from_float(float(limpo))
+    return Brl.from_float(float(limpo.replace(",", "")))
 
 
 def _render_context(html: str) -> dict[str, Any]:
