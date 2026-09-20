@@ -161,6 +161,7 @@ si só, um resultado: mostra quanto do sinal aparente é lixo.
 | 1 | Incógnitas não resolvidas | Ver abaixo. |
 | 2 | `last_update` da bp.tf > 30 dias | Preço fantasma. Segunda maior fonte de lixo. |
 | 3 | `value_high` mais de 25% acima de `value` | Preço mal estabelecido, comparação sem significado. |
+| 4 | **Preço derivado da Steam Market** | Ver abaixo. |
 
 ### Guarda 1 — só se aplica a candidatas
 
@@ -178,7 +179,6 @@ Mas a guarda **não se aplica a tudo**. A classificação das três vias já res
 
 O relatório separa as três. A contagem de candidatas excluídas por falta de fetch é o
 que dimensiona o orçamento de requisições do projeto completo.
-| 4 | **Preço derivado da Steam Market** | Ver abaixo. |
 
 ### Guarda 4 — o achado da pesquisa
 
@@ -213,6 +213,7 @@ Não são suposições do design; são coisas a confirmar e anotar durante o spi
 | 5 | `★ Unusual Effect:` e *Não utilizável em criação* aparecem nas `descriptions` | Viabiliza resolver as incógnitas |
 | 6 | Mapa de `priceindex` (bp.tf) → nome do efeito (Steam) | Sem ele, Unusual não casa |
 | 7 | Trade hold em item comprado na Market | Afeta o tempo até realizar o lucro |
+| 8 | `sell_price` da busca é o total pago pelo comprador, já com a taxa | Alimenta a maioria das oportunidades líquidas; se for o líquido do vendedor, todo desconto infla ~15% |
 
 ---
 
