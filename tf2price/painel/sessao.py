@@ -24,15 +24,25 @@ class PrecisaSerAdmin(Exception):
 
 
 def conexao(request: Request) -> Iterator[Connection]:
+    # Ordem dos parâmetros importa para quem escreve: uma rota que declare
+    # `usuario` antes de `conn` fecha a conexão da autenticação (veja
+    # usuario_opcional) antes de abrir esta, e nunca há duas ao mesmo tempo.
+    # Inverter a ordem abre as duas juntas — inofensivo em produção, mas o
+    # dublê de teste usa StaticPool (a mesma conexão para todo mundo), e duas
+    # transações abertas ao mesmo tempo na mesma conexão levantam na hora.
     with request.app.state.engine.begin() as conn:
         yield conn
 
 
-def usuario_opcional(
-    request: Request, conn: Connection = Depends(conexao)
-) -> Usuario | None:
+def usuario_opcional(request: Request) -> Usuario | None:
+    # Conexão curta, aberta e fechada aqui dentro: se a autenticação usasse a
+    # conexão da requisição, ela ficaria aberta durante as chamadas à Steam e
+    # à backpack.tf, que levam segundos e não tocam o banco.
     token = request.cookies.get(NOME_COOKIE, "")
-    return servico.usuario_da_sessao(conn, token, db.agora())
+    if not token:
+        return None
+    with request.app.state.engine.begin() as conn:
+        return servico.usuario_da_sessao(conn, token, db.agora())
 
 
 def usuario_obrigatorio(
