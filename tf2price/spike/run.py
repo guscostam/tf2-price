@@ -2,8 +2,8 @@
 
     .venv/Scripts/python -m tf2price.spike.run
 
-Passada rasa em todo o mercado de TF2, fetch profundo nas melhores
-candidatas Unusual, relatório com veredito.
+Passada rasa filtrada por `--query` (padrão "Unusual", o escopo da
+aplicação), fetch profundo nas melhores candidatas, relatório com veredito.
 """
 
 from __future__ import annotations
@@ -61,8 +61,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--deep-limit",
         type=int,
-        default=20,
-        help="quantas candidatas recebem fetch profundo (padrão 20)",
+        default=200,
+        help=(
+            "quantas candidatas recebem fetch profundo — uma requisição de "
+            "listagem individual cada (padrão 200)"
+        ),
     )
     parser.add_argument(
         "--max-pages",
@@ -77,6 +80,16 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="segundos entre requisições à Steam (padrão 3.0)",
     )
     parser.add_argument("--out", default="out", help="diretório de saída (padrão out)")
+    parser.add_argument(
+        "--query",
+        default="Unusual",
+        help=(
+            "filtra o catálogo por texto no nome do item (parâmetro `query` "
+            "da Steam). O padrão restringe a varredura a Unusuals; passe "
+            "uma string vazia para varrer o mercado inteiro (padrão "
+            "'Unusual')"
+        ),
+    )
     args = parser.parse_args(argv)
 
     # Validação antes de qualquer rede. Um --threshold negativo faz
@@ -97,7 +110,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 
 def _shallow_scan(
-    steam: SteamClient, max_pages: int
+    steam: SteamClient, max_pages: int, query: str | None = None
 ) -> tuple[list[SearchResult], int]:
     results: list[SearchResult] = []
     seen: set[str] = set()
@@ -107,7 +120,7 @@ def _shallow_scan(
 
     while True:
         try:
-            page = steam.search_page(start=start)
+            page = steam.search_page(start=start, query=query)
         except (RuntimeError, httpx.HTTPError) as error:
             # Escopo deliberadamente estreito, igual ao do fetch profundo:
             # um AttributeError é bug e precisa continuar estourando alto.
@@ -209,7 +222,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  chave = {key_brl} (mediana 24h {key_median_brl})")
 
     print("Passada rasa...")
-    results, total_names = _shallow_scan(steam, args.max_pages)
+    results, total_names = _shallow_scan(steam, args.max_pages, args.query)
 
     outcome = shallow_pass(results, index, key_brl, args.threshold)
     guaranteed = [

@@ -345,6 +345,45 @@ def test_404_falha_na_primeira_tentativa():
     assert tentativas["n"] == 1
 
 
+def test_search_page_envia_query_quando_informado():
+    capturadas: list[httpx.Request] = []
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_cliente(_fixture("steam_search_page.json"), capturadas),
+    )
+
+    client.search_page(start=0, query="Unusual")
+
+    assert capturadas[0].url.params["query"] == "Unusual"
+
+
+def test_search_page_sem_query_nao_envia_o_parametro():
+    capturadas: list[httpx.Request] = []
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_cliente(_fixture("steam_search_page.json"), capturadas),
+    )
+
+    client.search_page(start=0)
+
+    assert "query" not in capturadas[0].url.params
+
+
+def test_search_page_query_vazio_nao_envia_o_parametro():
+    # Vazio não é o mesmo que ausente: a forma ausente é a que varre o
+    # catálogo inteiro, então "" precisa se comportar como None, não como
+    # um filtro que casa com tudo.
+    capturadas: list[httpx.Request] = []
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_cliente(_fixture("steam_search_page.json"), capturadas),
+    )
+
+    client.search_page(start=0, query="")
+
+    assert "query" not in capturadas[0].url.params
+
+
 def test_search_page_ordena_por_preco_decrescente():
     # Sem sort explícito a Steam ordena por popularidade, que muda durante a
     # varredura: itens migram entre páginas e viram duplicata ou buraco.

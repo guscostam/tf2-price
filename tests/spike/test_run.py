@@ -46,9 +46,11 @@ class _SteamFake:
     def __init__(self, respostas) -> None:
         self._respostas = respostas
         self.chamadas = 0
+        self.queries_recebidas: list[str | None] = []
 
-    def search_page(self, start: int, count: int = 100) -> SearchPage:
+    def search_page(self, start: int, count: int = 100, query: str | None = None) -> SearchPage:
         self.chamadas += 1
+        self.queries_recebidas.append(query)
         return self._respostas(start)
 
 
@@ -172,6 +174,25 @@ def test_paginas_sobrepostas_rendem_cada_nome_uma_vez():
     assert nomes == ["A", "B", "C"]
 
 
+def test_shallow_scan_repassa_a_query_para_o_cliente():
+    """O escopo da aplicação estreitou para Unusuals: _shallow_scan precisa
+    repassar `query` para toda chamada de search_page, não só a primeira."""
+    steam = _SteamFake(lambda start: _pagina_cheia(total_count=0, tamanho=1))
+
+    _shallow_scan(steam, max_pages=3, query="Unusual")
+
+    assert steam.chamadas == 3
+    assert steam.queries_recebidas == ["Unusual"] * 3
+
+
+def test_shallow_scan_sem_query_repassa_none():
+    steam = _SteamFake(lambda start: _pagina_vazia())
+
+    _shallow_scan(steam, max_pages=0)
+
+    assert steam.queries_recebidas == [None]
+
+
 # --- validação de argumentos ---------------------------------------------
 
 
@@ -215,10 +236,19 @@ def test_padroes_seguem_inalterados():
     args = _parse_args([])
 
     assert args.threshold == 0.15
-    assert args.deep_limit == 20
+    assert args.deep_limit == 200
     assert args.max_pages == 0
     assert args.min_interval == 3.0
     assert args.out == "out"
+    assert args.query == "Unusual"
+
+
+def test_query_vazio_explicito_e_aceito():
+    # Vazio é a forma documentada de varrer o mercado inteiro: não pode ser
+    # rejeitado como se fosse um valor inválido.
+    args = _parse_args(["--query", ""])
+
+    assert args.query == ""
 
 
 # --- main(): as duas proteções de uma execução de 15-30 min ---------------
@@ -284,7 +314,7 @@ class _SteamMainFake:
     def key_median_price(self) -> Brl:
         return CHAVE_MEDIANA_BRL
 
-    def search_page(self, start: int, count: int = 100) -> SearchPage:
+    def search_page(self, start: int, count: int = 100, query: str | None = None) -> SearchPage:
         if start:
             return SearchPage(total_count=0, results=[])
         return _pagina_da_fixture()

@@ -214,34 +214,49 @@ class SteamClient:
 
         raise RuntimeError(f"Steam não respondeu após backoff (último: {last_reason})")
 
-    def search_page(self, start: int, count: int = 100) -> SearchPage:
-        payload = self._get(
-            f"{BASE}/market/search/render/",
-            {
-                "appid": APPID,
-                "norender": 1,
-                "count": count,
-                "start": start,
-                "currency": CURRENCY_BRL,
-                "l": "english",
-                # Ordenação por preço decrescente, não por nome.
-                #
-                # O padrão da Steam é popularidade, que muda durante a
-                # varredura: itens migram entre páginas, uns são lidos duas
-                # vezes e outros nunca. Qualquer ordem explícita corrige isso,
-                # e a deduplicação por hash_name na passada rasa cobre a
-                # deriva residual (preço muda mais que nome ao longo de horas).
-                #
-                # Preço decrescente em vez de alfabética porque a varredura
-                # pode não terminar: a de 2026-09-19 morreu em 429 com 3% do
-                # catálogo lido. Em ordem alfabética, `Unusual ...` cai na
-                # letra U e uma execução truncada não vê Unusual nenhum — que
-                # é o dado de maior valor do spike. Por preço, os caros vêm
-                # primeiro, então o que mais importa é lido antes.
-                "sort_column": "price",
-                "sort_dir": "desc",
-            },
-        )
+    def search_page(self, start: int, count: int = 100, query: str | None = None) -> SearchPage:
+        """Uma página da busca de mercado, opcionalmente filtrada por texto.
+
+        `query` é o parâmetro `query` da Steam: um filtro de TEXTO sobre o
+        nome do item, não um filtro de qualidade. "Unusual" casa com
+        qualquer `market_hash_name` que contenha a palavra — inclusive itens
+        que não são da qualidade Unusual, se algum dia existir um nome assim
+        — então ele só reduz o que entra na passada rasa; quem decide a
+        qualidade de fato é o parser de identidade no fetch profundo
+        (`parse_listings`, via `UNUSUAL_EFFECT_PREFIX`).
+
+        Quando `query` é `None` ou string vazia, nenhum parâmetro `query` é
+        enviado — vazio não é o mesmo que ausente: a forma ausente é o que
+        varre o catálogo inteiro, e mandar `query=""` poderia se comportar
+        diferente na API real.
+        """
+        params = {
+            "appid": APPID,
+            "norender": 1,
+            "count": count,
+            "start": start,
+            "currency": CURRENCY_BRL,
+            "l": "english",
+            # Ordenação por preço decrescente, não por nome.
+            #
+            # O padrão da Steam é popularidade, que muda durante a
+            # varredura: itens migram entre páginas, uns são lidos duas
+            # vezes e outros nunca. Qualquer ordem explícita corrige isso,
+            # e a deduplicação por hash_name na passada rasa cobre a
+            # deriva residual (preço muda mais que nome ao longo de horas).
+            #
+            # Preço decrescente em vez de alfabética porque a varredura
+            # pode não terminar: a de 2026-09-19 morreu em 429 com 3% do
+            # catálogo lido. Em ordem alfabética, `Unusual ...` cai na
+            # letra U e uma execução truncada não vê Unusual nenhum — que
+            # é o dado de maior valor do spike. Por preço, os caros vêm
+            # primeiro, então o que mais importa é lido antes.
+            "sort_column": "price",
+            "sort_dir": "desc",
+        }
+        if query:
+            params["query"] = query
+        payload = self._get(f"{BASE}/market/search/render/", params)
         return parse_search_page(payload)
 
     def listings(self, hash_name: str, count: int = 100) -> list[Listing]:
