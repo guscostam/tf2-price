@@ -109,6 +109,28 @@ Na mesma leitura apareceu o defeito inverso, que ninguém tinha notado: as ferra
 Unusual. Elas aplicam um efeito, não o têm; a tela de efeitos abria vazia. Agora são
 recusadas por nome.
 
+### Verificação ponta a ponta da dupla qualidade (2026-09-20)
+Consulta real pela tela, depois da correção do filtro:
+
+`/buscar "Bonk Boy"` devolve **`Strange Unusual Bonk Boy` e `Unusual Bonk Boy`** —
+o primeiro era descartado antes. E o preço de troca **resolveu**, pelo candidato
+`Bonk Boy`: sem o descascamento do `Unusual ` que sobra na base, o item diria "a
+backpack.tf não precifica este efeito", que seria falso.
+
+`Strange Unusual Bonk Boy` / `Green Confetti`:
+
+| Campo | Valor |
+|---|---|
+| Na Steam | R$ 6.621,30 (567,9 chaves) |
+| Valor de troca | R$ 1.982,20 (170 chaves, **893 dias**) |
+| Melhor oferta de compra | R$ 1.696,89 (31 ordens) |
+| Mediana histórica | R$ 515,50 em 559 vendas |
+
+**3,3× de prêmio da Steam sobre a troca**, o mais extremo medido até aqui, contra
+mediana de 1,72× da amostra de 56 itens. A mediana histórica a um oitavo do preço
+pedido diz que essas listagens não são o mercado: são âncoras paradas. Zero
+`PageStructureError`.
+
 ### `uvicorn` não estava declarado
 A função que sobe o servidor o importa, e a dependência faltava no `pyproject.toml`.
 Só apareceu na primeira tentativa de rodar. Corrigido em `054c5b5`.
