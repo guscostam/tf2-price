@@ -210,3 +210,13 @@ def test_redefinir_troca_a_senha_e_derruba_as_sessoes(engine):
 
         assert servico.usuario_da_sessao(conn, antiga, AGORA) is None
         assert servico.entrar(conn, nome="amiga", senha="senha novinha", quando=AGORA)
+
+
+def test_entrar_direto_abre_sessao_sem_senha(engine):
+    with engine.begin() as conn:
+        token = servico.convidar(conn, criado_por=_dono(conn), quando=AGORA)
+        usuario = servico.aceitar_convite(
+            conn, token, nome="amiga", senha=SENHA, quando=AGORA
+        )
+        sessao = servico.entrar_direto(conn, usuario, quando=AGORA)
+        assert servico.usuario_da_sessao(conn, sessao, AGORA).nome == "amiga"

@@ -167,6 +167,23 @@ def entrar(conn: Connection, *, nome: str, senha: str, quando: datetime) -> str:
     return claro
 
 
+def entrar_direto(conn: Connection, usuario: Usuario, *, quando: datetime) -> str:
+    """Abre sessão sem conferir senha, para quem acabou de provar quem é.
+
+    Usado só após aceitar convite ou redefinir senha: exigir a senha recém
+    digitada de novo seria atrito sem ganho de segurança.
+    """
+    claro, resumo = tokens.novo()
+    repo.criar_sessao(
+        conn,
+        hash_do_token=resumo,
+        usuario_id=usuario.id,
+        criado_em=quando,
+        expira_em=quando + VALIDADE_SESSAO,
+    )
+    return claro
+
+
 def usuario_da_sessao(
     conn: Connection, token: str, quando: datetime
 ) -> Usuario | None:

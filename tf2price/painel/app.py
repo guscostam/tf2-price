@@ -10,8 +10,10 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.engine import Connection, Engine
 
 from tf2price import db
-from tf2price.contas import servico
+from tf2price.contas import repositorio as repo
+from tf2price.contas import servico, tokens
 from tf2price.contas.modelo import Usuario
+from tf2price.contas.senhas import SenhaCurta
 from tf2price.painel import sessao as ses
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -73,5 +75,67 @@ def criar_app(engine: Engine) -> FastAPI:
         return TEMPLATES.TemplateResponse(
             request=request, name="base.html", context={"usuario": usuario}
         )
+
+    def _convite_aberto(conn: Connection, token: str):
+        """Convite utilizável, ou None. Não diz por que não serve."""
+        convite = repo.convite_por_hash(conn, tokens.hash_de(token))
+        if convite is None or convite.usado_em is not None:
+            return None
+        if convite.expira_em <= db.agora():
+            return None
+        return convite
+
+    @app.get("/convite/{token}", response_class=HTMLResponse)
+    def tela_convite(
+        request: Request, token: str, conn: Connection = Depends(ses.conexao)
+    ):
+        convite = _convite_aberto(conn, token)
+        if convite is None:
+            # Inexistente, expirado e usado dão a mesma resposta: distinguir
+            # entrega informação a quem está adivinhando token.
+            return HTMLResponse("Este convite não serve mais.", status_code=404)
+        return TEMPLATES.TemplateResponse(
+            request=request,
+            name="convite.html",
+            context={
+                "token": token,
+                "redefinicao": convite.tipo == servico.TIPO_REDEFINICAO,
+                "erro": None,
+            },
+        )
+
+    @app.post("/convite/{token}", dependencies=[Depends(ses.mesma_origem)])
+    def usar_convite(
+        request: Request,
+        token: str,
+        nome: str = Form(""),
+        senha: str = Form(...),
+        conn: Connection = Depends(ses.conexao),
+    ) -> Response:
+        convite = _convite_aberto(conn, token)
+        if convite is None:
+            return HTMLResponse("Este convite não serve mais.", status_code=404)
+
+        redefinicao = convite.tipo == servico.TIPO_REDEFINICAO
+        try:
+            if redefinicao:
+                usuario = servico.redefinir(conn, token, senha=senha, quando=db.agora())
+            else:
+                usuario = servico.aceitar_convite(
+                    conn, token, nome=nome, senha=senha, quando=db.agora()
+                )
+        except (servico.ErroDeConta, SenhaCurta) as erro:
+            return TEMPLATES.TemplateResponse(
+                request=request,
+                name="convite.html",
+                context={"token": token, "redefinicao": redefinicao, "erro": str(erro)},
+            )
+
+        # Já entra: pedir para digitar de novo a senha recém-escolhida é atrito
+        # sem ganho, e o link acabou de provar quem é.
+        sessao_token = servico.entrar_direto(conn, usuario, quando=db.agora())
+        resposta = RedirectResponse("/", status_code=303)
+        ses.gravar_cookie(resposta, request, sessao_token)
+        return resposta
 
     return app
