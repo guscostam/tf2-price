@@ -222,6 +222,21 @@
       .linha .valor { margin-left: auto; }
     }
 
+    /* O link de convite aparece uma vez so: o banco guarda apenas o hash do
+       token, entao quem fechar a pagina sem copiar precisa gerar outro. Por
+       isso ele ganha destaque em vez de virar mais uma linha de texto. */
+    .aviso {
+      margin: 0 0 1rem; padding: .7rem .9rem;
+      border-left: 4px solid var(--carimbo);
+      background: rgba(156, 42, 34, .07);
+      font-size: .9rem;
+    }
+    .aviso code {
+      display: block; margin-top: .4rem;
+      font-family: var(--mono); font-size: .85rem;
+      word-break: break-all; color: var(--tinta);
+    }
+
     .erro {
       border: 2px solid var(--carimbo); border-left-width: 6px;
       padding: .8rem 1rem; color: var(--carimbo);
