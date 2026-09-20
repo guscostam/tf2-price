@@ -23,6 +23,9 @@ RAZAO_EFEITO_DESCONHECIDO = (
     "então não dá para procurá-lo na backpack.tf"
 )
 RAZAO_SEM_PRECO = "a backpack.tf não precifica este efeito para este item"
+RAZAO_SEM_INDICE = (
+    "o índice de preços da backpack.tf ainda não carregou; tente de novo em alguns minutos"
+)
 
 
 @dataclass(frozen=True)
@@ -117,7 +120,7 @@ def patient_exit(
     paid: Brl,
     hash_name: str,
     effect: str,
-    index: PriceIndex,
+    index: PriceIndex | None,
     key_brl: Brl,
     now: int | None = None,
     effects_path: Path = DEFAULT_EFFECTS_PATH,
@@ -127,6 +130,9 @@ def patient_exit(
     effect_id = effect_id_for(effect, effects_path)
     if effect_id is None:
         return PatientExit(False, RAZAO_EFEITO_DESCONHECIDO, None, None, None, None)
+
+    if index is None:
+        return PatientExit(False, RAZAO_SEM_INDICE, None, None, None, None)
 
     identity = parse_market_hash_name(hash_name)
     for nome in bptf_name_candidates(identity, hash_name):
@@ -153,7 +159,7 @@ def patient_exit(
 def analyse(
     page: ItemPage,
     effect: str,
-    index: PriceIndex,
+    index: PriceIndex | None,
     key_brl: Brl,
     now: int | None = None,
     effects_path: Path = DEFAULT_EFFECTS_PATH,

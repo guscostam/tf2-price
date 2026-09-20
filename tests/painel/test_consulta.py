@@ -6,11 +6,21 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tf2price.painel.app import criar_app
-from tf2price.painel.consulta import Contexto, PageCache
+from tf2price.painel.consulta import Contexto, Cotacao, PageCache
 from tf2price.sources.backpacktf import PriceIndex
 from tf2price.sources.steam_page import PageStructureError
 
-from .conftest import CHAVE, NOME, _contexto, _pagina, _PaginasFalsas, _SteamFalso, cliente_logado
+from .conftest import (
+    CHAVE,
+    NOME,
+    _contexto,
+    _CotacaoFalsa,
+    _IndiceFalso,
+    _pagina,
+    _PaginasFalsas,
+    _SteamFalso,
+    cliente_logado,
+)
 
 
 @pytest.fixture
@@ -103,18 +113,19 @@ def test_contexto_carrega_a_taxa_e_a_repassa_para_a_pagina(engine):
 
     cliente.get("/efeitos", params={"nome": NOME})
 
-    assert ctx.usd_to_brl == 5.15
+    assert ctx.cotacao.obter().usd_to_brl == 5.15
     assert paginas.taxas == [5.15]
 
 
-def test_contexto_exige_a_taxa_explicitamente():
+def test_contexto_exige_a_cotacao_explicitamente():
     """Sem valor padrão: um padrão deixa a conversão esquecível no chamador."""
     with pytest.raises(TypeError):
         Contexto(
             steam=_SteamFalso(),
             paginas=_PaginasFalsas(_pagina()),
-            index=PriceIndex.from_payload({"response": {"items": {}}}, key_in_refined=64.11),
-            key_brl=CHAVE,
+            indice=_IndiceFalso(
+                PriceIndex.from_payload({"response": {"items": {}}}, key_in_refined=64.11)
+            ),
         )
 
 
@@ -207,6 +218,26 @@ def test_trocar_de_item_apaga_a_avaliacao(cliente):
 def test_a_cotacao_da_chave_aparece_no_timbre(cliente):
     """Os valores em chaves não significam nada sem o preço que os converteu."""
     assert str(CHAVE) in cliente.get("/").text
+
+
+def test_analise_sem_indice_nao_mente_sobre_a_bptf(engine):
+    ctx = _contexto()
+    ctx.indice = _IndiceFalso(None)
+    cliente = cliente_logado(engine, ctx)
+    r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
+    assert "ainda não carregou" in r.text
+
+
+def test_sem_cotacao_a_tela_diz_e_nao_quebra(engine):
+    """A Steam limitando na subida nao pode derrubar o painel inteiro."""
+    ctx = _contexto()
+    ctx.cotacao = _CotacaoFalsa(None)
+    cliente = cliente_logado(engine, ctx)
+
+    assert "indisponível" in cliente.get("/").text
+    assert "ainda não carregou" in cliente.get(
+        "/analise", params={"nome": NOME, "efeito": "Deep Dive"}
+    ).text
 
 
 def test_a_consulta_exige_sessao(engine):

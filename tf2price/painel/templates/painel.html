@@ -1,10 +1,14 @@
 {% extends "base.html" %}
 {% block titulo %}Avaliação de Unusual{% endblock %}
 {% block subtitulo %}
+  {% if cotacao %}
   <p class="cotacao">
-    chave <b>{{ key_brl }}</b> · dólar <b>{{ usd_brl }}</b> ·
+    chave <b>{{ cotacao.key_brl }}</b> · dólar <b>{{ cotacao.usd_brl_formatado }}</b> ·
     preços da Steam já com a taxa de 15%
   </p>
+  {% else %}
+  <p class="cotacao">cotação da chave indisponível no momento</p>
+  {% endif %}
 {% endblock %}
 {% block corpo_attrs %} hx-indicator="#espera"{% endblock %}
 {% block conteudo %}

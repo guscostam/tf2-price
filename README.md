@@ -25,26 +25,27 @@ TF2 e precisa de `STEAM_API_KEY` configurada em `.env`.
 ## Uso
 
 ```bash
-.venv/Scripts/python -m tf2price.lookup.app
+.venv/Scripts/python -m tf2price.painel.app
 ```
 
-Abre em `http://127.0.0.1:8000`. A subida baixa o índice de preços da backpack.tf
-uma vez; cada consulta depois custa duas requisições à Steam.
+Abre em `http://127.0.0.1:8000`. Na primeira subida, com o banco vazio, o
+terminal imprime um link de convite de administrador válido por 24 horas — é
+por ele que a primeira conta nasce. Depois, novas contas saem de `/admin`.
 
-A tela separa com rigor dois níveis de dado, porque confundi-los invalidou a
-primeira versão deste projeto:
+Requer `BPTF_API_KEY` e `DATABASE_URL` no `.env`.
 
-- **por efeito** — as listagens do efeito escolhido e o preço da backpack.tf dele,
-  sempre com a idade do preço à vista
-- **todos os efeitos do item** — o livro de ofertas e o histórico de vendas, que a
-  Steam não separa por efeito
+## Implantação (Railway)
 
-Quando a backpack.tf não precifica o efeito escolhido, a tela diz isso em vez de
-mostrar o preço de outro efeito.
+1. Crie o serviço a partir do repositório e acrescente um serviço **Postgres** —
+   o Railway injeta `DATABASE_URL` sozinho.
+2. Configure `BPTF_API_KEY` nas variáveis do serviço web.
+3. O `Procfile` já sobe com `--proxy-headers`, necessário para o cookie de
+   sessão receber `Secure` atrás do proxy.
+4. Na primeira subida, procure no log a linha `[partida] convite de
+   administrador:` e abra o link.
 
-A busca aceita a dupla qualidade (`Strange Unusual ...`), que é quase um terço
-dos nomes e a faixa mais cara do mercado, e recusa as ferramentas
-`Unusual Taunt: X Unusualifier` — elas aplicam um efeito, não o têm.
+Uma réplica só: o freio de requisições à Steam e o período de calma vivem na
+memória do processo.
 
 ## Testes
 

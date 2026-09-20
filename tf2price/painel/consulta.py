@@ -44,6 +44,94 @@ TEMPLATES.env.filters["chaves"] = _chaves
 ROTEADOR = APIRouter(dependencies=[Depends(ses.usuario_obrigatorio)])
 
 
+class IndiceSobDemanda:
+    """Carrega o índice da bp.tf na primeira necessidade, não na subida.
+
+    Um serviço hospedado não pode morrer na partida porque um terceiro está
+    fora do ar; hoje `construir_contexto` fazia exatamente isso. Se falhar,
+    devolve None — e a tela diz que falta o índice, que é diferente de dizer
+    que o efeito não tem preço.
+    """
+
+    def __init__(
+        self,
+        cliente: BackpackTfClient,
+        espera_apos_falha_s: float = 300.0,
+        relogio: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._cliente = cliente
+        self._espera = espera_apos_falha_s
+        self._relogio = relogio
+        self._indice: PriceIndex | None = None
+        self._proxima_tentativa = 0.0
+
+    def obter(self) -> PriceIndex | None:
+        if self._indice is not None:
+            return self._indice
+        if self._relogio() < self._proxima_tentativa:
+            return None
+        try:
+            moedas = self._cliente.currencies()
+            self._indice = PriceIndex.from_payload(
+                self._cliente.prices_payload(), moedas.key_in_refined
+            )
+        except Exception:
+            self._proxima_tentativa = self._relogio() + self._espera
+            return None
+        return self._indice
+
+
+SEM_COTACAO = (
+    "a cotação da chave ainda não carregou; tente de novo em alguns minutos"
+)
+
+
+@dataclass(frozen=True)
+class Cotacao:
+    """Preço da chave e taxa do dólar, que a tela inteira usa para converter."""
+
+    key_brl: Brl
+    usd_to_brl: float
+
+    @property
+    def usd_brl_formatado(self) -> Brl:
+        return Brl.from_float(self.usd_to_brl)
+
+
+class CotacaoSobDemanda:
+    """Busca a cotação na primeira necessidade, não na subida.
+
+    As duas vêm juntas porque as duas saem do mesmo cliente da Steam e são
+    inúteis separadas: preço em chaves sem taxa de conversão não vira tela.
+    """
+
+    def __init__(
+        self,
+        steam: SteamClient,
+        espera_apos_falha_s: float = 300.0,
+        relogio: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._steam = steam
+        self._espera = espera_apos_falha_s
+        self._relogio = relogio
+        self._cotacao: Cotacao | None = None
+        self._proxima_tentativa = 0.0
+
+    def obter(self) -> Cotacao | None:
+        if self._cotacao is not None:
+            return self._cotacao
+        if self._relogio() < self._proxima_tentativa:
+            return None
+        try:
+            self._cotacao = Cotacao(
+                key_brl=self._steam.key_price(), usd_to_brl=self._steam.usd_to_brl()
+            )
+        except Exception:
+            self._proxima_tentativa = self._relogio() + self._espera
+            return None
+        return self._cotacao
+
+
 class PageCache:
     """Guarda a ItemPage por hash_name com TTL curto.
 
@@ -78,11 +166,11 @@ class PageCache:
 class Contexto:
     steam: Any
     paginas: Any
-    index: PriceIndex
-    key_brl: Brl
-    # Taxa dólar->real do próprio SteamClient. A página de listagens ignora
-    # o parâmetro `currency` e alterna entre dólar e real entre requisições,
-    # então o que vier em dólar precisa desta taxa para virar real.
+    indice: IndiceSobDemanda
+    # Preço da chave e taxa dólar->real, sob demanda. A página de listagens
+    # ignora o parâmetro `currency` e alterna entre dólar e real entre
+    # requisições, então o que vier em dólar precisa desta taxa para virar
+    # real.
     #
     # O cache de páginas guarda ItemPage já convertida e é chaveado só pelo
     # nome do item — e isso basta: a taxa é uma foto por processo
@@ -90,10 +178,7 @@ class Contexto:
     # guarda), então ela não muda enquanto alguma entrada do cache vive.
     # Se um dia a taxa passar a ser reavaliada em tempo de execução, a
     # chave do cache precisa incluí-la.
-    #
-    # Sem valor padrão, pelo mesmo motivo de `parse_item_page`: um padrão
-    # deixa a conversão esquecível em quem monta o contexto.
-    usd_to_brl: float
+    cotacao: CotacaoSobDemanda
     cache: PageCache = field(default_factory=PageCache)
 
 
@@ -107,26 +192,24 @@ def _contexto(request: Request) -> Contexto:
     return request.app.state.contexto
 
 
-def _pagina_do_item(contexto: Contexto, nome: str) -> ItemPage:
+def _pagina_do_item(contexto: Contexto, nome: str, usd_to_brl: float) -> ItemPage:
     guardada = contexto.cache.get(nome)
     if guardada is not None:
         return guardada
-    pagina = contexto.paginas.item_page(nome, contexto.usd_to_brl)
+    pagina = contexto.paginas.item_page(nome, usd_to_brl)
     contexto.cache.put(nome, pagina)
     return pagina
 
 
 @ROTEADOR.get("/", response_class=HTMLResponse)
 def painel(request: Request, usuario: Usuario = Depends(ses.usuario_obrigatorio)):
-    contexto = _contexto(request)
+    # A cotação pode não ter carregado ainda; o painel abre assim mesmo e o
+    # timbre diz isso, em vez de a aplicação não subir.
+    cotacao = _contexto(request).cotacao.obter()
     return TEMPLATES.TemplateResponse(
         request=request,
         name="painel.html",
-        context={
-            "usuario": usuario,
-            "key_brl": contexto.key_brl,
-            "usd_brl": Brl.from_float(contexto.usd_to_brl),
-        },
+        context={"usuario": usuario, "cotacao": cotacao},
     )
 
 
@@ -152,8 +235,11 @@ def buscar(request: Request, q: str = ""):
 @ROTEADOR.get("/efeitos", response_class=HTMLResponse)
 def efeitos(request: Request, nome: str):
     contexto = _contexto(request)
+    cotacao = contexto.cotacao.obter()
+    if cotacao is None:
+        return _erro(request, SEM_COTACAO)
     try:
-        pagina = _pagina_do_item(contexto, nome)
+        pagina = _pagina_do_item(contexto, nome, cotacao.usd_to_brl)
     except (RuntimeError, PageStructureError) as erro:
         return _erro(request, str(erro))
     return TEMPLATES.TemplateResponse(
@@ -166,12 +252,15 @@ def efeitos(request: Request, nome: str):
 @ROTEADOR.get("/analise", response_class=HTMLResponse)
 def rota_analise(request: Request, nome: str, efeito: str):
     contexto = _contexto(request)
+    cotacao = contexto.cotacao.obter()
+    if cotacao is None:
+        return _erro(request, SEM_COTACAO)
     try:
-        pagina = _pagina_do_item(contexto, nome)
+        pagina = _pagina_do_item(contexto, nome, cotacao.usd_to_brl)
     except (RuntimeError, PageStructureError) as erro:
         return _erro(request, str(erro))
     try:
-        resultado = analyse(pagina, efeito, contexto.index, contexto.key_brl)
+        resultado = analyse(pagina, efeito, contexto.indice.obter(), cotacao.key_brl)
     except ValueError as erro:
         return _erro(request, str(erro))
     return TEMPLATES.TemplateResponse(
@@ -180,22 +269,19 @@ def rota_analise(request: Request, nome: str, efeito: str):
 
 
 def construir_contexto() -> Contexto:
-    """Monta os clientes reais e carrega o índice da backpack.tf uma vez."""
+    """Monta os clientes reais, sem tocar a rede: índice e cotação são sob demanda."""
     load_dotenv(".env")
     chave_api = os.getenv("BPTF_API_KEY", "").strip()
     if not chave_api:
         raise RuntimeError("BPTF_API_KEY não configurada. Veja .env.example.")
 
     bptf = BackpackTfClient(chave_api)
-    moedas = bptf.currencies()
-    index = PriceIndex.from_payload(bptf.prices_payload(), moedas.key_in_refined)
 
     limitador = RateLimiter(min_interval_s=INTERVALO_S)
     steam = SteamClient(limitador)
     return Contexto(
         steam=steam,
         paginas=SteamPageClient(limitador),
-        index=index,
-        key_brl=steam.key_price(),
-        usd_to_brl=steam.usd_to_brl(),
+        indice=IndiceSobDemanda(bptf),
+        cotacao=CotacaoSobDemanda(steam),
     )
