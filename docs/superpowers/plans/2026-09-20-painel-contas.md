@@ -3070,6 +3070,156 @@ git commit -m "Prepara o painel para o Railway"
 
 ---
 
+### Task 10: fechar a transação antes de falar com terceiro
+
+Acrescentada depois da revisão do branch inteiro, por decisão do dono do projeto.
+
+**Files:**
+- Modify: `tf2price/painel/sessao.py`
+- Test: `tests/painel/test_transacao.py` (novo)
+
+**Interfaces:**
+- Consumes: `db.agora`, `contas.servico.usuario_da_sessao`.
+- Produces: `sessao.usuario_opcional` e `sessao.usuario_obrigatorio` deixam de
+  depender de `sessao.conexao` e passam a abrir e fechar conexão própria.
+  `sessao.conexao` continua existindo, sem mudança, para as rotas que escrevem.
+
+**O defeito.** `conexao` é dependência com `yield` sobre `engine.begin()`: a
+transação abre antes da rota e só fecha depois da resposta pronta. O roteador da
+consulta inteiro depende dela, por tabela, via `usuario_obrigatorio`. Então uma
+requisição a `/analise` que dispare a primeira carga do índice segura uma conexão
+do Postgres em *idle in transaction* enquanto baixa dezenas de MB da backpack.tf,
+com `timeout=180.0`, e enquanto o `RateLimiter` dorme. Com o pool padrão do
+SQLAlchemy e algumas pessoas clicando logo depois de um deploy, dá para prender
+todas as conexões em transações que não estão fazendo nada.
+
+**Por que a ordem dos parâmetros importa.** Depois da mudança, uma rota que
+declare `usuario` e `conn` vai abrir duas conexões. O FastAPI resolve as
+dependências na ordem em que os parâmetros aparecem, e hoje `usuario` vem antes
+de `conn` em todas as rotas — então a conexão da autenticação fecha antes de a
+outra abrir, e nunca há duas ao mesmo tempo. Isso não é acidente feliz que se
+possa deixar implícito: o dublê de teste usa `StaticPool`, que serve **a mesma**
+conexão a todo mundo, então uma sobreposição vira erro de transação aninhada na
+hora. Escreva isso como comentário em `conexao`, para quem for reordenar
+parâmetros saber o que vai quebrar.
+
+- [ ] **Step 1: Escrever o teste que falha**
+
+O teste prova a propriedade em vez de descrevê-la: o dublê da página da Steam,
+quando chamado, tenta **abrir uma conexão nova e usá-la**. Com `StaticPool`, se a
+requisição ainda estiver segurando uma transação, isso levanta. É o mesmo aperto
+que o Postgres sentiria no pool, reproduzido de graça.
+
+Crie `tests/painel/test_transacao.py`:
+
+```python
+from __future__ import annotations
+
+import pytest
+from sqlalchemy import text
+
+from tests.painel.conftest import CHAVE, NOME, _contexto, _pagina, cliente_logado
+
+
+class _PaginasQueUsamOBanco:
+    """Dublê que, ao ser chamado, exige uma conexão livre.
+
+    É assim que este teste prova que a rota não está segurando transação
+    durante o I/O: com StaticPool, a conexão é uma só, e abrir uma segunda
+    enquanto a primeira tem transação aberta levanta na hora.
+    """
+
+    def __init__(self, engine, pagina):
+        self.engine = engine
+        self.pagina = pagina
+        self.chamadas = 0
+
+    def item_page(self, hash_name, usd_to_brl):
+        self.chamadas += 1
+        with self.engine.begin() as conn:
+            conn.execute(text("SELECT 1"))
+        return self.pagina
+
+
+def test_a_rota_nao_segura_transacao_durante_o_io(engine):
+    """Uma consulta lenta não pode prender conexão do banco sem usá-la.
+
+    A primeira carga do índice baixa dezenas de MB com timeout de 180 s. Se a
+    transação da requisição ficar aberta durante isso, algumas pessoas clicando
+    depois de um deploy esgotam o pool.
+    """
+    ctx = _contexto()
+    paginas = _PaginasQueUsamOBanco(engine, _pagina())
+    ctx.paginas = paginas
+    cliente = cliente_logado(engine, ctx)
+
+    resposta = cliente.get("/efeitos", params={"nome": NOME})
+
+    assert resposta.status_code == 200
+    assert paginas.chamadas == 1
+
+
+def test_rota_de_escrita_continua_funcionando(engine):
+    """A mudança não pode quebrar quem legitimamente escreve no banco."""
+    cliente = cliente_logado(engine, _contexto())
+    assert cliente.get("/admin").status_code == 200
+    assert cliente.post("/admin/convite").status_code == 200
+```
+
+- [ ] **Step 2: Rodar e confirmar que falha**
+
+Run: `.venv/Scripts/python -m pytest tests/painel/test_transacao.py`
+Expected: `test_a_rota_nao_segura_transacao_durante_o_io` FALHA, porque a
+requisição ainda segura a transação e o SQLite recusa a transação aninhada. O
+segundo teste passa desde já — ele existe para provar que a correção não quebra
+o caminho de escrita.
+
+- [ ] **Step 3: Abrir conexão curta na autenticação**
+
+Em `tf2price/painel/sessao.py`, `usuario_opcional` deixa de receber
+`conn: Connection = Depends(conexao)` e passa a abrir a sua:
+
+```python
+def usuario_opcional(request: Request) -> Usuario | None:
+    # Conexão curta, aberta e fechada aqui dentro: se a autenticação usasse a
+    # conexão da requisição, ela ficaria aberta durante as chamadas à Steam e
+    # à backpack.tf, que levam segundos e não tocam o banco.
+    token = request.cookies.get(NOME_COOKIE, "")
+    if not token:
+        return None
+    with request.app.state.engine.begin() as conn:
+        return servico.usuario_da_sessao(conn, token, db.agora())
+```
+
+O curto-circuito em token ausente não é otimização: sem ele, toda requisição sem
+cookie abriria conexão para nada.
+
+`usuario_obrigatorio` e `exigir_admin` não mudam — continuam dependendo de
+`usuario_opcional`.
+
+Acrescente a `conexao` o comentário sobre ordem de parâmetros descrito acima.
+
+- [ ] **Step 4: Rodar e confirmar que passa**
+
+Run: `.venv/Scripts/python -m pytest tests/painel/test_transacao.py`
+Expected: PASS nos dois
+
+- [ ] **Step 5: Suíte inteira**
+
+Run: `.venv/Scripts/python -m pytest`
+Expected: tudo verde. Preste atenção especial a `tests/painel/test_admin.py` e
+`tests/painel/test_convite.py`, que são as rotas que declaram as duas
+dependências.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add -A
+git commit -m "Fecha a transacao antes de falar com terceiro"
+```
+
+---
+
 ## Cobertura da spec
 
 | Seção da spec | Onde é implementada |
@@ -3089,6 +3239,7 @@ git commit -m "Prepara o painel para o Railway"
 | §12 erros indistinguíveis de convite e de login | Tasks 4 e 6 |
 | §13 testes sem rede, em SQLite na memória | Task 1 (fixture) e todas as demais |
 | §14 implantação, uma réplica, `--proxy-headers` | Task 9 |
+| §16 risco 3 (uma réplica): conexão não fica presa durante I/O | Task 10 |
 
 **Fica para os planos 2 e 3:** retrato compartilhado, acompanhamento, coleta da
 arte, tela nova em duas colunas. Nada disso aparece aqui.
