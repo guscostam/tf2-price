@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from tf2price.domain.identity import is_unusual_name
 from tf2price.domain.money import Brl
 from tf2price.lookup.analysis import analyse, effects_available
 from tf2price.sources.backpacktf import BackpackTfClient, PriceIndex
@@ -111,7 +112,7 @@ def criar_app(contexto: Contexto) -> FastAPI:
         except (RuntimeError, PageStructureError) as erro:
             return _erro(request, str(erro))
 
-        nomes = [r.hash_name for r in pagina.results if r.hash_name.startswith("Unusual ")]
+        nomes = [r.hash_name for r in pagina.results if is_unusual_name(r.hash_name)]
         return TEMPLATES.TemplateResponse(
             request=request, name="_itens.html", context={"nomes": nomes[:BUSCA_MAX]}
         )

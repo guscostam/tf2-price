@@ -124,6 +124,29 @@ def parse_market_hash_name(name: str) -> ItemIdentity:
     )
 
 
+# Ferramentas cujo nome começa com "Unusual " sem serem itens Unusual: elas
+# APLICAM um efeito a uma provocação, não o têm. A busca da Steam as devolve
+# junto das de verdade, e elas não têm listagem com efeito para analisar.
+UNUSUAL_NAME_EXCEPTIONS: tuple[str, ...] = (" Unusualifier",)
+
+
+def is_unusual_name(name: str) -> bool:
+    """A qualidade Unusual está no nome, mas nem sempre na frente.
+
+    `startswith("Unusual ")` perde a dupla qualidade — `Strange Unusual Bonk
+    Boy`, `Strange Unusual Villain's Veil`, as war paints. Numa busca real por
+    "Unusual" em 2026-09-20, isso era 28 de 100 nomes, os de maior valor entre
+    eles. Casar a palavra inteira em qualquer posição recupera todos.
+
+    A palavra inteira, e não o pedaço: `Unusualifier` contém "Unusual" e não é
+    qualidade nenhuma.
+    """
+    cleaned = name.strip()
+    if cleaned.endswith(UNUSUAL_NAME_EXCEPTIONS):
+        return False
+    return "Unusual" in cleaned.split()
+
+
 def bptf_name_candidates(identity: ItemIdentity, original: str) -> list[str]:
     """Nomes a tentar no índice da bp.tf, do mais específico ao mais genérico.
 
@@ -141,5 +164,11 @@ def bptf_name_candidates(identity: ItemIdentity, original: str) -> list[str]:
     if identity.australium:
         add(f"Australium {identity.base_name}")
     add(identity.base_name)
+    # Dupla qualidade: o parser consome um prefixo de qualidade só, então em
+    # `Strange Unusual Bonk Boy` sobra `Unusual ` grudado na base. A bp.tf
+    # guarda o item sob `Bonk Boy` e recebe a qualidade por fora, então sem
+    # esta última tentativa nenhum item de dupla qualidade acha preço.
+    if identity.base_name.startswith("Unusual "):
+        add(identity.base_name[len("Unusual ") :])
 
     return candidates

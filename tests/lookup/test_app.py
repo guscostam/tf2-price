@@ -173,3 +173,27 @@ def test_contexto_exige_a_taxa_explicitamente():
             index=PriceIndex.from_payload({"response": {"items": {}}}, key_in_refined=64.11),
             key_brl=CHAVE,
         )
+
+
+def test_busca_mantem_a_dupla_qualidade():
+    """`Strange Unusual ...` são 28 de 100 nomes da busca real, e os mais caros.
+
+    O filtro antigo (`startswith("Unusual ")`) descartava todos eles.
+    """
+    dupla = "Strange Unusual Bonk Boy"
+    ctx = _contexto(steam=_SteamFalso(nomes=(NOME, dupla, "Strange Scattergun")))
+    cliente = TestClient(criar_app(ctx))
+
+    r = cliente.get("/buscar", params={"q": "Veil"})
+    assert dupla in r.text
+    assert "Strange Scattergun" not in r.text
+
+
+def test_busca_descarta_o_unusualifier():
+    """A ferramenta aplica um efeito; não tem um. Não há o que analisar nela."""
+    ctx = _contexto(steam=_SteamFalso(nomes=(NOME, f"{NOME} Unusualifier")))
+    cliente = TestClient(criar_app(ctx))
+
+    r = cliente.get("/buscar", params={"q": "Chairholder"})
+    assert "Unusualifier" not in r.text
+    assert NOME in r.text
