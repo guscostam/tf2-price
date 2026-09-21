@@ -47,5 +47,12 @@
     });
     botao.setAttribute("data-escolhido", "");
   });
+
+  // Aba oculta não precisa animar.
+  document.addEventListener("visibilitychange", function () {
+    document.querySelectorAll(".aura").forEach(function (a) {
+      a.style.animationPlayState = document.hidden ? "paused" : "running";
+    });
+  });
 </script>
 {% endblock %}

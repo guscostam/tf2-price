@@ -2,6 +2,25 @@
    imediata" cruza os dois: preço deste efeito contra ofertas do item
    inteiro, e o spec proíbe cruzar sem rótulo. #}
 <article class="avaliacao">
+  <div class="placa">
+    <div class="palco">
+      {% if arte %}
+      <img class="aura" src="{{ arte }}" alt="">
+      <img class="aura" src="{{ arte }}" alt="">
+      <img class="aura" src="{{ arte }}" alt="">
+      {% endif %}
+      {% if chapeu %}
+      <img class="chapeu" src="{{ chapeu }}" alt="{{ a.hash_name }}">
+      {% endif %}
+      {% if not arte %}
+      <div class="sem-arte">
+        <span class="sem-arte-nome">{{ a.effect }}</span>
+        <span class="sem-arte-marca">sem arte deste efeito</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
   <h2>{{ a.effect }}</h2>
   <p class="item-nome">{{ a.hash_name }}</p>
 

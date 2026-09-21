@@ -6,22 +6,24 @@
   <title>{% block titulo %}Avaliação de Unusual{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Spectral:wght@300;400;600&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <style>
     /* A guia de avaliação: papel manilha, tinta industrial, carimbo de
        borracha. O carimbo é o único elemento alto da página, e o que ele
        carrega é a regra que governa o projeto — a idade do preço. */
     :root {
-      --papel:   #d4c9a8;
-      --slip:    #e9e1c8;
-      --tinta:   #221e19;
-      --tinta-2: #5f5849;
-      --carimbo: #9c2a22;
-      --aprovado:#2e5a38;
-      --linha:   rgba(34, 30, 25, .25);
+      /* Gabinete de espécimes: fundo escuro, a aura do efeito como única
+         fonte de cor viva. A cor vem da arte, não de código. */
+      --papel:   #0b0e12;
+      --slip:    #12161c;
+      --tinta:   #e4e7ec;
+      --tinta-2: #97a1b0;
+      --carimbo: #e07a5f;
+      --aprovado:#6ee7a8;
+      --linha:   rgba(228, 231, 236, .18);
       --display: "Big Shoulders Display", "Haettenschweiler", "Arial Narrow", sans-serif;
-      --corpo:   "IBM Plex Sans", system-ui, sans-serif;
+      --corpo:   "Spectral", Georgia, serif;
       --mono:    "IBM Plex Mono", ui-monospace, Consolas, monospace;
     }
 
@@ -40,16 +42,16 @@
     /* Grão do papel. Fixo, para não rolar junto e virar textura de tela. */
     body::before {
       content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-      opacity: .055;
+      opacity: .03;
       background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/></filter><rect width='180' height='180' filter='url(%23g)'/></svg>");
     }
 
     .guia {
       position: relative; z-index: 1;
       max-width: 58rem; margin: 0 auto;
-      background: var(--slip);
-      border: 1px solid rgba(34, 30, 25, .4);
-      box-shadow: 0 18px 42px -30px rgba(34, 30, 25, .85);
+      background: radial-gradient(120% 90% at 50% 0%, #1b2430 0%, var(--slip) 70%);
+      border: 1px solid #222c38;
+      box-shadow: 0 24px 60px -40px #000;
     }
 
     /* --- cabeçalho -------------------------------------------------- */
@@ -292,6 +294,47 @@
       border: 0; padding: .6rem 1.4rem; cursor: pointer;
     }
     .acao:hover { background: var(--carimbo); }
+
+    /* --- a placa do espécime ------------------------------------------ */
+    .placa { margin: 0 0 1.2rem; border: 1px solid #222c38; background: #0c1015; }
+    .palco { position: relative; height: 200px; overflow: hidden; }
+    .chapeu {
+      position: absolute; left: 50%; top: 54%; width: 120px;
+      transform: translate(-50%, -50%); z-index: 2;
+      filter: drop-shadow(0 10px 16px rgba(0, 0, 0, .7));
+    }
+    /* Campo de emissão: três cópias da mesma arte nascendo embaixo, subindo e
+       morrendo em cima, defasadas. É o que uma partícula faz no jogo, e é o
+       mais perto do efeito real sem existir vídeo dele. */
+    .aura {
+      position: absolute; left: 50%; top: 50%; width: 200px; height: 200px;
+      transform: translate(-50%, -50%); mix-blend-mode: screen;
+      pointer-events: none; animation: emite 3.6s linear infinite;
+    }
+    .aura:nth-of-type(2) { animation-delay: -2.4s; width: 150px; height: 150px; }
+    .aura:nth-of-type(3) { animation-delay: -1.2s; width: 236px; height: 236px; opacity: .5; }
+    @keyframes emite {
+      0%   { transform: translate(-50%, -32%) scale(.8);  opacity: 0; }
+      20%  { opacity: .95; }
+      100% { transform: translate(-50%, -74%) scale(1.18); opacity: 0; }
+    }
+    /* Efeito sem arte não ganha aura inventada: ganha o próprio nome. */
+    .sem-arte {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: .5rem; text-align: center;
+    }
+    .sem-arte-nome {
+      font-family: var(--mono); font-size: clamp(1rem, 4vw, 1.5rem);
+      letter-spacing: .14em; text-transform: uppercase; color: var(--tinta-2);
+      border-bottom: 1px solid var(--linha); padding-bottom: .4rem;
+    }
+    .sem-arte-marca {
+      font-family: var(--mono); font-size: .66rem; letter-spacing: .12em;
+      text-transform: uppercase; color: #6b7482;
+    }
+    /* Com dez avaliações abertas o movimento custa; parar quando ninguém
+       está olhando é de graça. */
+    @media (prefers-reduced-motion: reduce) { .aura { animation: none; } }
   </style>
 </head>
 <body{% block corpo_attrs %}{% endblock %}>
