@@ -19,7 +19,7 @@
     <span class="acompanhado-vazio">{{ l.motivo }}</span>
     {% endif %}
     {% if l.idade %}
-    <span class="acompanhado-idade">retrato {{ l.idade }}{% if l.premio %} · troca {{ l.premio_idade }}{% endif %}</span>
+    <span class="acompanhado-idade">retrato de {{ l.idade }}{% if l.premio %} · troca de {{ l.premio_idade }}{% endif %}</span>
     {% endif %}
   </button>
   <form hx-post="/atualizar/{{ l.hash_name | urlencode }}" hx-target="#acompanhados" class="acompanhado-acao">

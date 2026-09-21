@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import time
 from datetime import timedelta
+from urllib.parse import quote
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -14,7 +16,8 @@ from tf2price.preco import repositorio as preco_repo
 from tf2price.preco import serial
 from tf2price.preco.retrato import Retratos
 from tf2price.sources.backpacktf import PriceIndex
-from tf2price.sources.steam_page import PageStructureError
+from tf2price.sources.ratelimit import RateLimiter
+from tf2price.sources.steam_page import PageStructureError, SteamPageClient
 
 from .conftest import (
     CHAVE,
@@ -85,6 +88,62 @@ def test_mudanca_na_valve_vira_mensagem_e_nao_traceback(engine):
 
     assert r.status_code == 200
     assert "renderContext sumiu" in r.text
+
+
+# --- timeout de transporte não pode virar 500 (achado N2) -----------------
+#
+# `SteamPageClient.item_page` de verdade, com um `httpx.MockTransport` que
+# levanta `httpx.ReadTimeout` — duplo de rede, nunca a Steam de fato. Antes
+# da correção, `ReadTimeout` (que não é `RuntimeError`) subia cru por estas
+# três rotas, e cada uma virava 500.
+
+
+def _paginas_com_timeout() -> SteamPageClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("tempo esgotado", request=request)
+
+    return SteamPageClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+
+def test_efeitos_com_timeout_de_transporte_mostra_mensagem_e_nao_quebra(engine):
+    paginas = _paginas_com_timeout()
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+
+    r = cliente.get("/efeitos", params={"nome": NOME})
+
+    assert r.status_code == 200
+    assert "não respondeu" in r.text
+
+
+def test_analise_com_timeout_de_transporte_mostra_mensagem_e_nao_quebra(engine):
+    paginas = _paginas_com_timeout()
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+
+    r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
+
+    assert r.status_code == 200
+    assert "não respondeu" in r.text
+
+
+def test_atualizar_com_timeout_de_transporte_mostra_mensagem_e_nao_quebra(engine):
+    paginas = _paginas_com_timeout()
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+
+    r = cliente.post(f"/atualizar/{quote(NOME, safe='')}")
+
+    assert r.status_code == 200
+    assert "sem dado ainda" in r.text
 
 
 # --- retrato compartilhado -------------------------------------------------
@@ -331,6 +390,29 @@ def test_o_carimbo_reflete_a_idade_do_preco(engine, idade, classe, palavra):
     )
     for outra in outras:
         assert outra not in texto
+
+
+def test_carimbo_da_steam_limitando_nao_pede_emprestada_a_classe_do_bptf(engine):
+    """Os dois carimbos (Steam e bp.tf) emprestavam a mesma classe
+    `carimbo-vencido`. Com a Steam limitando e o preço da bp.tf fresco, a
+    página tinha "carimbo-vencido" (do carimbo da Steam) bem ao lado da
+    palavra "fresco" (do carimbo da bp.tf) — carimbos com significados
+    diferentes soando iguais."""
+    velho = db.agora() - timedelta(hours=3)
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas, indice=_indice_com_preco(5))  # bp.tf fresco
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    with engine.begin() as conn:
+        preco_repo.guardar(conn, NOME, json.dumps(serial.para_dict(_pagina())), velho)
+    paginas._erro = RuntimeError("status 429")
+
+    r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
+
+    assert r.status_code == 200
+    assert "carimbo-limitando" in r.text
+    assert "carimbo-vencido" not in r.text
+    assert "fresco" in r.text
 
 
 def test_carimbo_de_ausencia_quando_a_bptf_nao_precifica(cliente):

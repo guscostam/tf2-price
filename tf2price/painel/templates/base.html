@@ -260,6 +260,12 @@
     .carimbo-fresco  { --cor: var(--aprovado); }
     .carimbo-vencido { --giro: -6deg; }
     .carimbo-ausente { --cor: var(--tinta-2); --giro: 2.5deg; }
+    /* Carimbo próprio da Steam limitando — diferente de `carimbo-vencido`
+       (referência da bp.tf com mais de 365 dias). Os dois emprestavam a
+       mesma classe, e com a Steam limitando e o preço da bp.tf fresco a
+       página passava a ter "carimbo-vencido" ao lado da palavra "fresco".
+       Mesma rotação, pelos mesmos tokens — só o nome muda. */
+    .carimbo-limitando { --giro: -6deg; }
     @keyframes carimba {
       from { opacity: 0; transform: rotate(var(--giro)) scale(1.3); }
     }

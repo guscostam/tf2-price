@@ -145,6 +145,48 @@ def test_abrir_acompanhado_com_efeito_sumido_mostra_lista_e_avisa_ausencia(engin
     assert "180,44" not in r.text  # preço de Deep Dive não pode aparecer no lugar
 
 
+# --- o efeito ausente também tem idade (achado N1) -------------------------
+
+
+def test_efeito_ausente_mostra_a_idade_do_retrato(engine):
+    """"sem listagem deste efeito agora" é uma afirmação sobre o PRESENTE,
+    sentada em cima de um retrato que pode ter horas — o mesmo defeito já
+    corrigido em `_acompanhados.html` (achado I4), aqui no bloco da direita."""
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    velho = db.agora() - timedelta(minutes=6)
+    with engine.begin() as conn:
+        preco_repo.guardar(conn, NOME, json.dumps(serial.para_dict(_pagina())), velho)
+
+    r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Burning Flames"})
+
+    assert r.status_code == 200
+    assert "sem listagem deste efeito agora" in r.text
+    assert "6 min" in r.text
+
+
+def test_efeito_ausente_com_steam_limitando_avisa_os_dois(engine):
+    """No 429, o ramo de ausência tem de dizer a idade E que a Steam está
+    limitando — a mesma regra do §12 que já vale para o ramo de sucesso."""
+    velho = db.agora() - timedelta(hours=3)
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    with engine.begin() as conn:
+        preco_repo.guardar(conn, NOME, json.dumps(serial.para_dict(_pagina())), velho)
+    paginas._erro = RuntimeError("status 429")
+
+    r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Burning Flames"})
+
+    assert r.status_code == 200
+    assert "sem listagem deste efeito agora" in r.text
+    assert "3 h" in r.text
+    assert "limitando" in r.text.lower()
+
+
 # --- a idade não pode sumir quando mais importa (achado I4) ---------------
 
 
@@ -167,6 +209,67 @@ def test_linha_sem_listagem_ainda_mostra_a_idade_do_retrato(engine):
 
     assert "sem listagem deste efeito agora" in r.text
     assert 'class="acompanhado-idade"' in r.text
+
+
+# --- retrato de versão antiga não pode soar como "sumiu do mercado" (N9) --
+
+
+def test_retrato_de_versao_antiga_avisa_que_sera_regravado(engine):
+    """Diferente de "sem listagem deste efeito agora": ali o problema é do
+    mercado (o efeito não está à venda), aqui o problema é NOSSO (a forma
+    do retrato mudou) — as duas mensagens nunca podem soar iguais."""
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+    with engine.begin() as conn:
+        preco_repo.guardar(
+            conn, NOME,
+            json.dumps({
+                "versao": 999, "hash_name": NOME,
+                "listings": [], "orderbook": {}, "history": [],
+            }),
+            db.agora(),
+        )
+
+    r = cliente.get("/")
+
+    assert "retrato salvo numa forma antiga; será regravado na próxima busca" in r.text
+    assert "sem listagem deste efeito agora" not in r.text
+
+
+# --- uma linha ruim não pode trancar ninguém para fora (achado N3) --------
+
+
+def test_linha_com_erro_inesperado_nao_derruba_o_painel(engine, monkeypatch):
+    """A separação dos `except` (ValueError vs. o resto) está certa e não é
+    revertida aqui: um `KeyError`/`TypeError` de uma linha ruim, sem uma
+    rede de segurança final, derrubaria `GET /` e `DELETE /acompanhar`
+    inteiros — e a pessoa não teria como remover justo o item que quebra,
+    trancada para fora."""
+    from tf2price.painel import consulta
+
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+    cliente.get("/efeitos", params={"nome": NOME})  # popula o retrato guardado
+
+    def _quebra(*args, **kwargs):
+        raise KeyError("campo inesperado")
+
+    monkeypatch.setattr(consulta, "analyse", _quebra)
+
+    r = cliente.get("/")
+    assert r.status_code == 200
+    assert "não consegui avaliar esta linha" in r.text
+
+    with engine.begin() as conn:
+        eu = contas.usuario_por_nome(conn, "gusco")
+        ident = repo.listar(conn, eu.id)[0].id
+    r = cliente.delete(f"/acompanhar/{ident}")
+    assert r.status_code == 200
+    with engine.begin() as conn:
+        assert repo.listar(conn, eu.id) == []
 
 
 # --- o × não pode carregar a idade errada (achado I5) ----------------------
@@ -207,7 +310,7 @@ def test_premio_mostra_a_idade_da_bptf_junto_da_idade_do_retrato(engine):
 
     r = cliente.get("/")
 
-    assert "troca 12 d" in r.text
+    assert "troca de 12 d" in r.text
     inicio = r.text.index('class="acompanhado-preco"')
     trecho_do_preco = r.text[inicio:inicio + 200]
     assert "×" in trecho_do_preco
@@ -245,14 +348,38 @@ def test_efeitos_atualiza_acompanhados_sem_aninhar_o_involucro(engine):
     """O id="acompanhados" mora no invólucro de `painel.html`; o fragmento
     `_acompanhados.html` não o declara. Se o fora-de-banda não carregasse o
     id (substituindo o invólucro inteiro), cada resposta aninharia um
-    `#acompanhados` dentro do outro."""
+    `#acompanhados` dentro do outro.
+
+    Estendido (achado N8) para cobrir também `/analise`: é a rota que os
+    botões de efeito chamam (`_efeitos.html`), e ela também manda a coluna
+    fora de banda agora."""
     cliente = cliente_logado(engine, _contexto())
     cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
 
-    for _ in range(2):
-        r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Deep Dive"})
-        assert r.status_code == 200
-        assert r.text.count('id="acompanhados"') == 1
+    for rota in ("/efeitos", "/analise"):
+        for _ in range(2):
+            r = cliente.get(rota, params={"nome": NOME, "efeito": "Deep Dive"})
+            assert r.status_code == 200
+            assert r.text.count('id="acompanhados"') == 1
+
+
+def test_analise_marca_a_linha_aberta_na_coluna_esquerda(engine):
+    """Reproduz a sequência real: abrir o acompanhado A e clicar noutro
+    efeito na lista — que só chama `/analise` (`_efeitos.html` manda o botão
+    de efeito para `#analise`, não para `#efeitos`). Sem `/analise` mandar a
+    coluna fora de banda, A seguia marcado enquanto a direita já mostrava
+    outro efeito."""
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Midnight Whirlwind"})
+
+    r = cliente.get("/analise", params={"nome": NOME, "efeito": "Midnight Whirlwind"})
+
+    assert r.status_code == 200
+    assert r.text.count('class="acompanhado escolhido"') == 1
+    trecho = r.text[r.text.index('class="acompanhado escolhido"'):][:400]
+    assert "Midnight Whirlwind" in trecho
+    assert "Deep Dive" not in trecho
 
 
 def test_efeitos_atualiza_o_preco_na_esquerda_quando_o_retrato_estava_vencido(engine):

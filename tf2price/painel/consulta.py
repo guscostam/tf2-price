@@ -296,7 +296,16 @@ def efeitos(request: Request, nome: str, efeito: str = "",
         try:
             resultado = analyse(pagina, efeito, indice, cotacao.key_brl)
         except ValueError:
-            contexto_analise = {"efeito_ausente": SEM_LISTAGEM_DO_EFEITO}
+            # "sem listagem deste efeito agora" é uma afirmação sobre o
+            # PRESENTE, sentada em cima de um retrato que pode ter horas — na
+            # calma do 429 nenhuma busca sai, e ele envelhece sem teto. Sem a
+            # idade e o aviso de limitação, a frase mente dizendo que o item
+            # sumiu do mercado quando o que sumiu foi a nossa visão dele.
+            contexto_analise = {
+                "efeito_ausente": SEM_LISTAGEM_DO_EFEITO,
+                "retrato_idade": retrato_idade,
+                "retrato_limitando": leitura.limitando,
+            }
         else:
             contexto_analise = _contexto_da_analise(
                 resultado, efeito, retrato_idade, leitura.limitando
@@ -325,7 +334,11 @@ def efeitos(request: Request, nome: str, efeito: str = "",
 
 
 @ROTEADOR.get("/analise", response_class=HTMLResponse)
-def rota_analise(request: Request, nome: str, efeito: str):
+def rota_analise(request: Request, nome: str, efeito: str,
+                  usuario: Usuario = Depends(ses.usuario_obrigatorio)):
+    # `usuario` é de graça (mesmo motivo de `/efeitos`: o FastAPI reaproveita
+    # o resultado já calculado pela dependência do roteador) — precisa dele
+    # só agora, para marcar a linha aberta em `#acompanhados`.
     contexto = _contexto(request)
     cotacao = contexto.cotacao.obter()
     if cotacao is None:
@@ -340,15 +353,27 @@ def rota_analise(request: Request, nome: str, efeito: str):
     if leitura.pagina is None:
         return _erro(request, SEM_RETRATO)
     pagina = leitura.pagina
+    indice = contexto.indice.obter()
     try:
-        resultado = analyse(pagina, efeito, contexto.indice.obter(), cotacao.key_brl)
+        resultado = analyse(pagina, efeito, indice, cotacao.key_brl)
     except ValueError as erro:
         return _erro(request, str(erro))
     retrato_idade = _idade_por_extenso(leitura.buscado_em, agora)
+    # A esquerda tem de concordar com a direita: sem isto, clicar noutro
+    # efeito da mesma lista (que só troca `#analise`) deixava a marca antiga
+    # na esquerda. Aberta depois de resolvida toda a rede acima, pelo mesmo
+    # motivo de `_coluna`: a transação do banco tem de ser curta.
+    with request.app.state.engine.begin() as conn:
+        linhas = linhas_acompanhadas(
+            conn, cotacao, indice, usuario.id, agora, selecionado=(nome, efeito),
+        )
     return TEMPLATES.TemplateResponse(
         request=request,
-        name="_analise.html",
-        context=_contexto_da_analise(resultado, efeito, retrato_idade, leitura.limitando),
+        name="_analise_resposta.html",
+        context={
+            **_contexto_da_analise(resultado, efeito, retrato_idade, leitura.limitando),
+            "linhas": linhas,
+        },
     )
 
 
@@ -370,7 +395,15 @@ class LinhaAcompanhada:
     premio_idade: str | None = None
 
 
-def _idade_por_extenso(quando: datetime, agora: datetime) -> str:
+def _idade_por_extenso(quando: datetime | None, agora: datetime) -> str:
+    """`quando` é `datetime | None` no tipo de `Leitura.buscado_em`: hoje só é
+    seguro chamar isto com um valor porque `pagina` e `buscado_em` são
+    sempre setados juntos em `preco/retrato.py`, e cada rota já retornou se
+    `pagina is None`. Esse invariante vale, mas não está no tipo nem em
+    teste — tratar o `None` aqui explicitamente é mais honesto que confiar
+    nele silenciosamente."""
+    if quando is None:
+        return "idade desconhecida"
     minutos = int((agora - quando).total_seconds() // 60)
     if minutos < 1:
         return "agora"
@@ -426,6 +459,15 @@ def linhas_acompanhadas(
         except ValueError:
             saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito, None, None, idade,
                                           "sem listagem deste efeito agora", selecionado=marcado))
+            continue
+        except Exception:
+            # Rede de segurança por linha, não reversão da separação acima:
+            # esta função é o caminho crítico de `GET /` e de
+            # `DELETE /acompanhar`. Um `KeyError`/`TypeError` de uma linha
+            # ruim sem isto derrubaria o painel inteiro — e trancaria a
+            # pessoa para fora de remover justo o item que quebrou.
+            saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito, None, None, idade,
+                                          "não consegui avaliar esta linha", selecionado=marcado))
             continue
         premio = None
         premio_idade = None

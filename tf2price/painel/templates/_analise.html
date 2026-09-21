@@ -28,7 +28,7 @@
      embaixo no bloco "Saída paciente". As duas datam fontes diferentes, e
      confundi-las é como mostrar o preço de outro efeito: os números acima
      (o que você paga) são desta idade, não daquela. #}
-  <div class="carimbo{{ ' carimbo-vencido' if retrato_limitando else '' }}">
+  <div class="carimbo{{ ' carimbo-limitando' if retrato_limitando else '' }}">
     Steam
     <b>{{ retrato_idade }}</b>
     {{ 'Steam limitando — retrato congelado' if retrato_limitando else 'retrato' }}
