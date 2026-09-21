@@ -10,6 +10,7 @@ from typing import Any, Callable
 import httpx
 
 from tf2price.domain.money import Brl
+from tf2price.saneamento import mensagem_saneada
 from tf2price.sources.ratelimit import RateLimiter, backoff_delays
 from tf2price.sources.steam import APPID, CURRENCY_BRL, CURRENCY_USD
 
@@ -287,21 +288,33 @@ class SteamPageClient:
         # é o campo de moeda que cada parte do payload declara.
         params = {"currency": CURRENCY_BRL, "l": "english"}
 
-        ultimo: int | None = None
+        ultimo: int | str | None = None
         for atraso in [0.0, *backoff_delays(5)]:
             if atraso:
                 self._sleep(atraso)
             self._limiter.wait()
 
-            resposta = self._http.get(url, params=params)
-            if resposta.status_code == 429:
-                self._limiter.record_throttle()
-                ultimo = 429
+            try:
+                resposta = self._http.get(url, params=params)
+                if resposta.status_code == 429:
+                    self._limiter.record_throttle()
+                    ultimo = 429
+                    continue
+                if resposta.status_code >= 500:
+                    ultimo = resposta.status_code
+                    continue
+                resposta.raise_for_status()
+            except httpx.HTTPError as erro:
+                # Erro de transporte (timeout, conexão) OU o HTTPStatusError
+                # que `raise_for_status()` levanta para um 4xx que não é 429:
+                # nenhum dos dois é RuntimeError, e as três rotas que chamam
+                # esta função só capturam (RuntimeError, PageStructureError) —
+                # sem este `except`, um `httpx.ReadTimeout` subia cru e virava
+                # 500 na tela. Conta como mais uma tentativa gasta do mesmo
+                # backoff que já existe para 429/5xx; saneada porque a
+                # mensagem de um HTTPStatusError carrega a URL do pedido.
+                ultimo = mensagem_saneada(erro)
                 continue
-            if resposta.status_code >= 500:
-                ultimo = resposta.status_code
-                continue
-            resposta.raise_for_status()
             return parse_item_page(resposta.text, hash_name, usd_to_brl)
 
         raise RuntimeError(f"Steam não respondeu após backoff (último: {ultimo})")

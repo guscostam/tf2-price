@@ -211,6 +211,70 @@ def test_cliente_repete_em_429_e_registra():
     assert limiter.throttled == 1
 
 
+def test_timeout_e_repetido_e_depois_embrulhado_em_runtimeerror():
+    """`httpx.ReadTimeout` não é `RuntimeError` (a cadeia real é
+    ReadTimeout -> TimeoutException -> TransportError -> RequestError ->
+    HTTPError -> Exception), e as três rotas que chamam `item_page`
+    (`/atualizar`, `/efeitos`, `/analise`) só capturam
+    `(RuntimeError, PageStructureError)`. Sem embrulhar, um blip de rede no
+    Railway virava 500 em vez de mensagem na tela — medido com este mesmo
+    duplo antes da correção."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("tempo esgotado", request=request)
+
+    cliente = SteamPageClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        cliente.item_page(NOME, 1.0)
+
+    # Continua sendo RuntimeError, e não o ReadTimeout cru.
+    assert not isinstance(excinfo.value, httpx.HTTPError)
+
+
+def test_timeout_esporadico_e_absorvido_pelo_backoff():
+    """Um timeout isolado não pode estourar a busca: é a mesma resiliência
+    que 429 e 5xx já têm, só que para erro de transporte."""
+    tentativas = {"n": 0}
+    corpo = _html()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        tentativas["n"] += 1
+        if tentativas["n"] == 1:
+            raise httpx.ReadTimeout("tempo esgotado", request=request)
+        return httpx.Response(200, text=corpo, headers={"content-type": "text/html"})
+
+    cliente = SteamPageClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    pagina = cliente.item_page(NOME, 1.0)
+
+    assert len(pagina.listings) == 7
+    assert tentativas["n"] == 2
+
+
+def test_4xx_que_nao_e_429_tambem_vira_runtimeerror():
+    """`raise_for_status()` levanta `httpx.HTTPStatusError` para um 403, por
+    exemplo — também não é `RuntimeError` por si só."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, text="")
+
+    cliente = SteamPageClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(RuntimeError):
+        cliente.item_page(NOME, 1.0)
+
+
 # --- moeda declarada pelo payload ----------------------------------------
 #
 # Medido em 2026-09-20: a página de listagens IGNORA o parâmetro `currency`
