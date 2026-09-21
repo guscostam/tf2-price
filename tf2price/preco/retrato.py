@@ -18,7 +18,7 @@ from sqlalchemy.engine import Engine
 from tf2price.preco import repositorio as repo
 from tf2price.preco import serial
 from tf2price.sources.steam_page import ItemPage
-from tf2price.texto import mensagem_saneada
+from tf2price.saneamento import mensagem_saneada
 
 VALIDADE = timedelta(minutes=15)
 # Sem piso, segurar o botão de atualizar vira enxurrada na Steam.

@@ -34,7 +34,7 @@ from tf2price.sources.backpacktf import BackpackTfClient, PriceIndex
 from tf2price.sources.ratelimit import RateLimiter
 from tf2price.sources.steam import SteamClient
 from tf2price.sources.steam_page import PageStructureError, SteamPageClient, url_da_imagem
-from tf2price.texto import mensagem_saneada as _mensagem_saneada
+from tf2price.saneamento import mensagem_saneada
 
 BUSCA_MAX = 25
 INTERVALO_S = 1.0
@@ -52,7 +52,7 @@ def _registra_falha_sob_demanda(origem: str, erro: Exception, espera_s: float) -
     partida em `app.py`, que o Railway já capta no log do serviço.
     """
     print(
-        f"[sob-demanda] {origem}: {type(erro).__name__}: {_mensagem_saneada(erro)}; "
+        f"[sob-demanda] {origem}: {type(erro).__name__}: {mensagem_saneada(erro)}; "
         f"nova tentativa em {espera_s:.0f}s",
         flush=True,
     )
@@ -503,7 +503,7 @@ def atualizar(request: Request, hash_name: str,
             # virava 500 depois de a network nem ter quebrado de verdade.
             # A coluna segue sem retrato novo, o que já é uma resposta
             # honesta: nada mudou.
-            print(f"[atualizar] {hash_name}: {_mensagem_saneada(erro)}", flush=True)
+            print(f"[atualizar] {hash_name}: {mensagem_saneada(erro)}", flush=True)
     return _coluna(request, usuario.id)
 
 
