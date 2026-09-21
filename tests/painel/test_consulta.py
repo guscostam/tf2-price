@@ -267,6 +267,10 @@ def test_efeito_sem_arte_recebe_tipografia_e_nao_aura(engine, tmp_path, monkeypa
     texto = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"}).text
 
     assert "/arte/" not in texto
+    # A classe é o marcador da aura, não a origem da imagem: pega tanto uma
+    # servida por `/arte/` quanto uma vinda de `data:` URI, de outro caminho,
+    # ou desenhada em CSS puro.
+    assert 'class="aura"' not in texto
     assert "sem arte deste efeito" in texto
 
 

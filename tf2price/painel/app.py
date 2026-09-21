@@ -18,6 +18,12 @@ from tf2price.painel import sessao as ses
 if TYPE_CHECKING:
     from tf2price.painel.consulta import Contexto
 
+# O nome só pode ser <digitos>.webp. Conferir com expressão regular em vez de
+# juntar caminho e torcer: esta rota recebe texto de fora. `fullmatch`, não
+# `match`: `$` sozinho aceita uma quebra de linha final, `match` não ancora no
+# começo, e ambos juntos deixariam passar coisa como "13.webp\n".
+_NOME_DE_ARTE = re.compile(r"^\d{1,7}\.webp$")
+
 
 def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
     app = FastAPI(title="Painel de Unusual")
@@ -44,13 +50,9 @@ def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
 
         app.include_router(ROTEADOR)
 
-    # O nome só pode ser <digitos>.webp. Conferir com expressão regular em vez
-    # de juntar caminho e torcer: esta rota recebe texto de fora.
-    _NOME_DE_ARTE = re.compile(r"^\d{1,7}\.webp$")
-
     @app.get("/arte/{nome}")
     def servir_arte(nome: str) -> Response:
-        if not _NOME_DE_ARTE.match(nome):
+        if not _NOME_DE_ARTE.fullmatch(nome):
             return Response(status_code=404)
         arquivo = arte_dos_efeitos.DIRETORIO / nome
         if not arquivo.is_file():
