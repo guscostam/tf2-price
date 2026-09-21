@@ -1,11 +1,16 @@
-"""A cotação da chave: memória, banco e, só em último caso, a Steam.
+"""A cotação da chave, e a divisão que importa nela.
 
-Guardar no banco não foi gosto: em 21/09/2026 um deploy real levou 429 da
-Steam na primeira requisição do processo — o IP do Railway já estava limitado
-antes de a gente pedir —, gastou 44,8s de backoff e o painel ficou 5 minutos
-sem preço de chave nenhum. Estes testes prendem as duas metades disso: o
-processo novo nasce com a última cotação conhecida, e a Steam fora do ar não
-apaga o número da tela, só o envelhece.
+`obter` só lê (memória, banco) e é o que as rotas chamam. `renovar` é quem
+vai à rede, e só o thread de fundo chama. Essa divisão nasceu de duas
+medições no Railway, nesta ordem:
+
+1. 21/09/2026, log de deploy: a Steam respondeu 429 na primeira requisição do
+   processo, o backoff gastou 44,8s e o painel ficou 5 minutos sem preço de
+   chave — daí a cotação passar pelo banco, para o processo novo herdar a
+   última conhecida.
+2. No mesmo dia, log HTTP: `GET / 499 30173ms` e `GET / 200 11815ms`, contra
+   8-13ms de todas as outras. Era a validade de 15 min mandando uma
+   requisição de usuário buscar na Steam — daí a rede sair de `obter`.
 
 O relógio de `espera_apos_falha_s` é falso e avançado à mão; `quando` (o
 instante que vai para o banco) entra por parâmetro, como no resto do projeto.
@@ -25,6 +30,7 @@ from tf2price.painel.consulta import VALIDADE_COTACAO, Cotacao, CotacaoSobDemand
 from tf2price.preco import repositorio as preco_repo
 
 AGORA = db.agora()
+VELHA = AGORA - VALIDADE_COTACAO - timedelta(minutes=5)
 
 
 class _RelogioFalso:
@@ -73,130 +79,93 @@ def _lido(engine):
         return preco_repo.ler_cotacao(conn)
 
 
-# --- memória ---------------------------------------------------------------
+# --- `obter`: só lê, nunca vai à rede --------------------------------------
 
 
-def test_sucesso_guarda_em_memoria_e_nao_consulta_de_novo(engine):
+def test_obter_com_banco_vazio_nao_fala_com_a_steam(engine):
+    """Sem nada em lugar nenhum, `obter` devolve None — e não tenta buscar.
+
+    É o caso que custou 30 segundos de página em branco: antes, aqui é que
+    a escada de backoff começava.
+    """
     steam = _SteamClienteFalso()
     sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
 
-    primeira = sob.obter(engine, AGORA)
-    assert primeira is not None
-    assert steam.chamadas == 1
-
-    segunda = sob.obter(engine, AGORA)
-    assert segunda is primeira
-    assert steam.chamadas == 1
+    assert sob.obter(engine) is None
+    assert steam.chamadas == 0
 
 
-def test_sem_nada_em_lugar_nenhum_devolve_none(engine):
-    """Banco vazio e Steam fora do ar: aí não há número, e a tela diz isso."""
-    steam = _SteamClienteFalso()
-    steam.falhar = True
-    sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
-
-    assert sob.obter(engine, AGORA) is None
-    assert steam.chamadas == 1
-
-
-def test_dentro_do_intervalo_nao_tenta_de_novo(engine):
-    steam = _SteamClienteFalso()
-    steam.falhar = True
-    relogio = _RelogioFalso()
-    sob = CotacaoSobDemanda(steam, espera_apos_falha_s=100.0, relogio=relogio)
-
-    assert sob.obter(engine, AGORA) is None
-    assert steam.chamadas == 1
-
-    relogio.avancar(50.0)
-    assert sob.obter(engine, AGORA) is None
-    assert steam.chamadas == 1
-
-
-def test_depois_do_intervalo_tenta_de_novo(engine):
-    steam = _SteamClienteFalso()
-    steam.falhar = True
-    relogio = _RelogioFalso()
-    sob = CotacaoSobDemanda(steam, espera_apos_falha_s=100.0, relogio=relogio)
-
-    assert sob.obter(engine, AGORA) is None
-
-    relogio.avancar(100.0)
-    steam.falhar = False
-    assert sob.obter(engine, AGORA) is not None
-    assert steam.chamadas == 2
-
-
-def test_falha_fica_registrada_no_log(engine, capsys):
-    steam = _SteamClienteFalso()
-    steam.falhar = True
-    sob = CotacaoSobDemanda(steam, espera_apos_falha_s=42.0, relogio=_RelogioFalso())
-
-    sob.obter(engine, AGORA)
-
-    saida = capsys.readouterr().out
-    assert "CotacaoSobDemanda" in saida
-    assert "RuntimeError" in saida
-    assert "Steam fora do ar" in saida
-    assert "nova tentativa" in saida
-
-
-# --- o banco: atravessar o deploy ------------------------------------------
-
-
-def test_a_busca_grava_no_banco(engine):
-    steam = _SteamClienteFalso(chave=12.50)
-    sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
-
-    sob.obter(engine, AGORA)
-
-    assert _lido(engine) == (1250, 5.0, AGORA)
-
-
-def test_processo_novo_le_do_banco_e_nao_fala_com_a_steam(engine):
-    """O ponto da persistência: instância nova (o que um deploy produz) com
-    cotação recente guardada não gasta requisição no IP compartilhado."""
+def test_obter_le_do_banco_no_processo_novo(engine):
     _guardar(engine, chave_cents=1173, quando=AGORA)
     steam = _SteamClienteFalso()
     sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
 
-    cotacao = sob.obter(engine, AGORA)
+    cotacao = sob.obter(engine)
 
-    assert steam.chamadas == 0, "falou com a Steam tendo cotação fresca no banco"
-    assert cotacao is not None
+    assert steam.chamadas == 0
     assert cotacao.key_brl == Brl.from_cents(1173)
     assert cotacao.buscado_em == AGORA
 
 
-def test_cotacao_velha_no_banco_com_steam_fora_do_ar_ainda_serve(engine):
-    """A degradação honesta: o número velho continua na tela, com a idade
-    dele intacta, em vez de sumir."""
-    velha = AGORA - VALIDADE_COTACAO - timedelta(minutes=5)
-    _guardar(engine, chave_cents=1000, quando=velha)
+def test_obter_serve_a_velha_sem_tentar_renovar(engine):
+    """A regressão que motivou a divisão: uma cotação vencida NÃO pode
+    mandar quem está olhando a tela esperar a Steam. Ela sai velha, e quem
+    mostra diz a idade."""
+    _guardar(engine, chave_cents=1000, quando=VELHA)
     steam = _SteamClienteFalso()
-    steam.falhar = True
     sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
 
-    cotacao = sob.obter(engine, AGORA)
+    cotacao = sob.obter(engine)
 
-    assert steam.chamadas == 1, "velha demais: tinha que ter tentado buscar"
-    assert cotacao is not None
+    assert steam.chamadas == 0, "obter foi à rede: a regressão voltou"
     assert cotacao.key_brl == Brl.from_cents(1000)
-    # E o `buscado_em` não é remendado para agora: é a idade real do número.
-    assert cotacao.buscado_em == velha
+    assert cotacao.buscado_em == VELHA
 
 
-def test_cotacao_velha_no_banco_com_steam_de_pe_e_substituida(engine):
-    velha = AGORA - VALIDADE_COTACAO - timedelta(minutes=5)
-    _guardar(engine, chave_cents=1000, quando=velha)
-    steam = _SteamClienteFalso(chave=12.00)
+def test_obter_depois_da_primeira_leitura_usa_a_memoria(engine):
+    _guardar(engine, chave_cents=1173, quando=AGORA)
+    sob = CotacaoSobDemanda(_SteamClienteFalso(), relogio=_RelogioFalso())
+
+    primeira = sob.obter(engine)
+    assert sob.obter(engine) is primeira
+
+
+def test_a_trava_nao_prende_quem_ja_tem_o_valor(engine):
+    """Carregado, `obter` devolve pela leitura curta, antes da trava: nenhuma
+    requisição da vida do processo disputa trava por causa do caso raro."""
+    sob = CotacaoSobDemanda(_SteamClienteFalso(), relogio=_RelogioFalso())
+    primeira = sob.renovar(engine, AGORA)
+
+    sob._trava.acquire()
+    try:
+        assert sob.obter(engine) is primeira
+    finally:
+        sob._trava.release()
+
+
+# --- `renovar`: a busca, e só no fundo -------------------------------------
+
+
+def test_renovar_busca_e_grava_no_banco(engine, capsys):
+    steam = _SteamClienteFalso(chave=12.50)
     sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
 
-    cotacao = sob.obter(engine, AGORA)
+    sob.renovar(engine, AGORA)
 
-    assert cotacao.key_brl == Brl.from_cents(1200)
-    assert cotacao.buscado_em == AGORA
-    assert _lido(engine) == (1200, 5.0, AGORA)
+    assert _lido(engine) == (1250, 5.0, AGORA)
+    # Sucesso vira log: sem isto, o log conta quando falhou e nunca quando
+    # voltou — e é essa a pergunta que se faz olhando este log.
+    assert "[cotação]" in capsys.readouterr().out
+
+
+def test_renovar_nao_busca_o_que_ainda_esta_recente(engine):
+    _guardar(engine, chave_cents=1173, quando=AGORA)
+    steam = _SteamClienteFalso()
+    sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
+
+    sob.renovar(engine, AGORA)
+
+    assert steam.chamadas == 0
 
 
 def test_na_fronteira_da_validade_ainda_vale(engine):
@@ -206,23 +175,104 @@ def test_na_fronteira_da_validade_ainda_vale(engine):
     steam = _SteamClienteFalso()
     sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
 
-    assert sob.obter(engine, AGORA) is not None
+    sob.renovar(engine, AGORA)
+
     assert steam.chamadas == 0
+
+
+def test_renovar_substitui_a_velha(engine):
+    _guardar(engine, chave_cents=1000, quando=VELHA)
+    steam = _SteamClienteFalso(chave=12.00)
+    sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
+
+    cotacao = sob.renovar(engine, AGORA)
+
+    assert cotacao.key_brl == Brl.from_cents(1200)
+    assert cotacao.buscado_em == AGORA
+    assert _lido(engine) == (1200, 5.0, AGORA)
+
+
+def test_renovar_com_steam_fora_do_ar_mantem_a_velha(engine):
+    """A degradação honesta: o número velho continua servindo, com a idade
+    dele intacta, em vez de sumir da tela."""
+    _guardar(engine, chave_cents=1000, quando=VELHA)
+    steam = _SteamClienteFalso()
+    steam.falhar = True
+    sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
+
+    cotacao = sob.renovar(engine, AGORA)
+
+    assert steam.chamadas == 1, "velha demais: tinha que ter tentado buscar"
+    assert cotacao.key_brl == Brl.from_cents(1000)
+    # E o `buscado_em` não é remendado para agora: é a idade real do número.
+    assert cotacao.buscado_em == VELHA
+    # O banco também não é tocado: gravar a velha com data nova seria mentir.
+    assert _lido(engine) == (1000, 5.0, VELHA)
+
+
+def test_sem_nada_e_com_a_steam_fora_do_ar_devolve_none(engine):
+    steam = _SteamClienteFalso()
+    steam.falhar = True
+    sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
+
+    assert sob.renovar(engine, AGORA) is None
+    assert steam.chamadas == 1
+
+
+def test_dentro_da_calma_nao_tenta_de_novo(engine):
+    steam = _SteamClienteFalso()
+    steam.falhar = True
+    relogio = _RelogioFalso()
+    sob = CotacaoSobDemanda(steam, espera_apos_falha_s=100.0, relogio=relogio)
+
+    assert sob.renovar(engine, AGORA) is None
+    assert steam.chamadas == 1
+
+    relogio.avancar(50.0)
+    assert sob.renovar(engine, AGORA) is None
+    assert steam.chamadas == 1
+
+
+def test_depois_da_calma_tenta_de_novo(engine):
+    steam = _SteamClienteFalso()
+    steam.falhar = True
+    relogio = _RelogioFalso()
+    sob = CotacaoSobDemanda(steam, espera_apos_falha_s=100.0, relogio=relogio)
+
+    assert sob.renovar(engine, AGORA) is None
+
+    relogio.avancar(100.0)
+    steam.falhar = False
+    assert sob.renovar(engine, AGORA) is not None
+    assert steam.chamadas == 2
+
+
+def test_falha_fica_registrada_no_log(engine, capsys):
+    steam = _SteamClienteFalso()
+    steam.falhar = True
+    sob = CotacaoSobDemanda(steam, espera_apos_falha_s=42.0, relogio=_RelogioFalso())
+
+    sob.renovar(engine, AGORA)
+
+    saida = capsys.readouterr().out
+    assert "CotacaoSobDemanda" in saida
+    assert "RuntimeError" in saida
+    assert "Steam fora do ar" in saida
+    assert "nova tentativa" in saida
 
 
 def test_idade_e_a_da_busca_nao_a_da_leitura(engine):
     """`buscado_em` é quando a Steam foi lida. Uma leitura depois não
     rejuvenesce o número — é essa data que o timbre mostra."""
-    steam = _SteamClienteFalso()
-    sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
+    sob = CotacaoSobDemanda(_SteamClienteFalso(), relogio=_RelogioFalso())
 
-    primeira = sob.obter(engine, AGORA)
-    depois = sob.obter(engine, AGORA + timedelta(minutes=5))
+    primeira = sob.renovar(engine, AGORA)
+    depois = sob.obter(engine)
 
     assert depois.buscado_em == primeira.buscado_em == AGORA
 
 
-# --- a trava: o aquecimento e a primeira visita chegam juntos --------------
+# --- a trava entre dois renovos --------------------------------------------
 
 
 def _em_paralelo(fn, vezes: int = 4) -> list:
@@ -241,38 +291,26 @@ def _em_paralelo(fn, vezes: int = 4) -> list:
     return saida
 
 
-def test_chamadas_simultaneas_buscam_uma_vez_so(engine):
-    """Aqui a busca duplicada custa requisições à Steam, que limita por IP —
-    e no Railway o IP é o mesmo para todos."""
+def test_renovos_simultaneos_buscam_uma_vez_so(engine):
+    """Hoje só o thread de fundo renova, então a disputa é improvável — mas a
+    busca duplicada custa requisições ao IP que a Steam limita, e o preço de
+    garantir isso é uma trava que ninguém no caminho da requisição toca."""
     steam = _SteamClienteFalso(demora_s=0.15)
     sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
 
-    resultados = _em_paralelo(lambda: sob.obter(engine, AGORA))
+    resultados = _em_paralelo(lambda: sob.renovar(engine, AGORA))
 
     assert steam.chamadas == 1
     assert all(r is resultados[0] for r in resultados)
     assert resultados[0] is not None
 
 
-def test_a_trava_nao_prende_depois_de_carregado(engine):
-    """Carregado, `obter` devolve pela leitura curta, antes da trava."""
-    steam = _SteamClienteFalso()
-    sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
-    primeira = sob.obter(engine, AGORA)
-
-    sob._trava.acquire()
-    try:
-        assert sob.obter(engine, AGORA) is primeira
-    finally:
-        sob._trava.release()
-
-
-def test_falha_simultanea_respeita_a_espera_uma_vez_so(engine):
+def test_falha_simultanea_respeita_a_calma_uma_vez_so(engine):
     steam = _SteamClienteFalso(demora_s=0.15)
     steam.falhar = True
     sob = CotacaoSobDemanda(steam, espera_apos_falha_s=100.0, relogio=_RelogioFalso())
 
-    resultados = _em_paralelo(lambda: sob.obter(engine, AGORA))
+    resultados = _em_paralelo(lambda: sob.renovar(engine, AGORA))
 
     assert steam.chamadas == 1
     assert all(r is None for r in resultados)

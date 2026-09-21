@@ -158,6 +158,11 @@ class CotacaoSobDemanda:
     A ordem é de fora para dentro: memória, banco, rede. E a degradação é
     para o lado honesto — quando a busca falha, a cotação velha continua
     servindo com `buscado_em` intacto, e quem mostra diz a idade.
+
+    Duas portas, e a divisão entre elas é a parte que importa: `obter` só lê
+    (memória, banco) e é o que as rotas chamam; `renovar` é quem vai à rede,
+    e só o thread de fundo chama. Nenhuma requisição espera a Steam por causa
+    da cotação — ver o histórico medido na docstring de `obter`.
     """
 
     def __init__(
@@ -173,31 +178,47 @@ class CotacaoSobDemanda:
         self._proxima_tentativa = 0.0
         self._trava = threading.Lock()
 
-    def obter(self, engine: Engine, quando: datetime) -> Cotacao | None:
-        """Recebe o `engine`, e não uma conexão, pelo mesmo motivo de
-        `Retratos.obter`: a busca na Steam leva segundos, e transações curtas
-        com a rede **entre** elas é o que mantém zero conexões emprestadas
-        durante esse tempo — o que `test_transacao.py` mede."""
-        # Atalho sem trava para o caso comum: cotação recente em memória.
+    def obter(self, engine: Engine) -> Cotacao | None:
+        """Só lê: memória, depois banco. **Nunca** vai à rede.
+
+        Esta linha foi aprendida caro. Quando `obter` ainda buscava, a
+        validade de 15 min significava que, a cada 15 minutos, a primeira
+        pessoa a abrir a página pagava a escada de backoff da Steam dentro
+        do carregamento. Medido no log HTTP do Railway em 21/09/2026:
+        `GET / 499 30173ms` — trinta segundos, e a pessoa desistiu — e um
+        `GET / 200 11815ms` logo atrás, que era outra requisição esperando
+        na trava o resto da busca da primeira. Todas as outras: 8 a 13 ms.
+
+        A validade continua valendo para o *dado*, mas ela não pode ser
+        cobrada de quem está olhando a tela: quem renova é `renovar`, do
+        thread de fundo. Aqui devolve-se o que há, velho ou novo, e quem
+        mostra diz a idade.
+        """
         em_memoria = self._cotacao
-        if em_memoria is not None and self._recente(em_memoria, quando):
+        if em_memoria is not None:
             return em_memoria
-
         with self._trava:
-            if self._cotacao is not None and self._recente(self._cotacao, quando):
-                return self._cotacao
+            if self._cotacao is None:
+                # Memória vazia é processo novo: o banco tem a última que
+                # este serviço conheceu, e ler isso é um SELECT.
+                self._cotacao = self._do_banco(engine)
+            return self._cotacao
 
-            # Memória vazia é processo novo: o banco tem a última que este
-            # serviço conheceu, e ler isso custa um SELECT em vez de duas
-            # requisições a um IP que a Steam pode estar limitando.
+    def renovar(self, engine: Engine, quando: datetime) -> Cotacao | None:
+        """Busca na Steam se o que há está velho. **Só o fundo chama isto.**
+
+        Recebe o `engine`, e não uma conexão, pelo mesmo motivo de
+        `Retratos.obter`: a busca leva segundos, e transações curtas com a
+        rede **entre** elas é o que mantém zero conexões emprestadas durante
+        esse tempo — o que `test_transacao.py` mede.
+        """
+        with self._trava:
             if self._cotacao is None:
                 self._cotacao = self._do_banco(engine)
-                if self._cotacao is not None and self._recente(self._cotacao, quando):
-                    return self._cotacao
-
-            # Daqui para baixo, o que houver em memória está velho ou não
-            # existe. `guardada` é o que sobra se a rede não ajudar.
+            # `guardada` é o que sobra se a rede não ajudar.
             guardada = self._cotacao
+            if guardada is not None and self._recente(guardada, quando):
+                return guardada
             if self._relogio() < self._proxima_tentativa:
                 return guardada
             try:
@@ -219,6 +240,14 @@ class CotacaoSobDemanda:
                 preco_repo.guardar_cotacao(
                     conn, nova.key_brl.cents, nova.usd_to_brl, quando
                 )
+            # Sucesso também vira linha de log: sem isto, o log conta quando
+            # a cotação falhou e nunca quando ela voltou — e "voltou?" é
+            # exatamente a pergunta que se faz olhando este log.
+            print(
+                f"[cotação] chave {nova.key_brl}, dólar {nova.usd_brl_formatado}"
+                f" — guardada",
+                flush=True,
+            )
             return nova
 
     def _recente(self, cotacao: Cotacao, quando: datetime) -> bool:
@@ -292,7 +321,7 @@ def painel(request: Request, usuario: Usuario = Depends(ses.usuario_obrigatorio)
     # timbre diz isso, em vez de a aplicação não subir.
     contexto = _contexto(request)
     agora = db.agora()
-    cotacao = contexto.cotacao.obter(request.app.state.engine, agora)
+    cotacao = contexto.cotacao.obter(request.app.state.engine)
     # Índice e cotação resolvidos antes de abrir a conexão, pelo mesmo motivo
     # de `_coluna`: os dois podem ir à rede na primeira chamada, e a
     # transação da lista de acompanhados tem de ser curta.
@@ -374,7 +403,7 @@ def efeitos(request: Request, nome: str, efeito: str = "",
     # reaproveita o resultado já calculado pela dependência do roteador.
     contexto = _contexto(request)
     agora = db.agora()
-    cotacao = contexto.cotacao.obter(request.app.state.engine, agora)
+    cotacao = contexto.cotacao.obter(request.app.state.engine)
     if cotacao is None:
         return _erro(request, SEM_COTACAO, limpar_analise=True)
     try:
@@ -442,7 +471,7 @@ def rota_analise(request: Request, nome: str, efeito: str,
     # só agora, para marcar a linha aberta em `#acompanhados`.
     contexto = _contexto(request)
     agora = db.agora()
-    cotacao = contexto.cotacao.obter(request.app.state.engine, agora)
+    cotacao = contexto.cotacao.obter(request.app.state.engine)
     if cotacao is None:
         return _erro(request, SEM_COTACAO)
     try:
@@ -606,7 +635,7 @@ def _coluna(request: Request, usuario_id: int) -> HTMLResponse:
     """Monta a coluna esquerda, resolvendo a rede antes de tocar no banco."""
     contexto = _contexto(request)
     agora = db.agora()
-    cotacao = contexto.cotacao.obter(request.app.state.engine, agora)
+    cotacao = contexto.cotacao.obter(request.app.state.engine)
     indice = contexto.indice.obter()
     with request.app.state.engine.begin() as conn:
         linhas = linhas_acompanhadas(conn, cotacao, indice, usuario_id, agora)
@@ -643,7 +672,7 @@ def atualizar(request: Request, hash_name: str,
               usuario: Usuario = Depends(ses.usuario_obrigatorio)):
     contexto = _contexto(request)
     agora = db.agora()
-    cotacao = contexto.cotacao.obter(request.app.state.engine, agora)
+    cotacao = contexto.cotacao.obter(request.app.state.engine)
     if cotacao is not None:
         try:
             contexto.retratos.obter(

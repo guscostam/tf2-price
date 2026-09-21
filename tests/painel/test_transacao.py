@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from sqlalchemy import event
 
+from tf2price import db
 from tf2price.domain.money import Brl
 from tf2price.painel.consulta import CotacaoSobDemanda
+from tf2price.preco import repositorio as preco_repo
 from tf2price.preco.retrato import Retratos
 
 from tests.painel.conftest import NOME, _contexto, _pagina, cliente_logado
@@ -81,18 +85,38 @@ class _SteamQueObservaOPool:
 
 
 def test_a_cotacao_nao_prende_conexao_durante_o_io(engine):
-    """A mesma garantia, agora para a cotação — que passou a ler e gravar
-    no banco em volta de uma busca na Steam.
+    """A mesma garantia para `CotacaoSobDemanda.renovar`, que lê e grava no
+    banco em volta de uma busca na Steam.
 
-    Pelo motivo que o teste de cima já explica, isto precisa de uma
-    `CotacaoSobDemanda` de verdade: o `_CotacaoFalsa` do `_contexto` não
-    toca o banco, então mediria zero de qualquer jeito. Com a de verdade, o
-    teste reprovaria a forma óbvia e errada de escrever isso: uma transação
-    aberta em volta da busca, para ler o guardado e gravar o novo sem abrir
-    duas.
+    Chamado direto, e não por uma rota, porque quem chama `renovar` é o
+    thread de fundo: nenhuma requisição faz isso mais — e é esse justamente
+    o ponto do teste vizinho `test_rota_nunca_dispara_busca_de_cotacao`.
+
+    Com uma `CotacaoSobDemanda` de verdade (o `_CotacaoFalsa` do `_contexto`
+    não toca o banco e mediria zero de qualquer jeito), isto reprova a forma
+    cómoda e errada: uma transação aberta em volta da busca, para ler o
+    guardado e gravar o novo sem abrir duas.
     """
     contador = _contar_conexoes(engine)
     steam = _SteamQueObservaOPool(contador)
+    sob = CotacaoSobDemanda(steam)
+
+    assert sob.renovar(engine, db.agora()) is not None
+    assert steam.emprestadas_durante_o_io == 0
+
+
+def test_rota_nunca_dispara_busca_de_cotacao(engine):
+    """O conserto da regressão, prendido no nível da rota.
+
+    Com cotação vencida no banco (ou nenhuma), abrir a página não pode
+    render uma única requisição à Steam. Medido no Railway antes do
+    conserto: `GET / 499 30173ms`.
+    """
+    with engine.begin() as conn:
+        preco_repo.guardar_cotacao(
+            conn, 1000, 5.0, db.agora() - timedelta(days=1)
+        )
+    steam = _SteamQueObservaOPool(_contar_conexoes(engine))
     ctx = _contexto()
     ctx.cotacao = CotacaoSobDemanda(steam)
     cliente = cliente_logado(engine, ctx)
@@ -100,7 +124,11 @@ def test_a_cotacao_nao_prende_conexao_durante_o_io(engine):
     resposta = cliente.get("/")
 
     assert resposta.status_code == 200
-    assert steam.emprestadas_durante_o_io == 0
+    assert steam.emprestadas_durante_o_io is None, (
+        "a rota foi à Steam buscar cotação: a regressão dos 30s voltou"
+    )
+    # E a página mostra o número velho com a idade dele, em vez de nada.
+    assert "lida <b>1 d</b>" in resposta.text
 
 
 def test_rota_de_escrita_continua_funcionando(engine):

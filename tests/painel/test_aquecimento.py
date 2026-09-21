@@ -11,7 +11,12 @@ from __future__ import annotations
 import threading
 import time
 
-from tf2price.painel.app import aquecer, aquecer_em_segundo_plano, criar_app
+from tf2price.painel.app import (
+    aquecer,
+    aquecer_em_segundo_plano,
+    criar_app,
+    manter_quente,
+)
 
 
 class _Fonte:
@@ -23,9 +28,12 @@ class _Fonte:
         self._erro = erro
         self.chamadas = 0
 
+    # `renovar` é o que o aquecimento chama na cotação (`obter` não vai à
+    # rede); o índice só tem `obter`. O dublê atende os dois nomes.
+    def renovar(self, *args):
+        return self.obter(*args)
+
     def obter(self, *args):
-        # `*args`: a cotação recebe (engine, quando) e o índice nada — o
-        # aquecimento chama cada uma do jeito dela.
         self.chamadas += 1
         if self._demora:
             time.sleep(self._demora)
@@ -93,11 +101,46 @@ def test_aquecimento_nao_segura_a_subida(engine):
     decorrido = time.monotonic() - inicio
 
     assert decorrido < 0.1, "a subida esperou o aquecimento"
-    assert thread.daemon, "um encerramento não pode ficar preso no backoff"
-    thread.join(timeout=5)
-    assert not thread.is_alive()
+    assert thread.daemon, (
+        "o laço de `manter_quente` não termina e o backoff leva um minuto: "
+        "um encerramento não pode esperar nenhum dos dois"
+    )
+
+    # A primeira passada acontece; depois o thread fica vivo de propósito,
+    # renovando a cotação enquanto o processo viver.
+    limite = time.monotonic() + 5
+    while ctx.indice.chamadas == 0 and time.monotonic() < limite:
+        time.sleep(0.02)
     assert ctx.cotacao.chamadas == 1
     assert ctx.indice.chamadas == 1
+    assert thread.is_alive(), "o thread morreu em vez de manter a cotação quente"
+
+
+def test_manter_quente_renova_a_cotacao_em_ciclo(engine):
+    """Sem este laço, tirar a rede de `obter` congelaria a cotação no valor
+    da subida: ninguém mais a buscaria nunca.
+
+    O índice não entra no ciclo — ele é aquecido uma vez e não tem validade
+    hoje; inventar uma aqui seria decidir de lado.
+    """
+    ctx = _ContextoFalso(_Fonte(), _Fonte())
+    parar = threading.Event()
+
+    def correr():
+        manter_quente(ctx, engine, periodo_s=0.02, parar=parar)
+
+    thread = threading.Thread(target=correr, daemon=True)
+    thread.start()
+
+    limite = time.monotonic() + 5
+    while ctx.cotacao.chamadas < 4 and time.monotonic() < limite:
+        time.sleep(0.02)
+    parar.set()
+    thread.join(timeout=5)
+
+    assert not thread.is_alive(), "`parar` não interrompeu o laço"
+    assert ctx.cotacao.chamadas >= 4, "a cotação não está sendo renovada"
+    assert ctx.indice.chamadas == 1, "o índice entrou no ciclo sem ser convidado"
 
 
 def test_criar_app_nao_aquece(engine):

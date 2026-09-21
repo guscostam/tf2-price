@@ -94,7 +94,7 @@ def aquecer(contexto: "Contexto", engine: Engine) -> None:
     antes de pensar em rede — num processo recém-subido com cotação guardada
     recente, este aquecimento nem fala com a Steam.
     """
-    _aquece("cotação", lambda: contexto.cotacao.obter(engine, db.agora()))
+    _aquece("cotação", lambda: contexto.cotacao.renovar(engine, db.agora()))
     _aquece("índice", contexto.indice.obter)
 
 
@@ -112,16 +112,48 @@ def _aquece(nome: str, buscar) -> None:
     )
 
 
+# De quanto em quanto tempo o fundo acorda para ver se a cotação envelheceu.
+# Não é a frequência das requisições à Steam: `renovar` volta na hora se o
+# que há ainda é recente (15 min) ou se a calma dos 300s está de pé. Acordar
+# de minuto em minuto só garante que a renovação aconteça pouco depois de a
+# validade vencer, e não até um ciclo inteiro depois.
+PERIODO_DO_RENOVO_S = 60.0
+
+
+def manter_quente(
+    contexto: "Contexto",
+    engine: Engine,
+    *,
+    periodo_s: float = PERIODO_DO_RENOVO_S,
+    parar: threading.Event | None = None,
+) -> None:
+    """Aquece uma vez e depois renova a cotação enquanto o processo viver.
+
+    Este ciclo existe porque `CotacaoSobDemanda.obter` deixou de ir à rede:
+    sem alguem renovando por fora, a cotação congelaria no valor da subida e
+    envelheceria para sempre. O índice não entra no ciclo — ele não tem
+    validade nenhuma hoje, e inventar uma aqui seria decidir de lado.
+
+    `parar` é para o teste: sem ele, o laço não tem fim (o que é o certo num
+    thread daemon, que morre com o processo).
+    """
+    aquecer(contexto, engine)
+    parar = parar or threading.Event()
+    while not parar.wait(periodo_s):
+        contexto.cotacao.renovar(engine, db.agora())
+
+
 def aquecer_em_segundo_plano(
     contexto: "Contexto", engine: Engine
 ) -> threading.Thread:
-    """Aquece sem segurar a subida.
+    """Aquece e mantem quente sem segurar a subida.
 
-    `daemon=True` de propósito: o backoff da Steam pode levar um minuto, e
-    um encerramento não deve ficar esperando por ele.
+    `daemon=True` de propósito, por duas razões: o backoff da Steam pode
+    levar um minuto, e o laço de `manter_quente` não termina — um
+    encerramento não pode ficar esperando nenhum dos dois.
     """
     thread = threading.Thread(
-        target=aquecer, args=(contexto, engine), name="aquecimento", daemon=True
+        target=manter_quente, args=(contexto, engine), name="aquecimento", daemon=True
     )
     thread.start()
     return thread
