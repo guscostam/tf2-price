@@ -18,13 +18,19 @@ from fastapi.responses import HTMLResponse
 from tf2price.contas.modelo import Usuario
 from tf2price.domain.identity import is_unusual_name
 from tf2price.domain.money import Brl
+from tf2price.efeitos import arte as arte_dos_efeitos
 from tf2price.lookup.analysis import analyse, effects_available
 from tf2price.painel import sessao as ses
 from tf2price.painel.templates import TEMPLATES
 from tf2price.sources.backpacktf import BackpackTfClient, PriceIndex
 from tf2price.sources.ratelimit import RateLimiter
 from tf2price.sources.steam import SteamClient
-from tf2price.sources.steam_page import ItemPage, PageStructureError, SteamPageClient
+from tf2price.sources.steam_page import (
+    ItemPage,
+    PageStructureError,
+    SteamPageClient,
+    url_da_imagem,
+)
 
 CACHE_TTL_S = 300.0
 BUSCA_MAX = 25
@@ -285,7 +291,19 @@ def rota_analise(request: Request, nome: str, efeito: str):
     except ValueError as erro:
         return _erro(request, str(erro))
     return TEMPLATES.TemplateResponse(
-        request=request, name="_analise.html", context={"a": resultado}
+        request=request,
+        name="_analise.html",
+        context={
+            "a": resultado,
+            "arte": arte_dos_efeitos.url_do_efeito(efeito),
+            # O ícone é o da listagem mais barata deste efeito: chapéu pintado
+            # tem ícone próprio, e o de outra listagem seria outra variante.
+            "chapeu": (
+                url_da_imagem(resultado.cheapest.icon_url)
+                if resultado.cheapest.icon_url
+                else None
+            ),
+        },
     )
 
 

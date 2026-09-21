@@ -243,6 +243,37 @@ def test_sem_cotacao_a_tela_diz_e_nao_quebra(engine):
     ).text
 
 
+def test_avaliacao_mostra_o_chapeu_e_a_aura(engine, tmp_path, monkeypatch):
+    """A foto é do item de verdade e a aura é a arte do efeito escolhido."""
+    from tf2price.efeitos import arte
+
+    monkeypatch.setattr(arte, "DIRETORIO", tmp_path)
+    (tmp_path / "3229.webp").write_bytes(b"arte")  # Deep Dive
+
+    cliente = cliente_logado(engine, _contexto())
+    texto = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"}).text
+
+    assert "/arte/3229.webp" in texto
+    assert "economy/image/" in texto
+
+
+def test_efeito_sem_arte_recebe_tipografia_e_nao_aura(engine, tmp_path, monkeypatch):
+    """Inventar aura genérica repetiria o erro que invalidou a primeira versão."""
+    from tf2price.efeitos import arte
+
+    monkeypatch.setattr(arte, "DIRETORIO", tmp_path)  # vazio: nenhuma arte
+
+    cliente = cliente_logado(engine, _contexto())
+    texto = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"}).text
+
+    assert "/arte/" not in texto
+    # A classe é o marcador da aura, não a origem da imagem: pega tanto uma
+    # servida por `/arte/` quanto uma vinda de `data:` URI, de outro caminho,
+    # ou desenhada em CSS puro.
+    assert 'class="aura"' not in texto
+    assert "sem arte deste efeito" in texto
+
+
 def test_a_consulta_exige_sessao(engine):
     cliente = TestClient(criar_app(engine, _contexto()), follow_redirects=False)
     for caminho in ("/", "/buscar", "/efeitos", "/analise"):

@@ -17,6 +17,14 @@ BASE = "https://steamcommunity.com"
 RENDER_CONTEXT_MARKER = "window.SSR.renderContext="
 UNUSUAL_EFFECT_PREFIX = "Unusual Effect: "
 
+# A CDN de economia da Steam serve o ícone a partir do caminho que vem na
+# listagem. O tamanho é parte do caminho, não parâmetro de consulta.
+CDN_IMAGEM = "https://community.cloudflare.steamstatic.com/economy/image"
+
+
+def url_da_imagem(icon_url: str, tamanho: str = "330x192") -> str:
+    return f"{CDN_IMAGEM}/{icon_url}/{tamanho}"
+
 # Campo de moeda de cada parte do renderContext. O histórico escreve em
 # minúsculas — `ecurrency` — ao contrário da listagem e do livro de ofertas.
 # Não é engano de digitação; é assim que a Valve manda.
@@ -50,6 +58,7 @@ class PageListing:
     listing_id: str
     total_price: Brl
     effect: str | None
+    icon_url: str | None
 
 
 @dataclass(frozen=True)
@@ -165,6 +174,15 @@ def _efeito(listagem: dict[str, Any]) -> str | None:
     return None
 
 
+def _icone(listagem: dict[str, Any]) -> str | None:
+    """Caminho do ícone na CDN, ou None.
+
+    Mesmo lugar de onde `_efeito` lê: a descrição da listagem.
+    """
+    valor = (listagem.get("description") or {}).get("icon_url")
+    return str(valor) if valor else None
+
+
 def _listagens(qd: dict[str, Any], usd_to_brl: float) -> list[PageListing]:
     dados = _por_chave(qd, "market_item_search") or {}
     paginas = dados.get("pages") or []
@@ -182,6 +200,7 @@ def _listagens(qd: dict[str, Any], usd_to_brl: float) -> list[PageListing]:
                     # Arredonda uma única vez, na conversão.
                     total_price=parse_page_price(str(bruto)) * fator,
                     effect=_efeito(item),
+                    icon_url=_icone(item),
                 )
             )
     return saida

@@ -40,8 +40,13 @@ Medido em 2026-09-20, não suposto:
   devolve PNG 188×188 com alfa real — pixel do canto `[0,0,0,0]`, 49% totalmente
   transparente, 0% totalmente opaco. Indexada pelo **mesmo id** que
   `tf2price/data/effects.json` já guarda.
-- **Cobertura: 33 de 40 ids sorteados (83%).** Média de 36 KB por imagem. Os 547
-  efeitos nomeados do schema cabem em ~20 MB em PNG, ~8 MB em WebP.
+- **Cobertura: 473 de 547 (86,5%)** — número real, da coleta feita em
+  2026-09-20. A estimativa por amostra de 40 dava 83%. Os 74 restantes não têm
+  arte na fonte e recebem tratamento tipográfico. 6,7 MB em WebP.
+- **Três pares de efeitos compartilham a mesma arte.** Dois são legítimos
+  (`Haunted Phantasm` e o seu `Jr`, idem `Ghastly Ghosts`); o terceiro,
+  `Showstopper` e `Holy Grail`, compartilha a renderização na própria fonte —
+  conferido visualmente, é arte real, não imagem de ausência.
 - **O Cloudflare da backpack.tf recusa cliente que não é navegador.** Todas as
   tentativas por script deram 403, com e sem cabeçalhos de navegador. Um `<img>`
   apontando para lá a partir de outra origem **não carrega** — verificado numa

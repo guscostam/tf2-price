@@ -6,22 +6,24 @@
   <title>{% block titulo %}Avaliação de Unusual{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Spectral:wght@300;400;600&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <style>
     /* A guia de avaliação: papel manilha, tinta industrial, carimbo de
        borracha. O carimbo é o único elemento alto da página, e o que ele
        carrega é a regra que governa o projeto — a idade do preço. */
     :root {
-      --papel:   #d4c9a8;
-      --slip:    #e9e1c8;
-      --tinta:   #221e19;
-      --tinta-2: #5f5849;
-      --carimbo: #9c2a22;
-      --aprovado:#2e5a38;
-      --linha:   rgba(34, 30, 25, .25);
+      /* Gabinete de espécimes: fundo escuro, a aura do efeito como única
+         fonte de cor viva. A cor vem da arte, não de código. */
+      --papel:   #0b0e12;
+      --slip:    #12161c;
+      --tinta:   #e4e7ec;
+      --tinta-2: #97a1b0;
+      --carimbo: #e07a5f;
+      --aprovado:#6ee7a8;
+      --linha:   rgba(228, 231, 236, .18);
       --display: "Big Shoulders Display", "Haettenschweiler", "Arial Narrow", sans-serif;
-      --corpo:   "IBM Plex Sans", system-ui, sans-serif;
+      --corpo:   "Spectral", Georgia, serif;
       --mono:    "IBM Plex Mono", ui-monospace, Consolas, monospace;
     }
 
@@ -40,16 +42,16 @@
     /* Grão do papel. Fixo, para não rolar junto e virar textura de tela. */
     body::before {
       content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-      opacity: .055;
+      opacity: .03;
       background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/></filter><rect width='180' height='180' filter='url(%23g)'/></svg>");
     }
 
     .guia {
       position: relative; z-index: 1;
       max-width: 58rem; margin: 0 auto;
-      background: var(--slip);
-      border: 1px solid rgba(34, 30, 25, .4);
-      box-shadow: 0 18px 42px -30px rgba(34, 30, 25, .85);
+      background: radial-gradient(120% 90% at 50% 0%, #1b2430 0%, var(--slip) 70%);
+      border: 1px solid #222c38;
+      box-shadow: 0 24px 60px -40px #000;
     }
 
     /* --- cabeçalho -------------------------------------------------- */
@@ -90,7 +92,7 @@
       background: transparent; color: var(--tinta);
       font-family: var(--corpo); font-size: clamp(1.1rem, 3.5vw, 1.4rem);
     }
-    #q::placeholder { color: rgba(34, 30, 25, .35); }
+    #q::placeholder { color: rgba(228, 231, 236, .35); }
     #q:focus { outline: 0; border-bottom-color: var(--carimbo); }
 
     /* --- opções selecionáveis ---------------------------------------- */
@@ -108,7 +110,7 @@
       content: ""; flex: none; width: .62rem; height: .62rem;
       border: 1px solid var(--tinta);
     }
-    .opcoes button:hover { background: rgba(34, 30, 25, .05); border-color: var(--tinta); }
+    .opcoes button:hover { background: rgba(228, 231, 236, .07); border-color: var(--tinta); }
     .opcoes button[data-escolhido] { background: var(--tinta); color: var(--slip); }
     .opcoes button[data-escolhido]::before { background: var(--slip); border-color: var(--slip); }
 
@@ -130,7 +132,7 @@
     .tag-efeito { background: var(--tinta); color: var(--slip); }
     .tag-item {
       border: 1px solid var(--tinta); color: var(--tinta);
-      background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(34, 30, 25, .09) 3px 6px);
+      background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(228, 231, 236, .12) 3px 6px);
     }
     .cruz { font-family: var(--mono); font-size: .7rem; color: var(--tinta-2); }
 
@@ -190,7 +192,11 @@
       display: block; width: 11rem; padding: .55rem .5rem;
       border: 2px solid var(--cor); outline: 1px solid var(--cor); outline-offset: 3px;
       color: var(--cor); text-align: center; opacity: .87;
-      transform: rotate(var(--giro)); mix-blend-mode: multiply;
+      transform: rotate(var(--giro));
+      /* `multiply` era da paleta clara: escurecia a tinta sobre o papel
+         manilha. Sobre o fundo escuro do gabinete ele escurece o que já é
+         escuro e o carimbo salmão vira quase preto. `normal` mantém a cor. */
+      mix-blend-mode: normal;
       font-family: var(--display); font-weight: 700;
       text-transform: uppercase; letter-spacing: .1em; font-size: .78rem;
       animation: carimba .26s cubic-bezier(.2, .8, .3, 1.25) .1s backwards;
@@ -228,7 +234,9 @@
     .aviso {
       margin: 0 0 1rem; padding: .7rem .9rem;
       border-left: 4px solid var(--carimbo);
-      background: rgba(156, 42, 34, .07);
+      /* rgba do --carimbo atual (#e07a5f); o antigo (#9c2a22, paleta clara)
+         a 7% desaparecia sobre o fundo escuro. */
+      background: rgba(224, 122, 95, .10);
       font-size: .9rem;
     }
     .aviso code {
@@ -255,9 +263,18 @@
       *, *::before, *::after { animation: none !important; transition: none !important; }
     }
     @media print {
+      /* A paleta da tela é escura; no papel ela precisa se inverter de volta,
+         senão sai tinta clara sobre branco. Redefinir os tokens conserta tudo
+         que os usa de uma vez. */
+      :root {
+        --papel: #fff; --slip: #fff; --tinta: #221e19; --tinta-2: #5f5849;
+        --linha: rgba(34, 30, 25, .25);
+      }
       body { background: #fff; padding: 0; }
       body::before, .campo[data-campo="item"] .opcoes, #espera { display: none; }
-      .guia { border: 0; box-shadow: none; max-width: none; }
+      /* A aura é composta em `screen`, que não significa nada no papel. */
+      .placa { display: none; }
+      .guia { border: 0; box-shadow: none; max-width: none; background: #fff; }
     }
 
     .topo-conta {
@@ -292,6 +309,54 @@
       border: 0; padding: .6rem 1.4rem; cursor: pointer;
     }
     .acao:hover { background: var(--carimbo); }
+
+    /* --- a placa do espécime ------------------------------------------ */
+    .placa { margin: 0 0 1.2rem; border: 1px solid #222c38; background: #0c1015; }
+    .palco { position: relative; height: 200px; overflow: hidden; }
+    .chapeu {
+      position: absolute; left: 50%; top: 54%; width: 120px;
+      transform: translate(-50%, -50%); z-index: 2;
+      filter: drop-shadow(0 10px 16px rgba(0, 0, 0, .7));
+    }
+    /* Campo de emissão: três cópias da mesma arte nascendo embaixo, subindo e
+       morrendo em cima, defasadas. É o que uma partícula faz no jogo, e é o
+       mais perto do efeito real sem existir vídeo dele. */
+    .aura {
+      position: absolute; left: 50%; top: 50%; width: 200px; height: 200px;
+      transform: translate(-50%, -50%); mix-blend-mode: screen;
+      pointer-events: none; animation: emite 3.6s linear infinite;
+    }
+    .aura:nth-of-type(2) { animation-delay: -2.4s; width: 150px; height: 150px; }
+    .aura:nth-of-type(3) { animation-delay: -1.2s; width: 236px; height: 236px; opacity: .5; }
+    @keyframes emite {
+      0%   { transform: translate(-50%, -32%) scale(.8);  opacity: 0; }
+      20%  { opacity: .95; }
+      100% { transform: translate(-50%, -74%) scale(1.18); opacity: 0; }
+    }
+    /* Sem arte, a placa deixa de ser palco de sobreposição e vira
+       empilhamento: o item em cima, o nome do efeito embaixo. Sobrepor os
+       dois cortava o texto pela metade — visto no navegador, não suposto. */
+    .palco-sem-arte {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: .9rem;
+    }
+    .palco-sem-arte .chapeu { position: static; transform: none; width: 96px; }
+    .palco-sem-arte .sem-arte { position: static; inset: auto; }
+
+    /* Efeito sem arte não ganha aura inventada: ganha o próprio nome. */
+    .sem-arte {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: .5rem; text-align: center;
+    }
+    .sem-arte-nome {
+      font-family: var(--mono); font-size: clamp(1rem, 4vw, 1.5rem);
+      letter-spacing: .14em; text-transform: uppercase; color: var(--tinta-2);
+      border-bottom: 1px solid var(--linha); padding-bottom: .4rem;
+    }
+    .sem-arte-marca {
+      font-family: var(--mono); font-size: .66rem; letter-spacing: .12em;
+      text-transform: uppercase; color: #6b7482;
+    }
   </style>
 </head>
 <body{% block corpo_attrs %}{% endblock %}>

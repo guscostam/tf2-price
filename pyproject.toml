@@ -29,7 +29,7 @@ build-backend = "setuptools.build_meta"
 include = ["tf2price*"]
 
 [tool.setuptools.package-data]
-tf2price = ["data/*.json"]
+tf2price = ["data/*.json", "data/efeitos/*.webp", "painel/templates/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

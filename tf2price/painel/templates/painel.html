@@ -47,5 +47,13 @@
     });
     botao.setAttribute("data-escolhido", "");
   });
+
+  // Aba oculta não precisa animar. Com dez avaliações abertas o movimento
+  // custa; parar quando ninguém está olhando é de graça.
+  document.addEventListener("visibilitychange", function () {
+    document.querySelectorAll(".aura").forEach(function (a) {
+      a.style.animationPlayState = document.hidden ? "paused" : "running";
+    });
+  });
 </script>
 {% endblock %}
