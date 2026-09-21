@@ -2,6 +2,11 @@
   <strong>Source unavailable</strong>
   <p>{{ mensagem }}</p>
 </div>
+{% if limpar_efeitos %}
+<div id="effects" class="choice-list" aria-live="polite" hx-swap-oob="true">
+  <p class="empty-state">Waiting for an item</p>
+</div>
+{% endif %}
 {% if limpar_analise %}
 <div id="analysis" aria-live="polite" hx-swap-oob="true">
   <p class="empty-state">Waiting for an effect</p>

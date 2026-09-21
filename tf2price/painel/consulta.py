@@ -35,7 +35,9 @@ from tf2price.preco.retrato import Retratos
 from tf2price.sources.backpacktf import BackpackTfClient, PriceIndex
 from tf2price.sources.ratelimit import RateLimiter
 from tf2price.sources.steam import SteamClient
-from tf2price.sources.steam_page import PageStructureError, SteamPageClient, url_da_imagem
+from tf2price.sources.steam_page import (
+    PageStructureError, SteamLimitando, SteamPageClient, url_da_imagem,
+)
 from tf2price.saneamento import mensagem_saneada
 
 BUSCA_MAX = 25
@@ -312,16 +314,23 @@ class Contexto:
     retratos: Retratos
 
 
-def _erro(request: Request, mensagem: str, *, limpar_analise: bool = False) -> HTMLResponse:
-    """`limpar_analise` manda `_erro.html` também esvaziar `#analise` por fora
-    de banda — necessário quando o alvo da resposta é outro bloco (`/efeitos`
-    mira `#efeitos`) e uma avaliação de um item anterior ficaria na tela.
-    Rotas cujo próprio alvo já é `#analise` (como `/analise`) não precisam
-    disso: a troca normal já substitui o bloco."""
+def _erro(
+    request: Request, mensagem: str, *, limpar_analise: bool = False,
+    limpar_efeitos: bool = False,
+) -> HTMLResponse:
+    """Limpa por fora de banda os painéis dependentes do alvo da resposta.
+
+    A busca invalida efeitos e análise; `/efeitos` invalida só a análise.
+    `/analise` já substitui seu próprio painel pela troca normal.
+    """
     return TEMPLATES.TemplateResponse(
         request=request,
         name="_erro.html",
-        context={"mensagem": mensagem, "limpar_analise": limpar_analise},
+        context={
+            "mensagem": mensagem,
+            "limpar_analise": limpar_analise or limpar_efeitos,
+            "limpar_efeitos": limpar_efeitos,
+        },
     )
 
 
@@ -331,6 +340,8 @@ def _contexto(request: Request) -> Contexto:
 
 def _mensagem_falha_steam(erro: Exception) -> str:
     """Texto público estável; detalhes de terceiros não pertencem à interface."""
+    if isinstance(erro, SteamLimitando):
+        return "Steam is rate limiting requests. Try again in a few minutes."
     if isinstance(erro, PageStructureError):
         return "Steam returned an unreadable market page."
     return "Steam could not provide market data. Try again later."
@@ -347,7 +358,7 @@ def buscar(request: Request, q: str = ""):
     try:
         pagina = contexto.steam.search_page(start=0, count=BUSCA_MAX, query=termo)
     except (RuntimeError, PageStructureError) as erro:
-        return _erro(request, _mensagem_falha_steam(erro))
+        return _erro(request, _mensagem_falha_steam(erro), limpar_efeitos=True)
 
     nomes = [r.hash_name for r in pagina.results if is_unusual_name(r.hash_name)]
     return TEMPLATES.TemplateResponse(

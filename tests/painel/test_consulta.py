@@ -75,6 +75,28 @@ def test_busca_lista_os_nomes(cliente):
     assert NOME in r.text
 
 
+def test_busca_limitada_distingue_429_sem_detalhes_e_limpa_paineis(engine):
+    class SteamLimitada:
+        def search_page(self, start=0, count=100, query=None):
+            raise SteamLimitando("upstream-private-detail token=fixture-only")
+
+    cliente = cliente_logado(engine, _contexto(steam=SteamLimitada()))
+    resposta = cliente.get("/buscar", params={"q": "Chairholder"})
+
+    assert resposta.status_code == 200
+    assert 'role="alert"' in resposta.text
+    assert "Steam is rate limiting requests. Try again in a few minutes." in resposta.text
+    assert "Steam could not provide market data." not in resposta.text
+    assert "upstream-private-detail" not in resposta.text
+    assert "fixture-only" not in resposta.text
+    assert resposta.text.count('hx-swap-oob="true"') == 2
+    assert 'id="effects"' in resposta.text
+    assert 'id="analysis"' in resposta.text
+    assert "Waiting for an item" in resposta.text
+    assert "Waiting for an effect" in resposta.text
+    assert 'data-case-request="effect"' not in resposta.text
+
+
 def test_fragmentos_carregam_identidade_e_limpeza_em_ingles(cliente):
     busca = cliente.get("/buscar", params={"q": "Chairholder"}).text
     assert 'data-case-request="item"' in busca

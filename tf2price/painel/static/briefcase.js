@@ -39,6 +39,7 @@
       empty("effects", "Waiting for an item");
       empty("analysis", "Waiting for an effect");
     } else if (level === "item") {
+      empty("effects", "Loading effects");
       empty("analysis", "Waiting for an effect");
     } else if (level === "effect") {
       empty("analysis", "Loading evidence");
