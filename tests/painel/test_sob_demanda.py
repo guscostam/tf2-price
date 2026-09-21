@@ -234,3 +234,105 @@ def test_falha_com_url_na_mensagem_nao_vaza_a_chave_no_log(capsys):
     assert CHAVE_SECRETA not in saida
     assert "RuntimeError" in saida
     assert "IndiceSobDemanda" in saida
+
+
+# --- a trava: o aquecimento e a primeira visita chegam juntos --------------
+
+
+class _ClienteBptfLento(_ClienteBptfFalso):
+    """Dublê que demora, para as duas threads se sobreporem de verdade."""
+
+    def __init__(self, demora_s: float = 0.15) -> None:
+        super().__init__()
+        self._demora = demora_s
+
+    def currencies(self) -> Currencies:
+        import time
+
+        time.sleep(self._demora)
+        return super().currencies()
+
+
+class _SteamClienteLento(_SteamClienteFalso):
+    def __init__(self, demora_s: float = 0.15) -> None:
+        super().__init__()
+        self._demora = demora_s
+
+    def key_price(self) -> Brl:
+        import time
+
+        time.sleep(self._demora)
+        return super().key_price()
+
+
+def _em_paralelo(fn, vezes: int = 4) -> list:
+    """Chama `fn` em `vezes` threads soltas ao mesmo tempo por uma barreira."""
+    import threading
+
+    partida = threading.Barrier(vezes)
+    saida: list = [None] * vezes
+
+    def corpo(i: int) -> None:
+        partida.wait()
+        saida[i] = fn()
+
+    threads = [threading.Thread(target=corpo, args=(i,)) for i in range(vezes)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return saida
+
+
+def test_indice_chamadas_simultaneas_buscam_uma_vez_so():
+    """O aquecimento da subida e a primeira visita se cruzam: sem a trava,
+    cada um sairia buscar os mesmos 5 MB da bp.tf."""
+    cliente = _ClienteBptfLento()
+    sob = IndiceSobDemanda(cliente, relogio=_RelogioFalso())
+
+    resultados = _em_paralelo(sob.obter)
+
+    assert cliente.chamadas == 1
+    # E todas as quatro recebem o mesmo objeto, não None por terem perdido.
+    assert all(r is resultados[0] for r in resultados)
+    assert isinstance(resultados[0], PriceIndex)
+
+
+def test_cotacao_chamadas_simultaneas_buscam_uma_vez_so():
+    """Aqui a busca duplicada custa requisições à Steam, que limita por IP —
+    e no Railway o IP é o mesmo para todos."""
+    steam = _SteamClienteLento()
+    sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
+
+    resultados = _em_paralelo(sob.obter)
+
+    assert steam.chamadas == 1
+    assert all(r is resultados[0] for r in resultados)
+    assert resultados[0] is not None
+
+
+def test_a_trava_nao_prende_depois_de_carregado():
+    """Carregado, `obter` devolve pela leitura curta, antes da trava: nenhuma
+    requisição da vida do processo disputa trava por causa do caso raro."""
+    steam = _SteamClienteFalso()
+    sob = CotacaoSobDemanda(steam, relogio=_RelogioFalso())
+    primeira = sob.obter()
+
+    sob._trava.acquire()  # trava presa de propósito
+    try:
+        assert sob.obter() is primeira
+    finally:
+        sob._trava.release()
+
+
+def test_falha_simultanea_respeita_a_espera_uma_vez_so():
+    """Quatro chegando juntos com o terceiro fora do ar: uma tentativa, não
+    quatro — o freio de 300s vale para o grupo."""
+    steam = _SteamClienteLento()
+    steam.falhar = True
+    sob = CotacaoSobDemanda(steam, espera_apos_falha_s=100.0, relogio=_RelogioFalso())
+
+    resultados = _em_paralelo(sob.obter)
+
+    assert steam.chamadas == 1
+    assert all(r is None for r in resultados)

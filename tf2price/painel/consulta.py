@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -80,22 +81,33 @@ class IndiceSobDemanda:
         self._relogio = relogio
         self._indice: PriceIndex | None = None
         self._proxima_tentativa = 0.0
+        self._trava = threading.Lock()
 
     def obter(self) -> PriceIndex | None:
+        # O atalho antes da trava: depois de carregado, isto é só uma leitura
+        # de referência, e põr toda requisição da vida do processo a
+        # disputar uma trava por ela seria pagar caro pelo caso raro.
         if self._indice is not None:
             return self._indice
-        if self._relogio() < self._proxima_tentativa:
-            return None
-        try:
-            moedas = self._cliente.currencies()
-            self._indice = PriceIndex.from_payload(
-                self._cliente.prices_payload(), moedas.key_in_refined
-            )
-        except Exception as erro:
-            _registra_falha_sob_demanda("IndiceSobDemanda", erro, self._espera)
-            self._proxima_tentativa = self._relogio() + self._espera
-            return None
-        return self._indice
+        # A trava cobre a busca inteira: quem chegar durante ela espera o
+        # resultado em vez de sair buscar o mesmo de novo. É o que faz o
+        # aquecimento valer — senão a primeira visita, que chega junto com
+        # ele, dispararia uma segunda busca idêntica.
+        with self._trava:
+            if self._indice is not None:
+                return self._indice
+            if self._relogio() < self._proxima_tentativa:
+                return None
+            try:
+                moedas = self._cliente.currencies()
+                self._indice = PriceIndex.from_payload(
+                    self._cliente.prices_payload(), moedas.key_in_refined
+                )
+            except Exception as erro:
+                _registra_falha_sob_demanda("IndiceSobDemanda", erro, self._espera)
+                self._proxima_tentativa = self._relogio() + self._espera
+                return None
+            return self._indice
 
 
 SEM_COTACAO = (
@@ -133,21 +145,28 @@ class CotacaoSobDemanda:
         self._relogio = relogio
         self._cotacao: Cotacao | None = None
         self._proxima_tentativa = 0.0
+        self._trava = threading.Lock()
 
     def obter(self) -> Cotacao | None:
+        # Mesma forma de `IndiceSobDemanda.obter`, e pela mesma razão — aqui
+        # a busca duplicada custa duas requisições à Steam, que é quem limita
+        # por IP e cobra o 429 de todo mundo junto.
         if self._cotacao is not None:
             return self._cotacao
-        if self._relogio() < self._proxima_tentativa:
-            return None
-        try:
-            self._cotacao = Cotacao(
-                key_brl=self._steam.key_price(), usd_to_brl=self._steam.usd_to_brl()
-            )
-        except Exception as erro:
-            _registra_falha_sob_demanda("CotacaoSobDemanda", erro, self._espera)
-            self._proxima_tentativa = self._relogio() + self._espera
-            return None
-        return self._cotacao
+        with self._trava:
+            if self._cotacao is not None:
+                return self._cotacao
+            if self._relogio() < self._proxima_tentativa:
+                return None
+            try:
+                self._cotacao = Cotacao(
+                    key_brl=self._steam.key_price(), usd_to_brl=self._steam.usd_to_brl()
+                )
+            except Exception as erro:
+                _registra_falha_sob_demanda("CotacaoSobDemanda", erro, self._espera)
+                self._proxima_tentativa = self._relogio() + self._espera
+                return None
+            return self._cotacao
 
 
 SEM_RETRATO = (
