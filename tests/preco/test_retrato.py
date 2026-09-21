@@ -160,3 +160,22 @@ def test_sem_retrato_e_com_falha_a_leitura_vem_vazia(engine):
     leitura = retratos.obter(engine, NOME, 1.0, AGORA)
     assert leitura.pagina is None
     assert leitura.limitando is True
+
+
+def test_log_do_429_e_saneado(engine, capsys):
+    """O print do 429 é o único caminho novo que loga exceção de terceiro
+    sem passar pelo saneamento — e este projeto já vazou uma chave de API
+    por aí uma vez. A mensagem aqui não carrega chave nenhuma hoje (o
+    cliente de página não manda uma na URL), mas o corte no primeiro '?'
+    tem de valer aqui também, não só em `painel/consulta.py`.
+    """
+    chave_secreta = "segredo-que-nao-pode-vazar"
+    ruins = _PaginasFalsas(
+        erro=RuntimeError(f"status 429 for url 'https://x?key={chave_secreta}'")
+    )
+    retratos = mod.Retratos(ruins, relogio=_Relogio())
+    retratos.obter(engine, NOME, 1.0, AGORA)
+
+    saida = capsys.readouterr().out
+    assert chave_secreta not in saida
+    assert "status 429 for url" in saida

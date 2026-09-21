@@ -15,6 +15,13 @@ from tf2price.sources.steam_page import ItemPage, OrderBook, PageListing, SalePo
 # Sobe quando a forma mudar. Um retrato gravado com versão diferente é
 # descartado em vez de lido torto — ler campo que mudou de significado é
 # exatamente como um preço vira outro.
+#
+# Aviso para o dia em que isto subir: em `painel/consulta.linhas_acompanhadas`
+# o `except` de `de_dict` (versão antiga, problema NOSSO) tem de continuar
+# separado do `except` de `analyse` (efeito sem listagem, fato do mercado) —
+# um retrato de versão antiga não pode aparecer como "sem listagem deste
+# efeito agora": seria uma mentira sobre o mercado quando o defeito é do
+# nosso banco.
 VERSAO = 1
 
 

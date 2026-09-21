@@ -18,6 +18,7 @@ from sqlalchemy.engine import Engine
 from tf2price.preco import repositorio as repo
 from tf2price.preco import serial
 from tf2price.sources.steam_page import ItemPage
+from tf2price.texto import mensagem_saneada
 
 VALIDADE = timedelta(minutes=15)
 # Sem piso, segurar o botão de atualizar vira enxurrada na Steam.
@@ -86,7 +87,7 @@ class Retratos:
         except Exception as erro:
             if "429" in str(erro):
                 self._calma_ate = self._relogio() + CALMA_APOS_429.total_seconds()
-                print(f"[retrato] Steam limitando: {erro}; calma de "
+                print(f"[retrato] Steam limitando: {mensagem_saneada(erro)}; calma de "
                       f"{int(CALMA_APOS_429.total_seconds())}s", flush=True)
                 return Leitura(pagina, buscado_em, True)
             raise
