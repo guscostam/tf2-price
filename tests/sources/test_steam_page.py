@@ -236,6 +236,25 @@ def test_timeout_e_repetido_e_depois_embrulhado_em_runtimeerror():
     assert not isinstance(excinfo.value, httpx.HTTPError)
 
 
+def test_falha_5xx_persistente_para_apos_uma_retentativa():
+    tentativas = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        tentativas["n"] += 1
+        return httpx.Response(500, text="")
+
+    cliente = SteamPageClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(RuntimeError):
+        cliente.item_page(NOME, 1.0)
+
+    assert tentativas["n"] == 2
+
+
 def test_429_seguido_de_timeout_na_ultima_tentativa_ainda_liga_a_calma():
     """Medido: três 429 seguidos de timeouts terminam em 'Steam não respondeu
     após backoff (último: tempo esgotado)' — sem a palavra '429' na mensagem,
@@ -255,6 +274,7 @@ def test_429_seguido_de_timeout_na_ultima_tentativa_ainda_liga_a_calma():
         limiter=RateLimiter(min_interval_s=0.0),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
         sleep=lambda _: None,
+        max_retries=5,
     )
 
     with pytest.raises(SteamLimitando) as excinfo:
@@ -286,6 +306,7 @@ def test_429_seguido_de_4xx_tambem_liga_a_calma():
         limiter=RateLimiter(min_interval_s=0.0),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
         sleep=lambda _: None,
+        max_retries=2,
     )
 
     with pytest.raises(SteamLimitando):

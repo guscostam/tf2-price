@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import logging
 import time
 import urllib.parse
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ import httpx
 from tf2price.domain.money import Brl
 from tf2price.sources.ratelimit import (
     RateLimiter,
+    STEAM_MAX_RETRIES,
+    STEAM_REQUEST_TIMEOUT_S,
     SteamLimitando,
     backoff_delays,
 )
@@ -19,6 +22,7 @@ APPID = 440
 CURRENCY_BRL = 7
 CURRENCY_USD = 1
 BASE = "https://steamcommunity.com"
+_LOGGER = logging.getLogger(__name__)
 KEY_HASH_NAME = "Mann Co. Supply Crate Key"
 
 UNUSUAL_EFFECT_PREFIX = "★ Unusual Effect: "
@@ -233,10 +237,13 @@ class SteamClient:
         client: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
         relogio: Callable[[], float] = time.monotonic,
+        timeout_s: float = STEAM_REQUEST_TIMEOUT_S,
+        max_retries: int = STEAM_MAX_RETRIES,
     ) -> None:
         self._limiter = limiter
         self._sleep = sleep
         self._relogio = relogio
+        self._max_retries = max(0, max_retries)
         # De processo, não de banco, igual à do retrato: a spec assume uma
         # réplica só, e duas partiriam este freio ao meio.
         self._calma_ate = 0.0
@@ -249,7 +256,7 @@ class SteamClient:
         self._priceoverview_cache: dict[int, dict[str, Any]] = {}
         self._usd_to_brl: float | None = None
         self._http = client or httpx.Client(
-            timeout=30.0,
+            timeout=timeout_s,
             headers={"User-Agent": "tf2price/0.1"},
             follow_redirects=True,
         )
@@ -270,12 +277,13 @@ class SteamClient:
         last_reason = "sem tentativas"
         houve_429 = False
 
-        for delay in [0.0, *backoff_delays(5)]:
+        for attempt, delay in enumerate([0.0, *backoff_delays(self._max_retries)], start=1):
             if delay:
                 self._sleep(delay)
             self._limiter.wait()
 
             try:
+                started = self._relogio()
                 response = self._http.get(url, params=params)
             except httpx.TransportError as error:
                 # Falha de transporte (timeout, conexão, DNS, TLS, proxy):
@@ -283,7 +291,10 @@ class SteamClient:
                 # o catch cobre os dois. São falhas do canal, não do pedido —
                 # repetir é a resposta certa. Não são throttle.
                 last_reason = f"{type(error).__name__}: {error}"
+                _LOGGER.info("steam request failed endpoint=api attempt=%s/%s error=%s duration_ms=%s", attempt, self._max_retries + 1, type(error).__name__, round((self._relogio() - started) * 1000))
                 continue
+
+            _LOGGER.info("steam request completed endpoint=api attempt=%s/%s status=%s duration_ms=%s", attempt, self._max_retries + 1, response.status_code, round((self._relogio() - started) * 1000))
 
             if response.status_code == 429:
                 self._limiter.record_throttle()

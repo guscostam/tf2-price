@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 import urllib.parse
@@ -13,6 +14,8 @@ from tf2price.domain.money import Brl
 from tf2price.saneamento import mensagem_saneada
 from tf2price.sources.ratelimit import (
     RateLimiter,
+    STEAM_MAX_RETRIES,
+    STEAM_REQUEST_TIMEOUT_S,
     SteamLimitando,
     backoff_delays,
 )
@@ -23,6 +26,7 @@ __all__ = ["SteamLimitando"]
 from tf2price.sources.steam import APPID, CURRENCY_BRL, CURRENCY_USD
 
 BASE = "https://steamcommunity.com"
+_LOGGER = logging.getLogger(__name__)
 RENDER_CONTEXT_MARKER = "window.SSR.renderContext="
 UNUSUAL_EFFECT_PREFIX = "Unusual Effect: "
 
@@ -279,11 +283,14 @@ class SteamPageClient:
         limiter: RateLimiter,
         client: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        timeout_s: float = STEAM_REQUEST_TIMEOUT_S,
+        max_retries: int = STEAM_MAX_RETRIES,
     ) -> None:
         self._limiter = limiter
         self._sleep = sleep
+        self._max_retries = max(0, max_retries)
         self._http = client or httpx.Client(
-            timeout=30.0,
+            timeout=timeout_s,
             headers={"User-Agent": "tf2price/0.1"},
             follow_redirects=True,
         )
@@ -298,13 +305,15 @@ class SteamPageClient:
 
         ultimo: int | str | None = None
         houve_429 = False
-        for atraso in [0.0, *backoff_delays(5)]:
+        for tentativa, atraso in enumerate([0.0, *backoff_delays(self._max_retries)], start=1):
             if atraso:
                 self._sleep(atraso)
             self._limiter.wait()
 
             try:
+                inicio = time.monotonic()
                 resposta = self._http.get(url, params=params)
+                _LOGGER.info("steam request completed endpoint=market-page attempt=%s/%s status=%s duration_ms=%s", tentativa, self._max_retries + 1, resposta.status_code, round((time.monotonic() - inicio) * 1000))
                 if resposta.status_code == 429:
                     self._limiter.record_throttle()
                     ultimo = 429
@@ -334,6 +343,7 @@ class SteamPageClient:
                 # cru e virava 500 na tela. Conta como mais uma tentativa
                 # gasta do mesmo backoff que já existe para 429/5xx.
                 ultimo = mensagem_saneada(erro)
+                _LOGGER.info("steam request failed endpoint=market-page attempt=%s/%s error=%s", tentativa, self._max_retries + 1, type(erro).__name__)
                 continue
             return parse_item_page(resposta.text, hash_name, usd_to_brl)
 

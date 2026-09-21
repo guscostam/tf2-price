@@ -342,6 +342,7 @@ def test_429_e_repetido_com_backoff_e_registrado():
         limiter=limiter,
         client=httpx.Client(transport=httpx.MockTransport(handler)),
         sleep=lambda _: None,  # não dorme de verdade no teste
+        max_retries=2,
     )
 
     page = client.search_page(start=0)
@@ -382,6 +383,25 @@ def test_5xx_persistente_nao_e_steam_limitando():
     with pytest.raises(RuntimeError, match="Steam did not respond after backoff") as capturado:
         client.search_page(start=0)
     assert not isinstance(capturado.value, SteamLimitando)
+
+
+def test_falha_5xx_persistente_para_apos_uma_retentativa():
+    tentativas = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        tentativas["n"] += 1
+        return httpx.Response(500, text="")
+
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(RuntimeError):
+        client.search_page(start=0)
+
+    assert tentativas["n"] == 2
 
 
 class _RelogioFalso:
@@ -444,6 +464,7 @@ def test_429_que_termina_em_sucesso_nao_liga_a_calma():
         limiter=RateLimiter(min_interval_s=0.0),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
         sleep=lambda _: None,
+        max_retries=2,
     )
 
     assert client.search_page(start=0).total_count == 21543

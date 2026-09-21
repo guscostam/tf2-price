@@ -5,6 +5,9 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+STEAM_REQUEST_TIMEOUT_S = 10.0
+STEAM_MAX_RETRIES = 1
+
 
 class SteamLimitando(RuntimeError):
     """A Steam respondeu 429: este IP passou do limite dela.
