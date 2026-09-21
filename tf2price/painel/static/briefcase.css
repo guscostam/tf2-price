@@ -22,7 +22,7 @@
   --papel: var(--charcoal);
   --slip: var(--ink-panel);
   --tinta: var(--paper);
-  --tinta-2: #B4B7B2;
+  --tinta-2: var(--paper);
   --carimbo: var(--warning);
   --aprovado: var(--paper);
   --linha: rgba(232, 225, 209, .18);
@@ -378,7 +378,7 @@ button:active { transform: translateY(1px); }
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 @media print {
-  :root { --charcoal: #fff; --ink-panel: #fff; --paper: #221e19; --tinta-2: #5f5849; --linha: rgba(34, 30, 25, .25); }
+  :root { --charcoal: #E8E1D1; --ink-panel: #E8E1D1; --paper: #0E0F10; --tinta-2: var(--ink-blue); --linha: rgba(14, 15, 16, .25); }
   html { color-scheme: light; }
   .app-shell { display: block; }
   .app-nav, .nav-toggle, .skip-link, .placa, #espera, .campo[data-campo="item"] .opcoes { display: none !important; }

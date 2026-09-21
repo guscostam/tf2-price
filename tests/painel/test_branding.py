@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,6 +14,47 @@ from .conftest import SENHA, _contexto, cliente_logado
 @pytest.fixture
 def cliente(engine):
     return cliente_logado(engine, _contexto())
+
+
+def _cores_hex_css(css):
+    # Ignore text/URLs/comments, then inspect declaration values, not selectors.
+    css = re.sub(
+        r"""/\*.*?\*/|url\((?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^)])*\)|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'""",
+        "",
+        css,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    valores = re.findall(r"(?:^|[;{])\s*[\w-]+\s*:\s*([^;{}]+)", css)
+    return {
+        cor.lower()
+        for valor in valores
+        for cor in re.findall(
+            r"(?<![\w-])#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})(?![\w-])",
+            valor,
+            flags=re.IGNORECASE,
+        )
+    }
+
+
+def test_leitura_de_cores_ignora_urls_texto_comentarios_e_seletores():
+    css = """
+    /* color: #fff; */
+    #bad { background: url("/assets/#abcdef"); content: "#123456"; }
+    #fff { background-image: URL(/assets/#112233); font-family: "Text #123"; }
+    .a { color: #E8E1D1; border: 1px solid #e8e1d1; --ink: #0e0f10; }
+    """
+    assert _cores_hex_css(css) == {"#e8e1d1", "#0e0f10"}
+
+
+def test_css_usa_apenas_as_sete_cores_hex_aprovadas(engine):
+    cliente = TestClient(criar_app(engine))
+    resposta = cliente.get("/static/briefcase.css")
+    assert resposta.status_code == 200
+    paleta = {
+        "#0e0f10", "#15242a", "#29424b", "#365866",
+        "#e8e1d1", "#a4453a", "#d2a53b",
+    }
+    assert _cores_hex_css(resposta.text) == paleta
 
 
 def test_assets_da_marca_sao_servidos_sem_sessao(engine):
