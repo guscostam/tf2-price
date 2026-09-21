@@ -16,6 +16,27 @@ from tf2price.painel.templates import TEMPLATES
 ROTEADOR = APIRouter()
 
 
+def _account_error_message(error: Exception) -> str:
+    if isinstance(error, servico.CredenciaisInvalidas):
+        return "Incorrect username or password."
+    if isinstance(error, servico.ContaBloqueada):
+        return "Too many attempts. Wait a few minutes before trying again."
+    if isinstance(error, servico.ContaInativa):
+        return "This account is disabled."
+    if isinstance(error, SenhaCurta):
+        return "Password must contain at least 10 characters."
+    if isinstance(error, servico.NomeEmUso):
+        mensagens = {
+            "escolha um nome": "Choose a username.",
+            "esse nome já está em uso": "That username is already in use.",
+        }
+        texto = str(error)
+        if texto.startswith("esse nome é longo demais"):
+            return "Username is too long. The maximum is 60 characters."
+        return mensagens.get(texto, "The account could not be created.")
+    return "The request could not be completed."
+
+
 @ROTEADOR.get("/entrar", response_class=HTMLResponse)
 def tela_entrar(request: Request):
     return TEMPLATES.TemplateResponse(
@@ -34,7 +55,8 @@ def fazer_entrar(
         token = servico.entrar(conn, nome=nome, senha=senha, quando=db.agora())
     except servico.ErroDeConta as erro:
         return TEMPLATES.TemplateResponse(
-            request=request, name="entrar.html", context={"erro": str(erro)}
+            request=request, name="entrar.html",
+            context={"erro": _account_error_message(erro)},
         )
     resposta = RedirectResponse("/", status_code=303)
     ses.gravar_cookie(resposta, request, token)
@@ -69,7 +91,7 @@ def tela_convite(
     if convite is None:
         # Inexistente, expirado e usado dão a mesma resposta: distinguir
         # entrega informação a quem está adivinhando token.
-        return HTMLResponse("Este convite não serve mais.", status_code=404)
+        return HTMLResponse("This invitation is no longer valid.", status_code=404)
     return TEMPLATES.TemplateResponse(
         request=request,
         name="convite.html",
@@ -91,7 +113,7 @@ def usar_convite(
 ) -> Response:
     convite = _convite_aberto(conn, token)
     if convite is None:
-        return HTMLResponse("Este convite não serve mais.", status_code=404)
+        return HTMLResponse("This invitation is no longer valid.", status_code=404)
 
     redefinicao = convite.tipo == servico.TIPO_REDEFINICAO
     try:
@@ -105,7 +127,10 @@ def usar_convite(
         return TEMPLATES.TemplateResponse(
             request=request,
             name="convite.html",
-            context={"token": token, "redefinicao": redefinicao, "erro": str(erro)},
+            context={
+                "token": token, "redefinicao": redefinicao,
+                "erro": _account_error_message(erro),
+            },
         )
 
     # Já entra: pedir para digitar de novo a senha recém-escolhida é atrito

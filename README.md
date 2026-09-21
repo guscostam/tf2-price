@@ -1,8 +1,18 @@
-# tf2price
+# briefcase.tf
 
 Uma tela local onde você escolhe um chapéu Unusual e um efeito, e ela diz quanto
 ele custa na Steam, quanto vale na troca, e quanto alguém está disposto a pagar
 agora.
+
+## Product interface
+
+The web product is named **briefcase.tf — Unusual Market Intelligence**.
+Its interface is in English and separates evidence for `THIS EFFECT` from
+Steam context for `ALL EFFECTS`. It is an independent fan-made project and is
+not affiliated with Valve, Steam, or backpack.tf.
+
+Authenticated navigation: `Overview`, `New Case`, `Case Files`, `Sources`, and
+`Administration` for administrators.
 
 ## Pré-requisitos
 

@@ -1,0 +1,18 @@
+{% if recentes %}
+<ol class="recent-cases">
+  {% for case in recentes %}
+  <li>
+    <a href="/cases/new?nome={{ case.hash_name|urlencode }}&efeito={{ case.efeito|urlencode }}">
+      <strong>{{ case.hash_name }}</strong><span>{{ case.efeito }}</span>
+    </a>
+    {% if case.idade %}<small>Steam snapshot · {{ case.idade }}</small>{% endif %}
+    {% if case.motivo %}<small>{{ case.motivo }}</small>{% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<div class="empty-state">
+  <strong>No case files yet</strong>
+  <a class="button button--primary" href="/cases/new">Open a new case</a>
+</div>
+{% endif %}

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}briefcase.tf{% endblock %}</title>
+  <link rel="icon" href="/static/brand/briefcase.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/briefcase.css">
+</head>
+<body class="auth-page">
+  <main class="auth-shell">
+    {% include "_brand.html" %}
+    <section class="auth-card" aria-labelledby="auth-title">
+      {% block content %}{% endblock %}
+    </section>
+  </main>
+</body>
+</html>

@@ -43,9 +43,8 @@ _EN_US_PRICE = re.compile(r"^\d{1,3}(,\d{3})*(\.\d{1,2})?$")
 # SteamClient.listings). Fica fora da função para que o teste e o código
 # falem do mesmo texto.
 _LISTINGS_NOT_JSON = (
-    "o endpoint de listagens do mercado da Steam devolveu HTML em vez de "
-    "JSON; sem ele os dados por listagem — efeito do Unusual e "
-    "craftabilidade — não podem ser resolvidos"
+    "Steam listings endpoint did not return JSON; "
+    "per-listing effect and craftability data cannot be resolved"
 )
 
 
@@ -265,8 +264,7 @@ class SteamClient:
         # degrau, e a escada ia até 31-62s.
         if self._relogio() < self._calma_ate:
             raise SteamLimitando(
-                "a Steam está limitando este servidor; "
-                "tente de novo em alguns minutos"
+                "Steam is rate limiting this server; try again in a few minutes"
             )
 
         last_reason = "sem tentativas"
@@ -316,10 +314,10 @@ class SteamClient:
         if houve_429:
             self._calma_ate = self._relogio() + CALMA_APOS_429_S
             raise SteamLimitando(
-                "a Steam está limitando este servidor; tente de novo em alguns "
-                f"minutos (último: {last_reason})"
+                "Steam is rate limiting this server; try again in a few minutes "
+                f"(last result: {last_reason})"
             )
-        raise RuntimeError(f"Steam não respondeu após backoff (último: {last_reason})")
+        raise RuntimeError(f"Steam did not respond after backoff (last result: {last_reason})")
 
     def search_page(self, start: int, count: int = 100, query: str | None = None) -> SearchPage:
         """Uma página da busca de mercado, opcionalmente filtrada por texto.
@@ -405,7 +403,7 @@ class SteamClient:
             # json.JSONDecodeError é subclasse de ValueError. Content-type
             # mentindo é mais raro que o caso acima, mas o decode não pode
             # vazar de jeito nenhum.
-            raise RuntimeError(f"{_LISTINGS_NOT_JSON} (corpo não decodifica como JSON)") from error
+            raise RuntimeError(f"{_LISTINGS_NOT_JSON} (body could not be decoded as JSON)") from error
 
         return parse_listings(payload)
 

@@ -1,15 +1,17 @@
-{# Resposta de `/analise`: a avaliação e, fora de banda, a coluna esquerda —
-   marcando o par (item, efeito) que esta avaliação está mostrando.
-
-   Sem isto, clicar noutro efeito da mesma lista (que só troca `#analise`)
-   deixava a marca antiga na esquerda: a pessoa abria o acompanhado A,
-   clicava noutro efeito, e A seguia marcado enquanto a direita já mostrava
-   outra coisa — a esquerda mentindo sobre de qual linha a direita fala.
-
-   O invólucro carrega o MESMO id que `painel.html` dá a ele (sem classe
-   extra, como em `_efeitos.html`) para o fora-de-banda trocar o elemento
-   inteiro — nunca aninhar um `#acompanhados` dentro do outro. #}
+{# Resposta de `/analise`: a avaliação e, fora de banda, os Case Files,
+   marcando o par (item, efeito) que esta avaliação está mostrando. O
+   invólucro usa o mesmo id de `new_case.html`, portanto o swap substitui o
+   elemento inteiro sem aninhar outro `#case-files`. #}
+{% if a %}
 {% include "_analise.html" %}
-<div id="acompanhados" hx-swap-oob="true">
-  {% include "_acompanhados.html" %}
+{% else %}
+<section class="missing-evidence" data-item-name="{{ nome }}" data-effect-name="{{ efeito_atual }}">
+  <h2>{{ efeito_atual }}</h2>
+  <p>{{ nome }}</p>
+  <p class="empty-state">{{ efeito_ausente }}</p>
+  {% include "_carimbo_steam.html" %}
+</section>
+{% endif %}
+<div id="case-files" hx-swap-oob="true">
+  {% include "_case_files.html" %}
 </div>

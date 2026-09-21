@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Sources · briefcase.tf{% endblock %}
+{% block page_eyebrow %}Evidence provenance{% endblock %}
+{% block page_title %}Sources{% endblock %}
+{% block content %}
+{% set snapshots = linhas|selectattr("idade")|list %}
+<div data-page="sources" class="sources-grid">
+  <section class="source-card">
+    <p class="scope-label">THIS EFFECT + ALL EFFECTS</p>
+    <h2>Steam Market</h2>
+    <p>Steam supplies the item image and listings for the selected effect. Its order book and sales history cover all effects for the item.</p>
+    <span class="status-badge {{ 'status-badge--ready' if snapshots else 'status-badge--waiting' }}">
+      {{ "Known through stored case snapshots" if snapshots else "No stored case snapshots yet" }}
+    </span>
+    {% if linhas %}
+    <ul class="source-evidence-list">
+      {% for case in linhas %}
+      <li><strong>{{ case.hash_name }} · {{ case.efeito }}</strong><span>{{ case.idade or "Awaiting evidence" }}</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+  <section class="source-card">
+    <p class="scope-label">THIS EFFECT</p>
+    <h2>backpack.tf</h2>
+    <p>A community suggested price is an effect-specific reference, not a buy order.</p>
+    <span class="status-badge {{ 'status-badge--ready' if indice_pronto else 'status-badge--waiting' }}">
+      {{ "Loaded for this process" if indice_pronto else "Awaiting background load" }}
+    </span>
+  </section>
+  <section class="source-card">
+    <p class="scope-label">CONVERSION</p>
+    <h2>Exchange Rate</h2>
+    {% if cotacao %}<p>{{ cotacao.key_brl }} per key · captured {{ cotacao_idade }}</p>{% else %}<p>Awaiting evidence</p>{% endif %}
+  </section>
+</div>
+<p class="fan-disclaimer">
+  briefcase.tf is an independent fan-made project. It is not affiliated with
+  Valve, Steam, or backpack.tf.
+</p>
+{% endblock %}

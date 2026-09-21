@@ -121,14 +121,18 @@ def test_rota_nunca_dispara_busca_de_cotacao(engine):
     ctx.cotacao = CotacaoSobDemanda(steam)
     cliente = cliente_logado(engine, ctx)
 
-    resposta = cliente.get("/")
+    respostas = {
+        caminho: cliente.get(caminho)
+        for caminho in ("/", "/cases/new", "/cases", "/sources")
+    }
 
-    assert resposta.status_code == 200
+    assert all(resposta.status_code == 200 for resposta in respostas.values())
     assert steam.emprestadas_durante_o_io is None, (
-        "a rota foi à Steam buscar cotação: a regressão dos 30s voltou"
+        "uma rota de página foi à Steam buscar cotação: a regressão dos 30s voltou"
     )
-    # E a página mostra o número velho com a idade dele, em vez de nada.
-    assert "lida <b>1 d</b>" in resposta.text
+    # E a Overview mostra o número velho com a idade dele, em vez de nada.
+    assert "captured 1 d" in respostas["/"].text
+    assert "captured 1 d" not in respostas["/cases/new"].text
 
 
 def test_rota_de_escrita_continua_funcionando(engine):

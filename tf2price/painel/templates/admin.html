@@ -1,36 +1,42 @@
 {% extends "base.html" %}
-{% block titulo %}Administração{% endblock %}
-{% block cabecalho %}Administração{% endblock %}
-{% block conteudo %}
-<section class="campo">
-  {% if erro %}<div class="erro"><b>Não deu</b>{{ erro }}</div>{% endif %}
+{% block title %}Administration{% endblock %}
+{% block page_title %}Administration{% endblock %}
+{% block content %}
+<section class="admin-invitations" aria-label="Invitations">
+  {% if erro %}<div class="error-state" role="alert">{{ erro }}</div>{% endif %}
   {% if link %}
-  <div class="aviso">
-    <b>Link gerado.</b> Ele aparece uma vez só — copie agora.<br>
+  <div class="admin-link" role="status">
+    <p>The link is shown once. Copy it now.</p>
     <code>{{ link }}</code>
   </div>
   {% endif %}
   <form method="post" action="/admin/convite">
-    <button class="acao" type="submit">Gerar convite</button>
+    <button class="button button--primary" type="submit">Generate invitation</button>
   </form>
 </section>
 
-<section class="campo">
-  <span class="rotulo">Pessoas</span>
+<section class="admin-people" aria-labelledby="people-title">
+  <h2 id="people-title">People</h2>
+  <ul class="admin-people__list">
   {% for u in usuarios %}
-  <div class="linha">
-    <span>{{ u.nome }}{% if u.admin %} · admin{% endif %}{% if not u.ativo %} · desativada{% endif %}</span>
-    <span class="fio"></span>
-    <form method="post" action="/admin/redefinir/{{ u.id }}" style="display:inline">
-      <button type="submit">redefinir senha</button>
-    </form>
-    {% if u.id != usuario.id %}
-    <form method="post" action="/admin/ativo/{{ u.id }}" style="display:inline">
-      <input type="hidden" name="ativo" value="{{ '0' if u.ativo else '1' }}">
-      <button type="submit">{{ 'desativar' if u.ativo else 'reativar' }}</button>
-    </form>
-    {% endif %}
-  </div>
+    <li class="admin-person">
+      <div class="admin-person__identity">
+        <strong>{{ u.nome }}</strong>
+        <span>{{ 'Administrator' if u.admin else 'Member' }} · {{ 'Active' if u.ativo else 'Disabled' }}</span>
+      </div>
+      <div class="admin-person__actions">
+        <form method="post" action="/admin/redefinir/{{ u.id }}">
+          <button class="button button--quiet" type="submit">Reset password</button>
+        </form>
+        {% if u.id != usuario.id %}
+        <form method="post" action="/admin/ativo/{{ u.id }}"{% if u.ativo %} data-confirm="Disable this account and invalidate its sessions?"{% endif %}>
+          <input type="hidden" name="ativo" value="{{ '0' if u.ativo else '1' }}">
+          <button class="button {{ 'button--danger' if u.ativo else 'button--quiet' }}" type="submit">{{ 'Disable' if u.ativo else 'Reactivate' }}</button>
+        </form>
+        {% endif %}
+      </div>
+    </li>
   {% endfor %}
+  </ul>
 </section>
 {% endblock %}

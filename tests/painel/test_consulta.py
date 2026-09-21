@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import time
+import re
+from dataclasses import replace
 from datetime import timedelta
 from urllib.parse import quote
 
@@ -40,16 +42,77 @@ def cliente(engine):
 # --- rotas ---------------------------------------------------------------
 
 
-def test_raiz_serve_o_formulario(cliente):
+def test_raiz_serve_overview(cliente):
     r = cliente.get("/")
     assert r.status_code == 200
-    assert "form" in r.text.lower()
+    assert "Overview" in r.text
+
+
+def test_novo_caso_serve_o_formulario(cliente):
+    r = cliente.get("/cases/new")
+    assert r.status_code == 200
+    assert '<label for="q">Steam Market name</label>' in r.text
+    campo = re.search(r'<input\b[^>]*\bid="q"[^>]*>', r.text)[0]
+    for atributo in (
+        'name="q"', 'hx-get="/buscar"', 'hx-target="#items"',
+        'hx-trigger="keyup changed delay:400ms"',
+        'hx-sync="#case-workflow:replace"', 'data-case-request="search"',
+    ):
+        assert atributo in campo
+    assert 'id="items"' in r.text
+
+
+def test_new_case_define_um_unico_grupo_de_sincronizacao(cliente):
+    texto = cliente.get("/cases/new").text
+    assert 'id="case-workflow"' in texto
+    assert 'hx-sync="#case-workflow:replace"' in texto
+    assert 'data-case-request="search"' in texto
 
 
 def test_busca_lista_os_nomes(cliente):
     r = cliente.get("/buscar", params={"q": "Chairholder"})
     assert r.status_code == 200
     assert NOME in r.text
+
+
+def test_busca_limitada_distingue_429_sem_detalhes_e_limpa_paineis(engine):
+    class SteamLimitada:
+        def search_page(self, start=0, count=100, query=None):
+            raise SteamLimitando("upstream-private-detail token=fixture-only")
+
+    cliente = cliente_logado(engine, _contexto(steam=SteamLimitada()))
+    resposta = cliente.get("/buscar", params={"q": "Chairholder"})
+
+    assert resposta.status_code == 200
+    assert 'role="alert"' in resposta.text
+    assert "Steam is rate limiting requests. Try again in a few minutes." in resposta.text
+    assert "Steam could not provide market data." not in resposta.text
+    assert "upstream-private-detail" not in resposta.text
+    assert "fixture-only" not in resposta.text
+    assert resposta.text.count('hx-swap-oob="true"') == 2
+    assert 'id="effects"' in resposta.text
+    assert 'id="analysis"' in resposta.text
+    assert "Waiting for an item" in resposta.text
+    assert "Waiting for an effect" in resposta.text
+    assert 'data-case-request="effect"' not in resposta.text
+
+
+def test_fragmentos_carregam_identidade_e_limpeza_em_ingles(cliente):
+    busca = cliente.get("/buscar", params={"q": "Chairholder"}).text
+    assert 'data-case-request="item"' in busca
+    assert 'id="effects"' in busca and 'hx-swap-oob="true"' in busca
+    assert "Waiting for an item" in busca
+    assert "Waiting for an effect" in busca
+
+
+def test_escolhas_de_efeito_expõem_selecao_unica_para_tecnologia_assistiva(cliente):
+    efeitos = cliente.get(
+        "/efeitos", params={"nome": NOME, "efeito": "Deep Dive"}
+    ).text
+    assert efeitos.count('data-case-request="effect"') == 4
+    assert efeitos.count('aria-pressed="true"') == 1
+    assert efeitos.count('aria-pressed="false"') == 3
+    assert 'class="is-selected" aria-pressed="true"' in efeitos
 
 
 def test_busca_vazia_nao_chama_a_steam(cliente):
@@ -71,6 +134,43 @@ def test_analise_mostra_preco_e_oferta(cliente):
     assert "106,31" in r.text        # melhor oferta de compra
 
 
+def test_analysis_uses_approved_scope_headings(cliente):
+    texto = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"}).text
+    panels = re.findall(r'<section class="evidence-panel" data-scope="([^"]+)".*?</section>', texto, re.S)
+    assert panels == ["effect", "effect", "crossed", "effect", "aggregate"]
+    for titulo in ("Purchase Price", "Active Listings", "Immediate Exit", "Patient Exit", "Item Context"):
+        assert f"<h3>{titulo}</h3>" in texto
+    assert texto.count("THIS EFFECT") == 4
+    assert texto.count("ALL EFFECTS") == 2
+    assert "THIS EFFECT × ALL EFFECTS" in texto
+    assert f'data-item-name="{NOME}" data-effect-name="Deep Dive"' in texto
+    assert '<ol class="evidence-listings">' in texto
+    assert '<dl class="evidence-facts">' in texto
+    assert 'name="nome" value="' + NOME + '"' in texto
+    assert 'name="efeito" value="Deep Dive"' in texto
+    assert 'hx-target="#case-files"' in texto
+    assert "15.4 keys" in texto
+
+
+def test_analysis_does_not_invent_a_verdict(cliente):
+    texto = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"}).text
+    for inventado in ("Good Buy", "Fair Price", "Caution", "Confidence"):
+        assert inventado not in texto
+
+
+def test_analysis_empty_orderbook_and_history_are_explicit(engine):
+    pagina = _pagina()
+    pagina = replace(pagina, orderbook=replace(pagina.orderbook, min_sell_order=None,
+                     max_buy_order=None, buy_orders=0, sell_orders=0), history=[])
+    cliente = cliente_logado(engine, _contexto(paginas=_PaginasFalsas(pagina)))
+    texto = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"}).text
+    assert "No open buy order exists for this item." in texto
+    assert "No sell orders" in texto
+    assert "No buy orders" in texto
+    assert "No sales history in this snapshot." in texto
+    assert "None" not in texto
+
+
 def test_analise_de_efeito_sem_listagem_avisa(cliente):
     r = cliente.get("/analise", params={"nome": NOME, "efeito": "Burning Flames"})
     assert r.status_code == 200
@@ -87,7 +187,7 @@ def test_mudanca_na_valve_vira_mensagem_e_nao_traceback(engine):
     r = cliente.get("/efeitos", params={"nome": NOME})
 
     assert r.status_code == 200
-    assert "renderContext sumiu" in r.text
+    assert "Steam returned an unreadable market page." in r.text
 
 
 # --- timeout de transporte não pode virar 500 (achado N2) -----------------
@@ -118,7 +218,8 @@ def test_efeitos_com_timeout_de_transporte_mostra_mensagem_e_nao_quebra(engine):
     r = cliente.get("/efeitos", params={"nome": NOME})
 
     assert r.status_code == 200
-    assert "não respondeu" in r.text
+    assert "Steam could not provide market data. Try again later." in r.text
+    assert "não respondeu" not in r.text
 
 
 def test_analise_com_timeout_de_transporte_mostra_mensagem_e_nao_quebra(engine):
@@ -130,7 +231,8 @@ def test_analise_com_timeout_de_transporte_mostra_mensagem_e_nao_quebra(engine):
     r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
 
     assert r.status_code == 200
-    assert "não respondeu" in r.text
+    assert "Steam could not provide market data. Try again later." in r.text
+    assert "não respondeu" not in r.text
 
 
 def test_atualizar_com_timeout_de_transporte_mostra_mensagem_e_nao_quebra(engine):
@@ -143,7 +245,7 @@ def test_atualizar_com_timeout_de_transporte_mostra_mensagem_e_nao_quebra(engine
     r = cliente.post(f"/atualizar/{quote(NOME, safe='')}")
 
     assert r.status_code == 200
-    assert "sem dado ainda" in r.text
+    assert "Awaiting evidence" in r.text
 
 
 # --- retrato compartilhado -------------------------------------------------
@@ -218,7 +320,7 @@ def test_analise_mostra_a_idade_do_retrato_da_steam(engine):
     assert "6 min" in r.text
     assert paginas.chamadas == 0  # serviu o guardado; não buscou de novo
     # As duas idades (Steam e backpack.tf) não podem se confundir na tela.
-    assert "Steam limitando" not in r.text
+    assert "Steam rate limited" not in r.text
 
 
 def test_efeitos_com_efeito_mostra_a_idade_do_retrato_da_steam(engine):
@@ -252,7 +354,23 @@ def test_analise_com_429_avisa_que_a_steam_esta_limitando_e_a_idade_do_dado(engi
 
     assert r.status_code == 200
     assert "3 h" in r.text
-    assert "limitando" in r.text.lower()
+    assert "Steam rate limited" in r.text
+
+
+def test_missing_effect_analysis_retains_snapshot_age_and_rate_limit(engine):
+    velho = db.agora() - timedelta(hours=3)
+    paginas = _PaginasFalsas(erro=SteamLimitando("status 429"))
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    with engine.begin() as conn:
+        preco_repo.guardar(conn, NOME, json.dumps(serial.para_dict(_pagina())), velho)
+    texto = cliente.get("/analise", params={"nome": NOME, "efeito": "Burning Flames"}).text
+    assert "No listings for this effect in the current snapshot." in texto
+    assert "Burning Flames" in texto and NOME in texto
+    assert "3 h" in texto and "Steam rate limited" in texto
+    assert "180,44" not in texto
+    assert 'class="case-dossier"' not in texto
 
 
 # --- o botão de atualizar não pode 500 (achado I2) ------------------------
@@ -272,7 +390,7 @@ def test_atualizar_com_falha_que_nao_e_429_nao_quebra(engine, erro):
     r = cliente.post(f"/atualizar/{quote(NOME, safe='')}")
 
     assert r.status_code == 200
-    assert "sem dado ainda" in r.text
+    assert "Awaiting evidence" in r.text
 
 
 # --- erro de /efeitos limpa #analise (achado I3) --------------------------
@@ -292,9 +410,10 @@ def test_efeitos_com_erro_limpa_a_avaliacao_anterior(engine):
     r = cliente.get("/efeitos", params={"nome": "Unusual Team Captain"})
 
     assert r.status_code == 200
-    assert "renderContext sumiu" in r.text
-    assert 'id="analise"' in r.text and 'hx-swap-oob="true"' in r.text
-    assert "aguardando efeito" in r.text
+    assert "Steam returned an unreadable market page." in r.text
+    assert "Source unavailable" in r.text
+    assert 'id="analysis"' in r.text and 'hx-swap-oob="true"' in r.text
+    assert "Waiting for an effect" in r.text
     assert "180,44" not in r.text  # avaliação de A não pode sobrar na tela
 
 
@@ -372,24 +491,16 @@ def _texto_da_analise(engine, idade_dias: int) -> str:
 
 
 @pytest.mark.parametrize(
-    "idade, classe, palavra",
+    "idade",
     [
-        (5, 'class="carimbo carimbo-fresco"', "fresco"),     # dentro do mês
-        (200, 'class="carimbo "', "dias atrás"),             # meio-termo
-        (900, 'class="carimbo carimbo-vencido"', "vencido"),  # o caso do Bonk Boy
+        5, 200, 900,
     ],
 )
-def test_o_carimbo_reflete_a_idade_do_preco(engine, idade, classe, palavra):
+def test_o_carimbo_reflete_a_idade_do_preco(engine, idade):
     texto = _texto_da_analise(engine, idade)
-    assert classe in texto
-    assert palavra in texto
-    # A asserção da classe sozinha é fraca: "carimbo " casa com todos os
-    # estados. As outras duas variantes têm que estar ausentes.
-    outras = {"carimbo-fresco", "carimbo-vencido", "carimbo-ausente"} - set(
-        c for c in ("carimbo-fresco", "carimbo-vencido") if c in classe
-    )
-    for outra in outras:
-        assert outra not in texto
+    assert f"backpack.tf · {idade} days old" in texto
+    assert "Suggested price, not a buy order." in texto
+    assert "20.0 keys" in texto
 
 
 def test_carimbo_da_steam_limitando_nao_pede_emprestada_a_classe_do_bptf(engine):
@@ -410,37 +521,38 @@ def test_carimbo_da_steam_limitando_nao_pede_emprestada_a_classe_do_bptf(engine)
     r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
 
     assert r.status_code == 200
-    assert "carimbo-limitando" in r.text
-    assert "carimbo-vencido" not in r.text
-    assert "fresco" in r.text
+    assert "Steam rate limited" in r.text
+    assert "3 h" in r.text
+    assert "backpack.tf · 5 days old" in r.text
 
 
 def test_carimbo_de_ausencia_quando_a_bptf_nao_precifica(cliente):
     """O índice padrão do teste é vazio: nenhum efeito tem preço."""
     r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
-    assert "carimbo-ausente" in r.text
-    assert "sem avaliação" in r.text
+    assert "backpack.tf · Insufficient Data" in r.text
+    assert "backpack.tf does not price this effect for this item" in r.text
+    assert "A different effect price is never substituted here." in r.text
 
 
 def test_busca_nova_apaga_efeito_e_avaliacao(cliente):
     """Sem isto, a avaliação do item anterior fica na tela sob outro item."""
     r = cliente.get("/buscar", params={"q": "Chairholder"})
     assert r.text.count('hx-swap-oob="true"') == 2
-    assert 'id="efeitos"' in r.text and 'id="analise"' in r.text
+    assert 'id="effects"' in r.text and 'id="analysis"' in r.text
 
 
 def test_trocar_de_item_apaga_a_avaliacao(cliente):
     r = cliente.get("/efeitos", params={"nome": NOME})
-    assert 'id="analise"' in r.text and 'hx-swap-oob="true"' in r.text
+    assert 'id="analysis"' in r.text and 'hx-swap-oob="true"' in r.text
 
 
-def test_a_cotacao_da_chave_aparece_no_timbre(cliente):
+def test_a_cotacao_da_chave_aparece_no_overview(cliente):
     """Os valores em chaves não significam nada sem o preço que os converteu."""
     assert str(CHAVE) in cliente.get("/").text
 
 
-def test_o_timbre_diz_a_idade_da_cotacao(engine):
-    """Desde que a cotação atravessa o deploy no banco, o número do timbre
+def test_o_overview_diz_a_idade_da_cotacao(engine):
+    """Desde que a cotação atravessa o deploy no banco, o número do Overview
     pode ser de horas atrás. Omitir a idade seria a única mentira da tela —
     e a idade é a regra que governa este projeto."""
     ctx = _contexto()
@@ -451,14 +563,14 @@ def test_o_timbre_diz_a_idade_da_cotacao(engine):
 
     texto = cliente.get("/").text
 
-    assert "lida <b>3 h</b>" in texto
+    assert "captured 3 h" in texto
 
 
-def test_o_painel_traz_a_coluna_de_acompanhados(engine):
+def test_o_painel_traz_o_gaveteiro_de_case_files(engine):
     cliente = cliente_logado(engine, _contexto())
-    texto = cliente.get("/").text
-    assert 'id="acompanhados"' in texto
-    assert "nada acompanhado ainda" in texto
+    texto = cliente.get("/cases/new").text
+    assert texto.count('id="case-files"') == 1
+    assert "No case files yet" in texto
 
 
 def test_analise_sem_indice_nao_mente_sobre_a_bptf(engine):
@@ -466,10 +578,7 @@ def test_analise_sem_indice_nao_mente_sobre_a_bptf(engine):
     ctx.indice = _IndiceFalso(None)
     cliente = cliente_logado(engine, ctx)
     r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
-    # "ainda não carregou" aparece nas duas mensagens (índice ausente e
-    # cotação ausente); só a do índice tem a palavra "índice", que é a
-    # distinção que este teste existe para proteger.
-    assert "índice" in r.text
+    assert "backpack.tf price index has not loaded yet" in r.text
 
 
 def test_sem_cotacao_a_tela_diz_e_nao_quebra(engine):
@@ -478,8 +587,8 @@ def test_sem_cotacao_a_tela_diz_e_nao_quebra(engine):
     ctx.cotacao = _CotacaoFalsa(None)
     cliente = cliente_logado(engine, ctx)
 
-    assert "indisponível" in cliente.get("/").text
-    assert "ainda não carregou" in cliente.get(
+    assert "Awaiting evidence" in cliente.get("/").text
+    assert "has not loaded yet" in cliente.get(
         "/analise", params={"nome": NOME, "efeito": "Deep Dive"}
     ).text
 
@@ -496,6 +605,8 @@ def test_avaliacao_mostra_o_chapeu_e_a_aura(engine, tmp_path, monkeypatch):
 
     assert "/arte/3229.webp" in texto
     assert "economy/image/" in texto
+    assert texto.count('class="effect-layer"') == 3
+    assert texto.count('alt="" aria-hidden="true"') == 3
 
 
 def test_efeito_sem_arte_recebe_tipografia_e_nao_aura(engine, tmp_path, monkeypatch):
@@ -511,8 +622,8 @@ def test_efeito_sem_arte_recebe_tipografia_e_nao_aura(engine, tmp_path, monkeypa
     # A classe é o marcador da aura, não a origem da imagem: pega tanto uma
     # servida por `/arte/` quanto uma vinda de `data:` URI, de outro caminho,
     # ou desenhada em CSS puro.
-    assert 'class="aura"' not in texto
-    assert "sem arte deste efeito" in texto
+    assert 'class="effect-layer"' not in texto
+    assert "Effect artwork unavailable" in texto
 
 
 def test_a_consulta_exige_sessao(engine):

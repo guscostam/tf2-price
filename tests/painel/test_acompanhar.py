@@ -50,6 +50,91 @@ def test_acompanhar_guarda_e_aparece_na_lista(engine):
         assert len(repo.listar(conn, eu.id)) == 1
 
 
+def test_case_files_lists_saved_pair_with_real_age(engine):
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+    seis_minutos_atras = db.agora() - timedelta(minutes=6)
+    with engine.begin() as conn:
+        preco_repo.guardar(
+            conn,
+            NOME,
+            json.dumps(serial.para_dict(_pagina())),
+            seis_minutos_atras,
+        )
+
+    texto = cliente.get("/cases").text
+
+    assert NOME in texto and "Deep Dive" in texto
+    assert "Steam snapshot · 6 min" in texto
+    assert "Open case" in texto
+    assert "Refresh evidence" in texto
+    assert "Remove case" in texto
+
+
+def test_case_file_and_actions_name_the_exact_item_effect_pair(engine):
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+
+    texto = cliente.get("/cases").text
+
+    identidade = f"{NOME} — Deep Dive"
+    assert f'aria-label="Case file: {identidade}"' in texto
+    assert f'aria-label="Open case: {identidade}"' in texto
+    assert f'aria-label="Refresh evidence: {identidade}"' in texto
+    assert f'aria-label="Remove case: {identidade}"' in texto
+
+
+def test_selected_case_file_exposes_current_state_to_assistive_technology(engine):
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+
+    texto = cliente.get(
+        "/analise", params={"nome": NOME, "efeito": "Deep Dive"}
+    ).text
+
+    inicio = texto.index("case-file--selected")
+    caso_selecionado = texto[inicio:inicio + 500]
+    assert 'aria-current="true"' in caso_selecionado
+    assert "Current case" in caso_selecionado
+
+
+def test_open_case_keeps_item_and_effect_together(engine):
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+
+    texto = cliente.get("/cases").text
+
+    assert "/cases/new?nome=" in texto
+    assert "efeito=Deep%20Dive" in texto or "efeito=Deep+Dive" in texto
+
+
+def test_remove_case_requires_explicit_confirmation(engine):
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+
+    texto = cliente.get("/cases").text
+
+    assert 'hx-confirm="Remove this case file?"' in texto
+
+
+def test_saving_a_case_does_not_load_the_price_index(engine):
+    class IndexAlreadyUnknown:
+        def em_memoria(self):
+            return None
+
+        def obter(self):
+            raise AssertionError("saving a case must not load backpack.tf")
+
+    contexto = _contexto()
+    contexto.indice = IndexAlreadyUnknown()
+
+    resposta = cliente_logado(engine, contexto).post(
+        "/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"}
+    )
+
+    assert resposta.status_code == 200
+
+
 def test_acompanhar_duas_vezes_nao_duplica(engine):
     cliente = cliente_logado(engine, _contexto())
     cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
@@ -101,7 +186,7 @@ def test_item_sem_retrato_diz_que_nao_ha_dado_ainda(engine):
     """Acompanhar um item nunca aberto não pode deixar a linha em branco."""
     cliente = cliente_logado(engine, _contexto())
     cliente.post("/acompanhar", data={"nome": "Unusual Chapeu Nunca Aberto", "efeito": "Smoking"})
-    assert "sem dado ainda" in cliente.get("/").text
+    assert "Awaiting evidence" in cliente.get("/cases").text
 
 
 def test_abrir_acompanhado_com_efeito_a_venda_preenche_efeito_e_avaliacao(engine):
@@ -117,14 +202,14 @@ def test_abrir_acompanhado_com_efeito_a_venda_preenche_efeito_e_avaliacao(engine
     r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Deep Dive"})
 
     assert r.status_code == 200
-    assert "aguardando item" not in r.text
-    assert "aguardando efeito" not in r.text
+    assert "Waiting for an item" not in r.text
+    assert "Waiting for an effect" not in r.text
     for efeito in ("Deep Dive", "Midnight Whirlwind", "Screaming Tiger", "Silver Cyclone"):
         assert efeito in r.text
     assert "180,44" in r.text  # listagem mais barata do efeito, de _analise.html
-    assert 'id="analise"' in r.text and 'hx-swap-oob="true"' in r.text
+    assert 'id="analysis"' in r.text and 'hx-swap-oob="true"' in r.text
     # o efeito aberto fica marcado na lista, e só ele
-    assert r.text.count('class="escolhido"') == 1
+    assert r.text.count('class="is-selected"') == 1
 
 
 def test_abrir_acompanhado_com_efeito_sumido_mostra_lista_e_avisa_ausencia(engine):
@@ -142,7 +227,7 @@ def test_abrir_acompanhado_com_efeito_sumido_mostra_lista_e_avisa_ausencia(engin
     assert r.status_code == 200
     for efeito in ("Deep Dive", "Midnight Whirlwind", "Screaming Tiger", "Silver Cyclone"):
         assert efeito in r.text
-    assert "sem listagem deste efeito agora" in r.text
+    assert "No listings for this effect in the current snapshot." in r.text
     assert "180,44" not in r.text  # preço de Deep Dive não pode aparecer no lugar
 
 
@@ -152,7 +237,7 @@ def test_abrir_acompanhado_com_efeito_sumido_mostra_lista_e_avisa_ausencia(engin
 def test_efeito_ausente_mostra_a_idade_do_retrato(engine):
     """"sem listagem deste efeito agora" é uma afirmação sobre o PRESENTE,
     sentada em cima de um retrato que pode ter horas — o mesmo defeito já
-    corrigido em `_acompanhados.html` (achado I4), aqui no bloco da direita."""
+    coberto no partial dos Case Files (achado I4), aqui no bloco da direita."""
     paginas = _PaginasFalsas(_pagina())
     ctx = _contexto(paginas=paginas)
     ctx.retratos = Retratos(paginas)
@@ -164,7 +249,7 @@ def test_efeito_ausente_mostra_a_idade_do_retrato(engine):
     r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Burning Flames"})
 
     assert r.status_code == 200
-    assert "sem listagem deste efeito agora" in r.text
+    assert "No listings for this effect in the current snapshot." in r.text
     assert "6 min" in r.text
 
 
@@ -183,9 +268,9 @@ def test_efeito_ausente_com_steam_limitando_avisa_os_dois(engine):
     r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Burning Flames"})
 
     assert r.status_code == 200
-    assert "sem listagem deste efeito agora" in r.text
+    assert "No listings for this effect in the current snapshot." in r.text
     assert "3 h" in r.text
-    assert "limitando" in r.text.lower()
+    assert "Steam rate limited" in r.text
 
 
 # --- a idade não pode sumir quando mais importa (achado I4) ---------------
@@ -206,10 +291,10 @@ def test_linha_sem_listagem_ainda_mostra_a_idade_do_retrato(engine):
     cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Burning Flames"})
     cliente.get("/efeitos", params={"nome": NOME})  # popula o retrato guardado
 
-    r = cliente.get("/")
+    r = cliente.get("/cases/new")
 
-    assert "sem listagem deste efeito agora" in r.text
-    assert 'class="acompanhado-idade"' in r.text
+    assert "No listings for this effect in the current snapshot" in r.text
+    assert "Steam snapshot" in r.text
 
 
 # --- retrato de versão antiga não pode soar como "sumiu do mercado" (N9) --
@@ -231,10 +316,10 @@ def test_retrato_de_versao_antiga_avisa_que_sera_regravado(engine):
             db.agora(),
         )
 
-    r = cliente.get("/")
+    r = cliente.get("/cases/new")
 
-    assert "retrato salvo numa forma antiga; será regravado na próxima busca" in r.text
-    assert "sem listagem deste efeito agora" not in r.text
+    assert "Stored snapshot uses an older format; refresh to replace it" in r.text
+    assert "No listings for this effect in the current snapshot" not in r.text
 
 
 # --- uma linha ruim não pode trancar ninguém para fora (achado N3) --------
@@ -263,9 +348,9 @@ def test_linha_com_erro_inesperado_nao_derruba_o_painel(engine, monkeypatch, cap
 
     monkeypatch.setattr(consulta, "analyse", _quebra)
 
-    r = cliente.get("/")
+    r = cliente.get("/cases/new")
     assert r.status_code == 200
-    assert "não consegui avaliar esta linha" in r.text
+    assert "This case could not be evaluated" in r.text
     assert "KeyError" in capsys.readouterr().out
 
     with engine.begin() as conn:
@@ -292,14 +377,10 @@ def test_premio_desaparece_quando_a_referencia_da_bptf_esta_vencida(engine):
     cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
     cliente.get("/efeitos", params={"nome": NOME})
 
-    r = cliente.get("/")
+    r = cliente.get("/cases/new")
 
-    inicio = r.text.index('class="acompanhado-preco"')
-    trecho_do_preco = r.text[inicio:inicio + 200]
-    assert "×" not in trecho_do_preco
-    inicio_idade = r.text.index('class="acompanhado-idade"')
-    trecho_da_idade = r.text[inicio_idade:inicio_idade + 200]
-    assert "troca" not in trecho_da_idade
+    assert "Steam snapshot" in r.text
+    assert "backpack.tf reference" not in r.text
 
 
 def test_premio_mostra_a_idade_da_bptf_junto_da_idade_do_retrato(engine):
@@ -313,12 +394,10 @@ def test_premio_mostra_a_idade_da_bptf_junto_da_idade_do_retrato(engine):
     cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
     cliente.get("/efeitos", params={"nome": NOME})
 
-    r = cliente.get("/")
+    r = cliente.get("/cases/new")
 
-    assert "troca de 12 d" in r.text
-    inicio = r.text.index('class="acompanhado-preco"')
-    trecho_do_preco = r.text[inicio:inicio + 200]
-    assert "×" in trecho_do_preco
+    assert "Steam snapshot" in r.text
+    assert "backpack.tf reference · 12 d" in r.text
 
 
 # --- esquerda e direita concordam, sem aninhar (achado I6) -----------------
@@ -332,8 +411,8 @@ def test_efeitos_marca_a_linha_aberta_na_coluna_esquerda(engine):
     r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Deep Dive"})
 
     assert r.status_code == 200
-    assert r.text.count('class="acompanhado escolhido"') == 1
-    trecho = r.text[r.text.index('class="acompanhado escolhido"'):][:400]
+    assert r.text.count("case-file--selected") == 1
+    trecho = r.text[r.text.index("case-file--selected"):][:500]
     assert "Deep Dive" in trecho
     assert "Midnight Whirlwind" not in trecho
 
@@ -346,14 +425,14 @@ def test_efeitos_sem_efeito_nao_marca_nenhuma_linha(engine):
     r = cliente.get("/efeitos", params={"nome": NOME})
 
     assert r.status_code == 200
-    assert 'class="acompanhado escolhido"' not in r.text
+    assert "case-file--selected" not in r.text
 
 
-def test_efeitos_atualiza_acompanhados_sem_aninhar_o_involucro(engine):
-    """O id="acompanhados" mora no invólucro de `painel.html`; o fragmento
-    `_acompanhados.html` não o declara. Se o fora-de-banda não carregasse o
+def test_efeitos_atualiza_case_files_sem_aninhar_o_involucro(engine):
+    """O id="case-files" mora no invólucro de `new_case.html`; o fragmento
+    `_case_files.html` não o declara. Se o fora-de-banda não carregasse o
     id (substituindo o invólucro inteiro), cada resposta aninharia um
-    `#acompanhados` dentro do outro.
+    `#case-files` dentro do outro.
 
     Estendido (achado N8) para cobrir também `/analise`: é a rota que os
     botões de efeito chamam (`_efeitos.html`), e ela também manda a coluna
@@ -365,7 +444,7 @@ def test_efeitos_atualiza_acompanhados_sem_aninhar_o_involucro(engine):
         for _ in range(2):
             r = cliente.get(rota, params={"nome": NOME, "efeito": "Deep Dive"})
             assert r.status_code == 200
-            assert r.text.count('id="acompanhados"') == 1
+            assert r.text.count('id="case-files"') == 1
 
 
 def test_analise_marca_a_linha_aberta_na_coluna_esquerda(engine):
@@ -381,14 +460,14 @@ def test_analise_marca_a_linha_aberta_na_coluna_esquerda(engine):
     r = cliente.get("/analise", params={"nome": NOME, "efeito": "Midnight Whirlwind"})
 
     assert r.status_code == 200
-    assert r.text.count('class="acompanhado escolhido"') == 1
-    trecho = r.text[r.text.index('class="acompanhado escolhido"'):][:400]
+    assert r.text.count("case-file--selected") == 1
+    trecho = r.text[r.text.index("case-file--selected"):][:500]
     assert "Midnight Whirlwind" in trecho
     assert "Deep Dive" not in trecho
 
 
 def test_efeitos_atualiza_o_preco_na_esquerda_quando_o_retrato_estava_vencido(engine):
-    """Antes da correção, `/efeitos` não devolvia `#acompanhados`: se o
+    """Antes da correção, `/efeitos` não devolvia os Case Files: se o
     retrato estava vencido e a busca trouxe um novo, a esquerda ficava com o
     preço velho ao lado do novo que a direita acabou de mostrar."""
     paginas = _PaginasFalsas(_pagina())
@@ -409,6 +488,6 @@ def test_efeitos_atualiza_o_preco_na_esquerda_quando_o_retrato_estava_vencido(en
     # (esquerda), concordando com a avaliação (direita, que já é coberta
     # por `test_efeitos_marca_a_linha_aberta_na_coluna_esquerda` e pelos
     # testes de `test_acompanhar.py` que checam "180,44" em `_analise.html`).
-    inicio = r.text.index('id="acompanhados"')
+    inicio = r.text.index('id="case-files"')
     trecho_esquerda = r.text[inicio:]
     assert "180,44" in trecho_esquerda

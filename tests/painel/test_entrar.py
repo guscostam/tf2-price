@@ -24,7 +24,8 @@ def cliente(engine):
 def test_entrar_mostra_o_formulario(cliente):
     r = cliente.get("/entrar")
     assert r.status_code == 200
-    assert "senha" in r.text.lower()
+    assert "Username" in r.text and "Password" in r.text and "Sign in" in r.text
+    assert "This is an invitation-only workspace." in r.text
 
 
 def test_entrar_com_senha_certa_cria_cookie_e_redireciona(cliente):
@@ -37,7 +38,7 @@ def test_entrar_com_senha_certa_cria_cookie_e_redireciona(cliente):
 def test_entrar_com_senha_errada_nao_cria_cookie(cliente):
     r = cliente.post("/entrar", data={"nome": "gusco", "senha": "errada demais"})
     assert r.status_code == 200
-    assert "nome ou senha" in r.text.lower()
+    assert "Incorrect username or password." in r.text
     assert cliente.cookies.get(NOME_COOKIE) is None
 
 
@@ -79,3 +80,14 @@ def test_post_de_outra_origem_e_recusado(cliente):
         headers={"Origin": "https://site-de-outro.example"},
     )
     assert r.status_code == 403
+    assert r.json()["detail"] == "request origin does not match"
+
+
+def test_login_error_is_neutral_and_english(cliente):
+    missing = cliente.post("/entrar", data={"nome": "missing", "senha": "wrong password"})
+    known = cliente.post("/entrar", data={"nome": "gusco", "senha": "wrong password"})
+    assert missing.status_code == known.status_code == 200
+    assert missing.text == known.text
+    assert "Incorrect username or password." in missing.text
+    assert "missing" not in missing.text
+    assert cliente.cookies.get(NOME_COOKIE) is None

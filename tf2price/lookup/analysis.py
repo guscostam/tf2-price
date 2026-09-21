@@ -19,12 +19,11 @@ STEAM_FEE_MULTIPLIER = 1.15
 QUALITY_UNUSUAL = 5
 
 RAZAO_EFEITO_DESCONHECIDO = (
-    "o efeito não está no mapa extraído do schema da Valve, "
-    "então não dá para procurá-lo na backpack.tf"
+    "the effect is not in the Valve schema map, so it cannot be matched on backpack.tf"
 )
-RAZAO_SEM_PRECO = "a backpack.tf não precifica este efeito para este item"
+RAZAO_SEM_PRECO = "backpack.tf does not price this effect for this item"
 RAZAO_SEM_INDICE = (
-    "o índice de preços da backpack.tf ainda não carregou; tente de novo em alguns minutos"
+    "the backpack.tf price index has not loaded yet; try again in a few minutes"
 )
 
 
@@ -166,7 +165,7 @@ def analyse(
 ) -> Analysis:
     listagens = listings_of(page, effect)
     if not listagens:
-        raise ValueError(f"nenhuma listagem do efeito {effect!r} nesta página")
+        raise ValueError(f"No listings for effect {effect!r} in this snapshot")
 
     barata = listagens[0]
     medianas = [p.median.cents for p in page.history]

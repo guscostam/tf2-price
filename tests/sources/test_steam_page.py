@@ -67,7 +67,7 @@ def test_parse_page_price_recusa_formato_ptbr(texto):
     de listagens (en-US) e o priceoverview (pt-BR) ficam indistinguíveis e
     esse erro de cem vezes passa batido.
     """
-    with pytest.raises(PageStructureError):
+    with pytest.raises(PageStructureError, match="unexpected price format"):
         parse_page_price(texto)
 
 
@@ -468,21 +468,21 @@ def test_pagina_em_dolar_converte_as_tres_partes():
 def test_listagem_em_moeda_desconhecida_levanta_com_o_codigo():
     html = _pagina_sintetica(moeda_listagem=23, moeda_livro=7, moeda_historico=7)
 
-    with pytest.raises(PageStructureError, match="listagem veio na moeda 23"):
+    with pytest.raises(PageStructureError, match="listing uses currency 23; expected"):
         parse_item_page(html, NOME, 5.0)
 
 
 def test_livro_em_moeda_desconhecida_levanta_com_o_codigo():
     html = _pagina_sintetica(moeda_listagem=7, moeda_livro=23, moeda_historico=7)
 
-    with pytest.raises(PageStructureError, match="livro de ofertas veio na moeda 23"):
+    with pytest.raises(PageStructureError, match="order book uses currency 23; expected"):
         parse_item_page(html, NOME, 5.0)
 
 
 def test_historico_em_moeda_desconhecida_levanta_com_o_codigo():
     html = _pagina_sintetica(moeda_listagem=7, moeda_livro=7, moeda_historico=23)
 
-    with pytest.raises(PageStructureError, match="veio na moeda 23"):
+    with pytest.raises(PageStructureError, match="history uses currency 23; expected"):
         parse_item_page(html, NOME, 5.0)
 
 
@@ -495,7 +495,7 @@ def test_campo_de_moeda_ausente_levanta():
         campo_listagem="naoEhMoeda",
     )
 
-    with pytest.raises(PageStructureError, match="listagem veio na moeda None"):
+    with pytest.raises(PageStructureError, match="listing uses currency None; expected"):
         parse_item_page(html, NOME, 5.0)
 
 

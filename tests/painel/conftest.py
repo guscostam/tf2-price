@@ -46,6 +46,9 @@ class _IndiceFalso:
     def __init__(self, indice=None):
         self.indice = indice
 
+    def em_memoria(self):
+        return self.indice
+
     def obter(self):
         return self.indice
 

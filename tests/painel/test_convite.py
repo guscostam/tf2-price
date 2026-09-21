@@ -31,7 +31,7 @@ def test_link_valido_mostra_o_formulario(cliente, engine):
     token = _convite(engine)
     r = cliente.get(f"/convite/{token}")
     assert r.status_code == 200
-    assert "senha" in r.text.lower()
+    assert "Create account" in r.text and "Password" in r.text
 
 
 def test_link_invalido_diz_a_mesma_coisa_que_o_usado(cliente, engine):
@@ -44,7 +44,7 @@ def test_link_invalido_diz_a_mesma_coisa_que_o_usado(cliente, engine):
         repo.consumir_convite(conn, tokens.hash_de(token), usado_em=db.agora())
     usado = cliente.get(f"/convite/{token}")
     assert usado.status_code == 404
-    assert usado.text == inexistente.text
+    assert usado.text == inexistente.text == "This invitation is no longer valid."
 
 
 def test_link_expirado_diz_a_mesma_coisa_que_o_inexistente(cliente, engine):
@@ -55,7 +55,7 @@ def test_link_expirado_diz_a_mesma_coisa_que_o_inexistente(cliente, engine):
     token = _convite(engine, validade=timedelta(seconds=-1))
     expirado = cliente.get(f"/convite/{token}")
     assert expirado.status_code == 404
-    assert expirado.text == inexistente.text
+    assert expirado.text == inexistente.text == "This invitation is no longer valid."
 
 
 def test_post_com_token_morto_devolve_o_mesmo_corpo_do_get(cliente, engine):
@@ -84,7 +84,7 @@ def test_senha_curta_volta_com_recado_e_nao_cria_conta(cliente, engine):
     token = _convite(engine)
     r = cliente.post(f"/convite/{token}", data={"nome": "amiga", "senha": "curta"})
     assert r.status_code == 200
-    assert "10" in r.text
+    assert "Password must contain at least 10 characters." in r.text
     with engine.begin() as conn:
         assert repo.usuario_por_nome(conn, "amiga") is None
 
@@ -93,7 +93,7 @@ def test_nome_em_uso_volta_com_recado(cliente, engine):
     token = _convite(engine)
     r = cliente.post(f"/convite/{token}", data={"nome": "dono", "senha": SENHA})
     assert r.status_code == 200
-    assert "uso" in r.text.lower()
+    assert "That username is already in use." in r.text
 
 
 def test_convite_de_redefinicao_troca_a_senha(cliente, engine):
@@ -111,7 +111,7 @@ def test_convite_de_redefinicao_troca_a_senha(cliente, engine):
         )
 
     r = cliente.get(f"/convite/{token}")
-    assert "nova senha" in r.text.lower()
+    assert "Set a new password" in r.text
 
     r = cliente.post(f"/convite/{token}", data={"senha": "senha novinha"})
     assert r.status_code == 303

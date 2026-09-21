@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Case Files · briefcase.tf{% endblock %}
+{% block page_eyebrow %}Evidence archive{% endblock %}
+{% block page_title %}Case Files{% endblock %}
+{% block page_actions %}<a class="button button--primary" href="/cases/new">Open a new case</a>{% endblock %}
+{% block content %}
+<section data-page="case-files" aria-labelledby="case-files-title">
+  <h2 id="case-files-title" class="visually-hidden">Saved item and effect pairs</h2>
+  <div id="case-files">{% include "_case_files.html" %}</div>
+</section>
+{% endblock %}

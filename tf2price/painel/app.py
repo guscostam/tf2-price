@@ -5,10 +5,12 @@ from __future__ import annotations
 import re
 import threading
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.engine import Engine
 
 from tf2price import db
@@ -25,10 +27,12 @@ if TYPE_CHECKING:
 # `match`: `$` sozinho aceita uma quebra de linha final, `match` não ancora no
 # começo, e ambos juntos deixariam passar coisa como "13.webp\n".
 _NOME_DE_ARTE = re.compile(r"^\d{1,7}\.webp$")
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
-    app = FastAPI(title="Painel de Unusual")
+    app = FastAPI(title="briefcase.tf")
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.state.engine = engine
     app.state.contexto = contexto
 
@@ -42,15 +46,16 @@ def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
 
     @app.exception_handler(ses.PrecisaSerAdmin)
     def _sem_permissao(request: Request, _exc: ses.PrecisaSerAdmin) -> Response:
-        return HTMLResponse("Esta página é só do administrador.", status_code=403)
+        return HTMLResponse("This page is restricted to administrators.", status_code=403)
 
     app.include_router(acesso.ROTEADOR)
     app.include_router(admin.ROTEADOR)
 
     if contexto is not None:
-        from tf2price.painel.consulta import ROTEADOR
+        from tf2price.painel import consulta, paginas
 
-        app.include_router(ROTEADOR)
+        app.include_router(paginas.ROTEADOR)
+        app.include_router(consulta.ROTEADOR)
 
     @app.get("/arte/{nome}")
     def servir_arte(nome: str) -> Response:

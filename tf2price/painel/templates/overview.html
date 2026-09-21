@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Overview · briefcase.tf{% endblock %}
+{% block page_eyebrow %}Operational desk{% endblock %}
+{% block page_title %}Overview{% endblock %}
+{% block page_actions %}<a class="button button--primary" href="/cases/new">Open a new case</a>{% endblock %}
+{% block content %}
+<div data-page="overview" class="overview-grid">
+  <section class="metric-card" aria-labelledby="exchange-title">
+    <p class="scope-label">STEAM REFERENCE</p>
+    <h2 id="exchange-title">Exchange rate</h2>
+    {% if cotacao %}
+      <strong>{{ cotacao.key_brl }}</strong>
+      <p>Key price · captured {{ cotacao_idade }}</p>
+    {% else %}
+      <strong>Awaiting evidence</strong>
+      <p>The background worker has not loaded a usable quote yet.</p>
+    {% endif %}
+  </section>
+  <section class="metric-card" aria-labelledby="cases-title">
+    <p class="scope-label">YOUR FILES</p>
+    <h2 id="cases-title">Case files</h2>
+    <strong>{{ linhas|length }}</strong>
+    <p>Saved item–effect pairs</p>
+  </section>
+  <section class="dossier overview-recent" aria-labelledby="recent-title">
+    <h2 id="recent-title">Recent cases</h2>
+    {% include "_recent_cases.html" %}
+  </section>
+</div>
+{% endblock %}

@@ -363,7 +363,7 @@ def test_429_persistente_levanta_steam_limitando():
         sleep=lambda _: None,
     )
 
-    with pytest.raises(SteamLimitando, match="limitando"):
+    with pytest.raises(SteamLimitando, match="Steam is rate limiting this server"):
         client.search_page(start=0)
 
 
@@ -379,7 +379,7 @@ def test_5xx_persistente_nao_e_steam_limitando():
         sleep=lambda _: None,
     )
 
-    with pytest.raises(RuntimeError, match="não respondeu") as capturado:
+    with pytest.raises(RuntimeError, match="Steam did not respond after backoff") as capturado:
         client.search_page(start=0)
     assert not isinstance(capturado.value, SteamLimitando)
 
@@ -415,7 +415,7 @@ def test_depois_de_desistir_com_429_a_calma_recusa_sem_ir_a_rede():
     gastos = pedidos["n"]
     assert gastos > 1, "a escada nem subiu; o teste não está medindo o que diz"
 
-    with pytest.raises(SteamLimitando, match="alguns minutos"):
+    with pytest.raises(SteamLimitando, match="try again in a few minutes"):
         client.search_page(start=0)
     assert pedidos["n"] == gastos, "a calma deixou passar requisição"
 
@@ -733,7 +733,7 @@ def test_listings_levanta_runtime_error_quando_a_steam_devolve_html():
         sleep=lambda _: None,
     )
 
-    with pytest.raises(RuntimeError, match="HTML"):
+    with pytest.raises(RuntimeError, match="Steam listings endpoint did not return JSON"):
         client.listings("Unusual Team Captain")
 
 
@@ -752,7 +752,7 @@ def test_listings_com_html_nao_deixa_jsondecodeerror_escapar():
     try:
         client.listings("Unusual Team Captain")
     except (RuntimeError, httpx.HTTPError) as error:
-        assert "HTML" in str(error)
+        assert "Steam listings endpoint did not return JSON" in str(error)
         # 380 KB de corpo não entram na mensagem de erro.
         assert len(str(error)) < 400
     else:

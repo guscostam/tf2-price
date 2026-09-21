@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}New Case · briefcase.tf{% endblock %}
+{% block page_eyebrow %}Case intake{% endblock %}
+{% block page_title %}New Case{% endblock %}
+{% block body_attrs %} data-case-page{% endblock %}
+{% block content %}
+<div data-page="new-case" id="case-workflow" class="case-workflow" hx-indicator="#case-loading">
+  <section class="dossier case-search" aria-labelledby="search-title">
+    <p class="dossier-id">FILE / NEW</p>
+    <h2 id="search-title">Identify the item</h2>
+    <label for="q">Steam Market name</label>
+    <input id="q" name="q" autocomplete="off" placeholder="e.g. Chairholder" aria-describedby="search-help"
+           hx-get="/buscar" hx-target="#items" hx-trigger="keyup changed delay:400ms"
+           hx-sync="#case-workflow:replace"
+           data-case-request="search">
+    <div id="case-loading" class="loading-indicator" role="status" aria-live="polite">
+      <span class="loading-bar" aria-hidden="true"></span><span>Loading evidence</span>
+    </div>
+    <p id="search-help" class="field-help">Partial names work. Strange Unusual quality is preserved; Unusualifier tools are excluded.</p>
+    <div id="items" class="choice-list" aria-live="polite"></div>
+  </section>
+  <section class="dossier" aria-labelledby="effect-title">
+    <h2 id="effect-title">Choose the effect</h2>
+    <div id="effects" class="choice-list" aria-live="polite"><p class="empty-state">Waiting for an item</p></div>
+  </section>
+  <section class="analysis-region" aria-labelledby="analysis-title">
+    <h2 id="analysis-title" class="visually-hidden">Case analysis</h2>
+    <div id="analysis" aria-live="polite"><p class="empty-state">Waiting for an effect</p></div>
+  </section>
+  <aside class="case-drawer" aria-labelledby="drawer-title">
+    <h2 id="drawer-title">Case drawer</h2>
+    <div id="case-files">{% include "_case_files.html" %}</div>
+  </aside>
+  {% if initial_name and initial_effect %}
+  <div class="visually-hidden" hx-get="/efeitos"
+       hx-vals='{"nome": {{ initial_name|tojson }}, "efeito": {{ initial_effect|tojson }}}'
+       hx-target="#effects" hx-trigger="load" hx-sync="#case-workflow:replace"></div>
+  {% endif %}
+</div>
+{% endblock %}
