@@ -20,6 +20,8 @@ from sqlalchemy import (
     MetaData,
     String,
     Table,
+    Text,
+    UniqueConstraint,
     create_engine,
 )
 from sqlalchemy.engine import Engine
@@ -78,6 +80,29 @@ tentativa = Table(
     Column("id", Integer, primary_key=True),
     Column("nome", String(60), nullable=False),
     Column("quando", DateTime, nullable=False),
+)
+
+retrato = Table(
+    "retrato",
+    METADATA,
+    # Um retrato por item, compartilhado por todos: duas pessoas olhando o
+    # mesmo chapéu custam uma requisição à Steam, não duas.
+    Column("hash_name", String(300), primary_key=True),
+    Column("json", Text, nullable=False),
+    Column("buscado_em", DateTime, nullable=False),
+)
+
+acompanhado = Table(
+    "acompanhado",
+    METADATA,
+    Column("id", Integer, primary_key=True),
+    Column("usuario_id", Integer, ForeignKey("usuario.id"), nullable=False),
+    Column("hash_name", String(300), nullable=False),
+    # O efeito faz parte da chave: o mesmo chapéu com outro efeito é outro
+    # item econômico, e vale outra coisa.
+    Column("efeito", String(120), nullable=False),
+    Column("criado_em", DateTime, nullable=False),
+    UniqueConstraint("usuario_id", "hash_name", "efeito", name="acompanhado_unico"),
 )
 
 
