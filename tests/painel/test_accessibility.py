@@ -72,3 +72,20 @@ def test_search_focus_ring_has_space_below_its_label():
     label = re.search(r"\.case-search label\s*\{([^}]+)\}", css)[1]
     # The 3px outline plus 3px offset must not paint over the label above it.
     assert "margin-bottom: .5rem" in label
+
+
+def test_empty_overview_cta_has_a_paper_compatible_touch_target(cliente):
+    texto = cliente.get("/").text
+    recent = texto[texto.index('aria-labelledby="recent-title"'):]
+    recent = recent[:recent.index("</section>")]
+    assert '<a class="button button--primary" href="/cases/new">Open a new case</a>' in recent
+
+    css = Path("tf2price/painel/static/briefcase.css").read_text(encoding="utf-8")
+    button = re.search(r"^\.button\s*\{([^}]+)\}", css, re.MULTILINE)[1]
+    assert "min-height: 44px" in button
+    assert "padding: .65rem .9rem" in button
+    assert "display: inline-flex" in button
+    assert ".dossier :focus-visible { outline-color: var(--ink-blue); }" in css
+    primary = re.search(r"\.button--primary\s*\{([^}]+)\}", css)[1]
+    assert "background: var(--rust-stamp)" in primary
+    assert "color: var(--paper)" in primary
