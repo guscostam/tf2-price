@@ -6,7 +6,7 @@ from tf2price import db
 from tf2price.painel.app import criar_app
 from tf2price.painel.consulta import CotacaoSobDemanda, IndiceSobDemanda
 
-from .conftest import CHAVE, _contexto, cliente_logado
+from .conftest import CHAVE, NOME, _contexto, cliente_logado
 
 
 class _IndiceSemRede:
@@ -54,6 +54,50 @@ def test_renderizacao_inicial_das_paginas_nao_chama_indice(engine):
         assert cliente.get(caminho).status_code == 200
 
     assert not indice.obter_chamado
+
+
+def test_overview_mostra_resumo_real_sem_vereditos(engine):
+    cliente = cliente_logado(engine, _contexto())
+    resposta = cliente.post(
+        "/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"}
+    )
+    assert resposta.status_code == 200
+
+    texto = cliente.get("/").text
+
+    assert "Overview" in texto
+    assert "Exchange rate" in texto
+    assert "Case files" in texto
+    assert "Recent cases" in texto
+    trecho_contagem = texto[texto.index('id="cases-title"') :]
+    trecho_contagem = trecho_contagem[: trecho_contagem.index("</section>")]
+    assert "<strong>1</strong>" in trecho_contagem
+    assert NOME in texto
+    assert "Deep Dive" in texto
+    for inventado in ("Good Buy", "Fair Price", "Confidence", "Market Index"):
+        assert inventado not in texto
+
+
+def test_sources_explica_os_dois_escopos(engine):
+    texto = cliente_logado(engine, _contexto()).get("/sources").text
+
+    assert "THIS EFFECT" in texto
+    assert "ALL EFFECTS" in texto
+    assert "suggested price" in texto
+    assert "not a buy order" in texto
+    assert "Refresh" not in texto
+    assert "hx-get" not in texto
+
+
+def test_sources_nao_afirma_online_sem_evidencia(engine):
+    contexto = _contexto()
+    contexto.indice = _IndiceSemRede()
+
+    texto = cliente_logado(engine, contexto).get("/sources").text
+
+    assert "Online" not in texto
+    assert "Awaiting background load" in texto
+    assert not contexto.indice.obter_chamado
 
 
 def test_new_case_preserva_indicador_e_destinos_htmx(engine):

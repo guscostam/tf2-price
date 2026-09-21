@@ -4,14 +4,6 @@
 {% block body_attrs %} hx-indicator="#espera"{% endblock %}
 {% block content %}
 <div data-page="new-case">
-{% if cotacao %}
-<p class="cotacao">
-  chave <b>{{ cotacao.key_brl }}</b> · dólar <b>{{ cotacao.usd_brl_formatado }}</b> ·
-  lida <b>{{ cotacao_idade }}</b> · preços da Steam já com a taxa de 15%
-</p>
-{% else %}
-<p class="cotacao">cotação da chave indisponível no momento</p>
-{% endif %}
 <div class="duas-colunas">
   <aside class="coluna-esquerda">
     <section class="campo" data-campo="item">

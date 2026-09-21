@@ -440,13 +440,13 @@ def test_trocar_de_item_apaga_a_avaliacao(cliente):
     assert 'id="analise"' in r.text and 'hx-swap-oob="true"' in r.text
 
 
-def test_a_cotacao_da_chave_aparece_no_timbre(cliente):
+def test_a_cotacao_da_chave_aparece_no_overview(cliente):
     """Os valores em chaves não significam nada sem o preço que os converteu."""
-    assert str(CHAVE) in cliente.get("/cases/new").text
+    assert str(CHAVE) in cliente.get("/").text
 
 
-def test_o_timbre_diz_a_idade_da_cotacao(engine):
-    """Desde que a cotação atravessa o deploy no banco, o número do timbre
+def test_o_overview_diz_a_idade_da_cotacao(engine):
+    """Desde que a cotação atravessa o deploy no banco, o número do Overview
     pode ser de horas atrás. Omitir a idade seria a única mentira da tela —
     e a idade é a regra que governa este projeto."""
     ctx = _contexto()
@@ -455,9 +455,9 @@ def test_o_timbre_diz_a_idade_da_cotacao(engine):
     )
     cliente = cliente_logado(engine, ctx)
 
-    texto = cliente.get("/cases/new").text
+    texto = cliente.get("/").text
 
-    assert "lida <b>3 h</b>" in texto
+    assert "captured 3 h" in texto
 
 
 def test_o_painel_traz_a_coluna_de_acompanhados(engine):
@@ -484,7 +484,7 @@ def test_sem_cotacao_a_tela_diz_e_nao_quebra(engine):
     ctx.cotacao = _CotacaoFalsa(None)
     cliente = cliente_logado(engine, ctx)
 
-    assert "indisponível" in cliente.get("/cases/new").text
+    assert "Awaiting evidence" in cliente.get("/").text
     assert "ainda não carregou" in cliente.get(
         "/analise", params={"nome": NOME, "efeito": "Deep Dive"}
     ).text

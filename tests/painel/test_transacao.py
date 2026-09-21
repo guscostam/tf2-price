@@ -130,8 +130,9 @@ def test_rota_nunca_dispara_busca_de_cotacao(engine):
     assert steam.emprestadas_durante_o_io is None, (
         "uma rota de página foi à Steam buscar cotação: a regressão dos 30s voltou"
     )
-    # E a página mostra o número velho com a idade dele, em vez de nada.
-    assert "lida <b>1 d</b>" in respostas["/cases/new"].text
+    # E a Overview mostra o número velho com a idade dele, em vez de nada.
+    assert "captured 1 d" in respostas["/"].text
+    assert "captured 1 d" not in respostas["/cases/new"].text
 
 
 def test_rota_de_escrita_continua_funcionando(engine):
