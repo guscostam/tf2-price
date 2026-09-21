@@ -53,13 +53,49 @@ def test_acompanhar_guarda_e_aparece_na_lista(engine):
 def test_case_files_lists_saved_pair_with_real_age(engine):
     cliente = cliente_logado(engine, _contexto())
     cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+    seis_minutos_atras = db.agora() - timedelta(minutes=6)
+    with engine.begin() as conn:
+        preco_repo.guardar(
+            conn,
+            NOME,
+            json.dumps(serial.para_dict(_pagina())),
+            seis_minutos_atras,
+        )
 
     texto = cliente.get("/cases").text
 
     assert NOME in texto and "Deep Dive" in texto
+    assert "Steam snapshot · 6 min" in texto
     assert "Open case" in texto
     assert "Refresh evidence" in texto
     assert "Remove case" in texto
+
+
+def test_case_file_and_actions_name_the_exact_item_effect_pair(engine):
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+
+    texto = cliente.get("/cases").text
+
+    identidade = f"{NOME} — Deep Dive"
+    assert f'aria-label="Case file: {identidade}"' in texto
+    assert f'aria-label="Open case: {identidade}"' in texto
+    assert f'aria-label="Refresh evidence: {identidade}"' in texto
+    assert f'aria-label="Remove case: {identidade}"' in texto
+
+
+def test_selected_case_file_exposes_current_state_to_assistive_technology(engine):
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+
+    texto = cliente.get(
+        "/analise", params={"nome": NOME, "efeito": "Deep Dive"}
+    ).text
+
+    inicio = texto.index("case-file--selected")
+    caso_selecionado = texto[inicio:inicio + 500]
+    assert 'aria-current="true"' in caso_selecionado
+    assert "Current case" in caso_selecionado
 
 
 def test_open_case_keeps_item_and_effect_together(engine):
@@ -150,7 +186,7 @@ def test_item_sem_retrato_diz_que_nao_ha_dado_ainda(engine):
     """Acompanhar um item nunca aberto não pode deixar a linha em branco."""
     cliente = cliente_logado(engine, _contexto())
     cliente.post("/acompanhar", data={"nome": "Unusual Chapeu Nunca Aberto", "efeito": "Smoking"})
-    assert "Awaiting evidence" in cliente.get("/cases/new").text
+    assert "Awaiting evidence" in cliente.get("/cases").text
 
 
 def test_abrir_acompanhado_com_efeito_a_venda_preenche_efeito_e_avaliacao(engine):

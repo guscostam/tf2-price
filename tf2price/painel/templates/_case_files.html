@@ -1,8 +1,10 @@
 {% if linhas %}
 <div class="case-files-list">
 {% for l in linhas %}
-<article class="case-file{% if l.selecionado %} case-file--selected{% endif %}">
+<article class="case-file{% if l.selecionado %} case-file--selected{% endif %}"
+         aria-label="Case file: {{ l.hash_name }} — {{ l.efeito }}"{% if l.selecionado %} aria-current="true"{% endif %}>
   <div class="case-file__identity">
+    {% if l.selecionado %}<span class="visually-hidden">Current case</span>{% endif %}
     <p class="case-file__item">{{ l.hash_name }}</p>
     <p class="case-file__effect">{{ l.efeito }}</p>
   </div>
@@ -11,12 +13,15 @@
     {% if l.idade %}<small>Steam snapshot · {{ l.idade }}{% if l.premio %} · backpack.tf reference · {{ l.premio_idade }}{% endif %}</small>{% endif %}
   </div>
   <div class="case-file__actions">
-    <a class="button button--quiet" href="/cases/new?nome={{ l.hash_name|urlencode }}&efeito={{ l.efeito|urlencode }}">Open case</a>
+    <a class="button button--quiet" href="/cases/new?nome={{ l.hash_name|urlencode }}&efeito={{ l.efeito|urlencode }}"
+       aria-label="Open case: {{ l.hash_name }} — {{ l.efeito }}">Open case</a>
     <form hx-post="/atualizar/{{ l.hash_name|urlencode }}" hx-target="#case-files">
-      <button type="submit" class="button button--quiet">Refresh evidence</button>
+      <button type="submit" class="button button--quiet"
+              aria-label="Refresh evidence: {{ l.hash_name }} — {{ l.efeito }}">Refresh evidence</button>
     </form>
     <form hx-delete="/acompanhar/{{ l.id }}" hx-target="#case-files" hx-confirm="Remove this case file?">
-      <button type="submit" class="button button--danger">Remove case</button>
+      <button type="submit" class="button button--danger"
+              aria-label="Remove case: {{ l.hash_name }} — {{ l.efeito }}">Remove case</button>
     </form>
   </div>
 </article>
