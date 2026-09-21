@@ -192,7 +192,11 @@
       display: block; width: 11rem; padding: .55rem .5rem;
       border: 2px solid var(--cor); outline: 1px solid var(--cor); outline-offset: 3px;
       color: var(--cor); text-align: center; opacity: .87;
-      transform: rotate(var(--giro)); mix-blend-mode: multiply;
+      transform: rotate(var(--giro));
+      /* `multiply` era da paleta clara: escurecia a tinta sobre o papel
+         manilha. Sobre o fundo escuro do gabinete ele escurece o que já é
+         escuro e o carimbo salmão vira quase preto. `normal` mantém a cor. */
+      mix-blend-mode: normal;
       font-family: var(--display); font-weight: 700;
       text-transform: uppercase; letter-spacing: .1em; font-size: .78rem;
       animation: carimba .26s cubic-bezier(.2, .8, .3, 1.25) .1s backwards;
@@ -230,7 +234,9 @@
     .aviso {
       margin: 0 0 1rem; padding: .7rem .9rem;
       border-left: 4px solid var(--carimbo);
-      background: rgba(156, 42, 34, .07);
+      /* rgba do --carimbo atual (#e07a5f); o antigo (#9c2a22, paleta clara)
+         a 7% desaparecia sobre o fundo escuro. */
+      background: rgba(224, 122, 95, .10);
       font-size: .9rem;
     }
     .aviso code {
@@ -257,9 +263,18 @@
       *, *::before, *::after { animation: none !important; transition: none !important; }
     }
     @media print {
+      /* A paleta da tela é escura; no papel ela precisa se inverter de volta,
+         senão sai tinta clara sobre branco. Redefinir os tokens conserta tudo
+         que os usa de uma vez. */
+      :root {
+        --papel: #fff; --slip: #fff; --tinta: #221e19; --tinta-2: #5f5849;
+        --linha: rgba(34, 30, 25, .25);
+      }
       body { background: #fff; padding: 0; }
       body::before, .campo[data-campo="item"] .opcoes, #espera { display: none; }
-      .guia { border: 0; box-shadow: none; max-width: none; }
+      /* A aura é composta em `screen`, que não significa nada no papel. */
+      .placa { display: none; }
+      .guia { border: 0; box-shadow: none; max-width: none; background: #fff; }
     }
 
     .topo-conta {
@@ -342,9 +357,6 @@
       font-family: var(--mono); font-size: .66rem; letter-spacing: .12em;
       text-transform: uppercase; color: #6b7482;
     }
-    /* Com dez avaliações abertas o movimento custa; parar quando ninguém
-       está olhando é de graça. */
-    @media (prefers-reduced-motion: reduce) { .aura { animation: none; } }
   </style>
 </head>
 <body{% block corpo_attrs %}{% endblock %}>
