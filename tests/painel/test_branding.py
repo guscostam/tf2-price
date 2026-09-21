@@ -1,8 +1,18 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
+from tf2price import db
+from tf2price.contas import repositorio, servico
 from tf2price.painel.app import criar_app
+
+from .conftest import SENHA, _contexto, cliente_logado
+
+
+@pytest.fixture
+def cliente(engine):
+    return cliente_logado(engine, _contexto())
 
 
 def test_assets_da_marca_sao_servidos_sem_sessao(engine):
@@ -27,10 +37,17 @@ def test_package_data_inclui_assets_estaticos():
 
 
 def test_base_usa_as_quatro_fontes_locais_sem_google_fonts(engine):
-    resposta = TestClient(criar_app(engine)).get("/entrar")
+    cliente = TestClient(criar_app(engine))
+    resposta = cliente.get("/entrar")
 
     assert resposta.status_code == 200
     texto = resposta.text
+    assert "fonts.googleapis.com" not in texto
+    assert "fonts.gstatic.com" not in texto
+    assert '/static/briefcase.css' in texto
+    resposta_css = cliente.get("/static/briefcase.css")
+    assert resposta_css.status_code == 200
+    texto = resposta_css.text
     assert "fonts.googleapis.com" not in texto
     assert "fonts.gstatic.com" not in texto
 
@@ -44,16 +61,16 @@ def test_base_usa_as_quatro_fontes_locais_sem_google_fonts(engine):
         assert f'font-family: "{familia}"' in texto
         assert f'url("{caminho}")' in texto
 
-    assert '--display: "Roboto Slab"' in texto
-    assert '--condensed: "Roboto Condensed"' in texto
-    assert '--corpo:   "Inter"' in texto
-    assert '--mono:    "IBM Plex Mono"' in texto
-    assert "font-family: var(--condensed)" in texto
+    assert '--font-display: "Roboto Slab"' in texto
+    assert '--font-condensed: "Roboto Condensed"' in texto
+    assert '--font-interface: "Inter"' in texto
+    assert '--font-mono: "IBM Plex Mono"' in texto
+    assert "font-family: var(--font-condensed)" in texto
 
 
 def test_ibm_plex_mono_declara_os_pesos_locais_que_a_tela_usa(engine):
     cliente = TestClient(criar_app(engine))
-    texto = cliente.get("/entrar").text
+    texto = cliente.get("/static/briefcase.css").text
     fontes = (
         ("/static/fonts/ibm-plex-mono-latin.woff2", 400),
         ("/static/fonts/ibm-plex-mono-latin-500.woff2", 500),
@@ -72,3 +89,63 @@ def test_ibm_plex_mono_declara_os_pesos_locais_que_a_tela_usa(engine):
 
     assert 'font-family: "IBM Plex Mono"' in texto
     assert "font-weight: 100 700" not in texto
+
+
+def test_shell_usa_marca_assets_locais_e_ingles(cliente):
+    texto = cliente.get("/").text
+    assert '<html lang="en">' in texto
+    assert "briefcase.tf" in texto
+    assert "Unusual Market Intelligence" in texto
+    assert "/static/brand/briefcase.svg" in texto
+    assert "/static/briefcase.css" in texto
+    assert "/static/briefcase.js" in texto
+    assert "fonts.googleapis.com" not in texto
+    assert 'href="#main-content"' in texto
+    assert 'id="main-content" class="app-main" tabindex="-1"' in texto
+    assert 'htmx.org@1.9.12/dist/htmx.min.js' in texto
+    assert 'integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2"' in texto
+    assert 'crossorigin="anonymous"' in texto
+    assert cliente.get("/static/briefcase.js").status_code == 200
+
+
+@pytest.mark.parametrize("caminho", ["/", "/cases/new", "/cases", "/sources", "/admin"])
+def test_menu_tem_as_paginas_e_marca_so_a_atual(cliente, caminho):
+    texto = cliente.get(caminho).text
+    for rotulo in ("Overview", "New Case", "Case Files", "Sources", "Administration"):
+        assert rotulo in texto
+    assert f'href="{caminho}" aria-current="page"' in texto
+    assert texto.count('aria-current="page"') == 1
+    assert 'aria-controls="app-navigation"' in texto
+    assert 'aria-expanded="false"' in texto
+    assert 'data-nav-toggle' in texto and 'data-app-nav' in texto
+    assert '<form method="post" action="/sair">' in texto
+    assert texto.count("<main ") == 1
+
+
+def test_administration_link_is_hidden_from_non_admin(engine):
+    cliente_logado(engine, _contexto())
+    with engine.begin() as conn:
+        admin = repositorio.usuario_por_nome(conn, "gusco")
+        token = servico.convidar(conn, criado_por=admin.id, quando=db.agora())
+        servico.aceitar_convite(conn, token, nome="reader", senha=SENHA, quando=db.agora())
+    reader = TestClient(criar_app(engine, _contexto()))
+    reader.post("/entrar", data={"nome": "reader", "senha": SENHA})
+
+    assert "Administration" not in reader.get("/").text
+
+
+def test_autenticacao_tem_shell_proprio_sem_conta_menu_ou_htmx(engine):
+    cliente = TestClient(criar_app(engine, _contexto()))
+    with engine.begin() as conn:
+        token = servico.convite_de_partida(conn, db.agora())
+    for caminho in ("/entrar", f"/convite/{token}"):
+        texto = cliente.get(caminho).text
+        assert '<html lang="en">' in texto
+        assert 'class="auth-shell"' in texto
+        assert '<h1 id="auth-title">' in texto
+        assert 'aria-labelledby="auth-title"' in texto
+        assert 'href="/static/briefcase.css"' in texto
+        assert 'href="/static/brand/briefcase.svg"' in texto
+        assert 'data-app-nav' not in texto
+        assert 'action="/sair"' not in texto
+        assert 'htmx' not in texto

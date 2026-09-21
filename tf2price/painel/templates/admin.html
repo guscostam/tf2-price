@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block titulo %}Administração{% endblock %}
-{% block cabecalho %}Administração{% endblock %}
-{% block conteudo %}
+{% block title %}Administração{% endblock %}
+{% block page_title %}Administração{% endblock %}
+{% block content %}
 <section class="campo">
   {% if erro %}<div class="erro"><b>Não deu</b>{{ erro }}</div>{% endif %}
   {% if link %}
@@ -21,11 +21,11 @@
   <div class="linha">
     <span>{{ u.nome }}{% if u.admin %} · admin{% endif %}{% if not u.ativo %} · desativada{% endif %}</span>
     <span class="fio"></span>
-    <form method="post" action="/admin/redefinir/{{ u.id }}" style="display:inline">
+    <form method="post" action="/admin/redefinir/{{ u.id }}">
       <button type="submit">redefinir senha</button>
     </form>
     {% if u.id != usuario.id %}
-    <form method="post" action="/admin/ativo/{{ u.id }}" style="display:inline">
+    <form method="post" action="/admin/ativo/{{ u.id }}">
       <input type="hidden" name="ativo" value="{{ '0' if u.ativo else '1' }}">
       <button type="submit">{{ 'desativar' if u.ativo else 'reativar' }}</button>
     </form>

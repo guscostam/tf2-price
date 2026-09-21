@@ -1,19 +1,17 @@
 {% extends "base.html" %}
-{% block titulo %}New Case · briefcase.tf{% endblock %}
-{% block cabecalho %}New Case{% endblock %}
-{% block subtitulo %}
-  {% if cotacao %}
-  <p class="cotacao">
-    chave <b>{{ cotacao.key_brl }}</b> · dólar <b>{{ cotacao.usd_brl_formatado }}</b> ·
-    lida <b>{{ cotacao_idade }}</b> · preços da Steam já com a taxa de 15%
-  </p>
-  {% else %}
-  <p class="cotacao">cotação da chave indisponível no momento</p>
-  {% endif %}
-{% endblock %}
-{% block corpo_attrs %} hx-indicator="#espera"{% endblock %}
-{% block conteudo %}
+{% block title %}New Case · briefcase.tf{% endblock %}
+{% block page_title %}New Case{% endblock %}
+{% block body_attrs %} hx-indicator="#espera"{% endblock %}
+{% block content %}
 <div data-page="new-case">
+{% if cotacao %}
+<p class="cotacao">
+  chave <b>{{ cotacao.key_brl }}</b> · dólar <b>{{ cotacao.usd_brl_formatado }}</b> ·
+  lida <b>{{ cotacao_idade }}</b> · preços da Steam já com a taxa de 15%
+</p>
+{% else %}
+<p class="cotacao">cotação da chave indisponível no momento</p>
+{% endif %}
 <div class="duas-colunas">
   <aside class="coluna-esquerda">
     <section class="campo" data-campo="item">
@@ -34,7 +32,7 @@
     </section>
   </aside>
 
-  <main class="coluna-direita">
+  <div class="coluna-direita">
     <section class="campo" data-campo="efeito">
       <span class="rotulo">Efeito</span>
       <div id="efeitos" class="opcoes colunas">
@@ -48,7 +46,7 @@
         <p class="vazio">aguardando efeito</p>
       </div>
     </section>
-  </main>
+  </div>
 </div>
 
 <script>
@@ -61,14 +59,6 @@
       outro.removeAttribute("data-escolhido");
     });
     botao.setAttribute("data-escolhido", "");
-  });
-
-  // Aba oculta não precisa animar. Com dez avaliações abertas o movimento
-  // custa; parar quando ninguém está olhando é de graça.
-  document.addEventListener("visibilitychange", function () {
-    document.querySelectorAll(".aura").forEach(function (a) {
-      a.style.animationPlayState = document.hidden ? "paused" : "running";
-    });
   });
 </script>
 </div>

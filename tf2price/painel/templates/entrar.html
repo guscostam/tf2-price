@@ -1,8 +1,8 @@
-{% extends "base.html" %}
-{% block titulo %}Entrar{% endblock %}
-{% block cabecalho %}Entrar{% endblock %}
-{% block conteudo %}
+{% extends "auth_base.html" %}
+{% block title %}Entrar{% endblock %}
+{% block content %}
 <section class="campo">
+  <h1 id="auth-title">Entrar</h1>
   {% if erro %}<div class="erro"><b>Não deu para entrar</b>{{ erro }}</div>{% endif %}
   <form method="post" action="/entrar">
     <div class="campo-form">

@@ -1,8 +1,8 @@
-{% extends "base.html" %}
-{% block titulo %}{{ "Nova senha" if redefinicao else "Criar conta" }}{% endblock %}
-{% block cabecalho %}{{ "Nova senha" if redefinicao else "Criar conta" }}{% endblock %}
-{% block conteudo %}
+{% extends "auth_base.html" %}
+{% block title %}{{ "Nova senha" if redefinicao else "Criar conta" }}{% endblock %}
+{% block content %}
 <section class="campo">
+  <h1 id="auth-title">{{ "Nova senha" if redefinicao else "Criar conta" }}</h1>
   {% if erro %}<div class="erro"><b>Não deu para continuar</b>{{ erro }}</div>{% endif %}
   <form method="post" action="/convite/{{ token }}">
     {% if not redefinicao %}

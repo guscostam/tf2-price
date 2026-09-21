@@ -1,0 +1,16 @@
+<nav id="app-navigation" class="app-nav" aria-label="Primary navigation" data-app-nav>
+  {% include "_brand.html" %}
+  <div class="app-nav__links">
+    <a href="/"{% if request.url.path == "/" %} aria-current="page"{% endif %}>Overview</a>
+    <a href="/cases/new"{% if request.url.path == "/cases/new" %} aria-current="page"{% endif %}>New Case</a>
+    <a href="/cases"{% if request.url.path == "/cases" %} aria-current="page"{% endif %}>Case Files</a>
+    <a href="/sources"{% if request.url.path == "/sources" %} aria-current="page"{% endif %}>Sources</a>
+    {% if usuario.admin %}
+    <a href="/admin"{% if request.url.path == "/admin" %} aria-current="page"{% endif %}>Administration</a>
+    {% endif %}
+  </div>
+  <div class="app-nav__account">
+    <span>{{ usuario.nome }}</span>
+    <form method="post" action="/sair"><button type="submit">Log out</button></form>
+  </div>
+</nav>

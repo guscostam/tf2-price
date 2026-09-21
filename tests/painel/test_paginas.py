@@ -56,6 +56,16 @@ def test_renderizacao_inicial_das_paginas_nao_chama_indice(engine):
     assert not indice.obter_chamado
 
 
+def test_new_case_preserva_indicador_e_destinos_htmx(engine):
+    cliente = cliente_logado(engine, _contexto())
+    texto = cliente.get("/cases/new").text
+
+    assert '<body hx-indicator="#espera">' in texto
+    assert 'hx-get="/buscar" hx-target="#itens"' in texto
+    for destino in ("espera", "itens", "acompanhados", "efeitos", "analise"):
+        assert f'id="{destino}"' in texto
+
+
 def test_paginas_nao_esperam_renovacao_da_cotacao(engine):
     class SteamBloqueada:
         def __init__(self):
