@@ -15,6 +15,7 @@ from tf2price.preco import repositorio as preco_repo
 from tf2price.preco import serial
 from tf2price.preco.retrato import Retratos
 from tf2price.sources.backpacktf import PriceIndex
+from tf2price.sources.steam_page import SteamLimitando
 from .conftest import NOME, _contexto, _pagina, _PaginasFalsas, cliente_logado
 
 SENHA = "uma senha longa"
@@ -177,7 +178,7 @@ def test_efeito_ausente_com_steam_limitando_avisa_os_dois(engine):
     cliente = cliente_logado(engine, ctx)
     with engine.begin() as conn:
         preco_repo.guardar(conn, NOME, json.dumps(serial.para_dict(_pagina())), velho)
-    paginas._erro = RuntimeError("status 429")
+    paginas._erro = SteamLimitando("status 429")
 
     r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Burning Flames"})
 

@@ -17,7 +17,7 @@ from tf2price.preco import serial
 from tf2price.preco.retrato import Retratos
 from tf2price.sources.backpacktf import PriceIndex
 from tf2price.sources.ratelimit import RateLimiter
-from tf2price.sources.steam_page import PageStructureError, SteamPageClient
+from tf2price.sources.steam_page import PageStructureError, SteamLimitando, SteamPageClient
 
 from .conftest import (
     CHAVE,
@@ -170,7 +170,7 @@ def test_efeitos_e_analise_do_mesmo_item_buscam_a_pagina_uma_vez(engine):
 
 def test_efeitos_sem_retrato_guardado_e_com_429_mostra_sem_retrato(engine):
     """A Steam limitando num item nunca visto: nem retrato velho para mostrar."""
-    paginas = _PaginasFalsas(erro=RuntimeError("status 429"))
+    paginas = _PaginasFalsas(erro=SteamLimitando("status 429"))
     ctx = _contexto(paginas=paginas)
     ctx.retratos = Retratos(paginas)
     cliente = cliente_logado(engine, ctx)
@@ -182,7 +182,7 @@ def test_efeitos_sem_retrato_guardado_e_com_429_mostra_sem_retrato(engine):
 
 
 def test_analise_sem_retrato_guardado_e_com_429_mostra_sem_retrato(engine):
-    paginas = _PaginasFalsas(erro=RuntimeError("status 429"))
+    paginas = _PaginasFalsas(erro=SteamLimitando("status 429"))
     ctx = _contexto(paginas=paginas)
     ctx.retratos = Retratos(paginas)
     cliente = cliente_logado(engine, ctx)
@@ -246,7 +246,7 @@ def test_analise_com_429_avisa_que_a_steam_esta_limitando_e_a_idade_do_dado(engi
     cliente = cliente_logado(engine, ctx)
     with engine.begin() as conn:
         preco_repo.guardar(conn, NOME, json.dumps(serial.para_dict(_pagina())), velho)
-    paginas._erro = RuntimeError("status 429")
+    paginas._erro = SteamLimitando("status 429")
 
     r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
 
@@ -405,7 +405,7 @@ def test_carimbo_da_steam_limitando_nao_pede_emprestada_a_classe_do_bptf(engine)
     cliente = cliente_logado(engine, ctx)
     with engine.begin() as conn:
         preco_repo.guardar(conn, NOME, json.dumps(serial.para_dict(_pagina())), velho)
-    paginas._erro = RuntimeError("status 429")
+    paginas._erro = SteamLimitando("status 429")
 
     r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
 

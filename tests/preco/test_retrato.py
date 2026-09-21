@@ -8,7 +8,7 @@ from tf2price import db
 from tf2price.preco import repositorio as repo
 from tf2price.preco import retrato as mod
 from tf2price.preco import serial
-from tf2price.sources.steam_page import parse_item_page
+from tf2price.sources.steam_page import SteamLimitando, parse_item_page
 
 FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "steam_listing_page.html"
 NOME = "Unusual Taunt: Chairholder"
@@ -114,7 +114,7 @@ def test_429_liga_a_calma_e_serve_o_guardado(engine):
     retratos = mod.Retratos(bons, relogio=relogio)
     retratos.obter(engine, NOME, 1.0, AGORA)
 
-    bons.erro = RuntimeError("status 429")  # a Steam começa a recusar
+    bons.erro = SteamLimitando("status 429")  # a Steam começa a recusar
     depois = AGORA + mod.VALIDADE + timedelta(minutes=1)
     leitura = retratos.obter(engine, NOME, 1.0, depois)
     assert leitura.pagina is not None
@@ -123,7 +123,7 @@ def test_429_liga_a_calma_e_serve_o_guardado(engine):
 
 
 def test_durante_a_calma_nenhuma_requisicao_sai(engine):
-    ruins = _PaginasFalsas(erro=RuntimeError("status 429"))
+    ruins = _PaginasFalsas(erro=SteamLimitando("status 429"))
     retratos = mod.Retratos(ruins, relogio=_Relogio())
     retratos.obter(engine, NOME, 1.0, AGORA)
     retratos.obter(engine, NOME, 1.0, AGORA)
@@ -155,7 +155,7 @@ def test_nenhuma_conexao_fica_emprestada_durante_a_busca(engine):
 
 
 def test_sem_retrato_e_com_falha_a_leitura_vem_vazia(engine):
-    ruins = _PaginasFalsas(erro=RuntimeError("status 429"))
+    ruins = _PaginasFalsas(erro=SteamLimitando("status 429"))
     retratos = mod.Retratos(ruins, relogio=_Relogio())
     leitura = retratos.obter(engine, NOME, 1.0, AGORA)
     assert leitura.pagina is None
@@ -171,7 +171,7 @@ def test_log_do_429_e_saneado(engine, capsys):
     """
     chave_secreta = "segredo-que-nao-pode-vazar"
     ruins = _PaginasFalsas(
-        erro=RuntimeError(f"status 429 for url 'https://x?key={chave_secreta}'")
+        erro=SteamLimitando(f"status 429 for url 'https://x?key={chave_secreta}'")
     )
     retratos = mod.Retratos(ruins, relogio=_Relogio())
     retratos.obter(engine, NOME, 1.0, AGORA)

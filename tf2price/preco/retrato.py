@@ -17,7 +17,7 @@ from sqlalchemy.engine import Engine
 
 from tf2price.preco import repositorio as repo
 from tf2price.preco import serial
-from tf2price.sources.steam_page import ItemPage
+from tf2price.sources.steam_page import ItemPage, SteamLimitando
 from tf2price.saneamento import mensagem_saneada
 
 VALIDADE = timedelta(minutes=15)
@@ -84,13 +84,16 @@ class Retratos:
 
         try:
             nova = self._paginas.item_page(hash_name, usd_to_brl)
-        except Exception as erro:
-            if "429" in str(erro):
-                self._calma_ate = self._relogio() + CALMA_APOS_429.total_seconds()
-                print(f"[retrato] Steam limitando: {mensagem_saneada(erro)}; calma de "
-                      f"{int(CALMA_APOS_429.total_seconds())}s", flush=True)
-                return Leitura(pagina, buscado_em, True)
-            raise
+        except SteamLimitando as erro:
+            # Pelo TIPO, não farejando "429" na mensagem: essa string podia
+            # vir de um preço, um id de listagem ou um nome de item e ligar
+            # a calma à toa, e um 429 real podia perder a marca na mensagem
+            # final do backoff (que só guarda a última tentativa) e nunca
+            # ligar a calma. `SteamLimitando` já resolveu isso no laço.
+            self._calma_ate = self._relogio() + CALMA_APOS_429.total_seconds()
+            print(f"[retrato] Steam limitando: {mensagem_saneada(erro)}; calma de "
+                  f"{int(CALMA_APOS_429.total_seconds())}s", flush=True)
+            return Leitura(pagina, buscado_em, True)
 
         self._ultima_busca[hash_name] = self._relogio()
         with engine.begin() as conn:

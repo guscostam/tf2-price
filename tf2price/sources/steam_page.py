@@ -54,6 +54,18 @@ class PageStructureError(RuntimeError):
     """
 
 
+class SteamLimitando(RuntimeError):
+    """O backoff de `item_page` viu pelo menos um 429 antes de desistir.
+
+    Herda de `RuntimeError` de propósito: quem já captura `RuntimeError` (as
+    três rotas do painel) continua funcionando sem mudar nada. O motivo de
+    existir é distinguir esta causa de qualquer outra por TIPO, não por
+    farejar "429" na mensagem final — que carrega só a ÚLTIMA tentativa do
+    laço, e um 429 seguido de timeout perde o 429 nessa mensagem sem perder
+    o motivo real de a Steam não ter respondido.
+    """
+
+
 @dataclass(frozen=True)
 class PageListing:
     listing_id: str
@@ -289,6 +301,7 @@ class SteamPageClient:
         params = {"currency": CURRENCY_BRL, "l": "english"}
 
         ultimo: int | str | None = None
+        houve_429 = False
         for atraso in [0.0, *backoff_delays(5)]:
             if atraso:
                 self._sleep(atraso)
@@ -299,6 +312,7 @@ class SteamPageClient:
                 if resposta.status_code == 429:
                     self._limiter.record_throttle()
                     ultimo = 429
+                    houve_429 = True
                     continue
                 if resposta.status_code >= 500:
                     ultimo = resposta.status_code
@@ -321,4 +335,10 @@ class SteamPageClient:
                 continue
             return parse_item_page(resposta.text, hash_name, usd_to_brl)
 
-        raise RuntimeError(f"Steam não respondeu após backoff (último: {ultimo})")
+        mensagem = f"Steam não respondeu após backoff (último: {ultimo})"
+        # Qualquer 429 no laço liga a calma, mesmo que a última tentativa
+        # tenha sido outra coisa (timeout, 500...): a mensagem acima só
+        # guarda a ÚLTIMA falha, mas `houve_429` viu o laço inteiro.
+        if houve_429:
+            raise SteamLimitando(mensagem)
+        raise RuntimeError(mensagem)

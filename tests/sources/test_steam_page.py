@@ -11,6 +11,7 @@ from tf2price.sources.ratelimit import RateLimiter
 from tf2price.sources.steam_page import (
     ItemPage,
     PageStructureError,
+    SteamLimitando,
     SteamPageClient,
     parse_item_page,
     parse_page_price,
@@ -233,6 +234,36 @@ def test_timeout_e_repetido_e_depois_embrulhado_em_runtimeerror():
 
     # Continua sendo RuntimeError, e não o ReadTimeout cru.
     assert not isinstance(excinfo.value, httpx.HTTPError)
+
+
+def test_429_seguido_de_timeout_na_ultima_tentativa_ainda_liga_a_calma():
+    """Medido: três 429 seguidos de timeouts terminam em 'Steam não respondeu
+    após backoff (último: tempo esgotado)' — sem a palavra '429' na mensagem,
+    porque ela só guarda a ÚLTIMA tentativa do laço. Farejar a string faria a
+    calma de `Retratos` (o único freio real contra reiniciar seis tentativas
+    no mesmo IP que a Steam já está limitando) não ligar neste caso. O tipo
+    `SteamLimitando` prova que o laço viu o 429, mesmo perdido na mensagem."""
+    tentativas = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        tentativas["n"] += 1
+        if tentativas["n"] <= 3:
+            return httpx.Response(429, text="")
+        raise httpx.ReadTimeout("tempo esgotado", request=request)
+
+    cliente = SteamPageClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(SteamLimitando) as excinfo:
+        cliente.item_page(NOME, 1.0)
+
+    # A mensagem final não carrega mais "429" nenhum: é a marca de que a
+    # detecção não pode depender dela.
+    assert "429" not in str(excinfo.value)
+    assert tentativas["n"] == 6  # 1 inicial + 5 do backoff
 
 
 def test_timeout_esporadico_e_absorvido_pelo_backoff():
