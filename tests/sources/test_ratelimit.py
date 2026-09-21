@@ -49,3 +49,57 @@ def test_backoff_tem_jitter_mas_fica_na_metade_de_cima():
     # jitter entre 50% e 100% do valor bruto: nunca colapsa para quase zero
     delays = backoff_delays(attempts=1, base=2.0, cap=100.0)
     assert 1.0 <= delays[0] <= 2.0
+
+
+def test_threads_em_paralelo_nao_furam_o_intervalo():
+    """O caso real: as rotas da consulta são `def` síncrono, então o uvicorn
+    as roda num pool de threads e o mesmo limitador atende várias ao mesmo
+    tempo.
+
+    Sem trava, as três últimas threads leem o mesmo `_last_call`, dormem o
+    mesmo intervalo simultaneamente e saem juntas — o total mede um intervalo
+    só, e a Steam vê uma rajada. Com trava elas se enfileiram, e o total mede
+    três.
+    """
+    import threading
+    import time
+
+    intervalo = 0.05
+    limiter = RateLimiter(min_interval_s=intervalo)
+    partida = threading.Barrier(4)
+
+    def chamar() -> None:
+        partida.wait()
+        limiter.wait()
+
+    threads = [threading.Thread(target=chamar) for _ in range(4)]
+    inicio = time.monotonic()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    decorrido = time.monotonic() - inicio
+
+    assert limiter.requests == 4
+    # 3 intervalos com folga para o escalonador; sem a trava fica em ~1.
+    assert decorrido >= intervalo * 2.5
+
+
+def test_contagem_de_429_nao_se_perde_entre_threads():
+    import threading
+
+    limiter = RateLimiter(min_interval_s=0.0)
+    limiter.wait()
+    partida = threading.Barrier(20)
+
+    def marcar() -> None:
+        partida.wait()
+        limiter.record_throttle()
+
+    threads = [threading.Thread(target=marcar) for _ in range(20)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert limiter.throttled == 20
