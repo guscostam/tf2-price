@@ -39,7 +39,9 @@ def test_admin_lista_os_usuarios(admin, engine):
 
 def test_nao_admin_leva_403(admin, engine):
     comum = _entra(engine, "amiga", admin=False)
-    assert comum.get("/admin").status_code == 403
+    resposta = comum.get("/admin")
+    assert resposta.status_code == 403
+    assert resposta.text == "This page is restricted to administrators."
 
 
 def test_sem_sessao_nao_chega_no_admin(engine):
@@ -51,6 +53,8 @@ def test_gerar_convite_mostra_o_link_uma_vez(admin):
     r = admin.post("/admin/convite")
     assert r.status_code == 200
     assert "/convite/" in r.text
+    assert "The link is shown once. Copy it now." in r.text
+    assert "/convite/" not in admin.get("/admin").text
 
 
 def test_link_gerado_realmente_cria_conta(admin, engine):
@@ -96,7 +100,8 @@ def test_desativar_derruba_a_sessao_da_pessoa(admin, engine):
 def test_admin_nao_consegue_se_desativar(admin, engine):
     with engine.begin() as conn:
         eu = repo.usuario_por_nome(conn, "gusco")
-    admin.post(f"/admin/ativo/{eu.id}", data={"ativo": "0"})
+    resposta = admin.post(f"/admin/ativo/{eu.id}", data={"ativo": "0"})
+    assert "You cannot disable your own account." in resposta.text
 
     with engine.begin() as conn:
         assert repo.usuario_por_nome(conn, "gusco").ativo is True
@@ -117,11 +122,30 @@ def test_comum_leva_403_nos_tres_posts_de_admin(admin, engine):
 
 
 def test_redefinir_para_usuario_inexistente_da_404(admin):
-    assert admin.post("/admin/redefinir/999999").status_code == 404
+    resposta = admin.post("/admin/redefinir/999999")
+    assert resposta.status_code == 404
+    assert resposta.text == "User not found."
 
 
 def test_ativo_para_usuario_inexistente_da_404(admin):
-    assert admin.post("/admin/ativo/999999", data={"ativo": "0"}).status_code == 404
+    resposta = admin.post("/admin/ativo/999999", data={"ativo": "0"})
+    assert resposta.status_code == 404
+    assert resposta.text == "User not found."
+
+
+def test_admin_copy_and_disable_confirmation(admin, engine):
+    _entra(engine, "amiga", admin=False)
+    texto = admin.get("/admin").text
+    for label in ("Administration", "Generate invitation", "People", "Reset password", "Disable"):
+        assert label in texto
+    confirmation = 'data-confirm="Disable this account and invalidate its sessions?"'
+    assert texto.count(confirmation) == 1
+    with engine.begin() as conn:
+        alvo = repo.usuario_por_nome(conn, "amiga").id
+    texto = admin.post(f"/admin/ativo/{alvo}", data={"ativo": "0"}).text
+    assert "Reactivate" in texto
+    assert confirmation not in texto
+    assert 'name="ativo" value="1"' in texto
 
 
 def test_admin_nao_ve_botao_de_desativar_a_propria_linha(admin, engine):

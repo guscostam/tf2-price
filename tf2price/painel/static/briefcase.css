@@ -188,6 +188,20 @@ button:active { transform: translateY(1px); }
 .auth-card h1 { margin-bottom: 2rem; font-size: 2rem; }
 .auth-card .campo { padding: 0; }
 .auth-card :focus-visible { outline-color: var(--ink-blue); }
+.auth-card .erro { margin-bottom: 1.5rem; }
+
+.admin-invitations { display: grid; gap: 1rem; margin-bottom: 2rem; }
+.admin-link { padding: 1rem; border-left: 3px solid var(--warning); background: var(--ink-panel); }
+.admin-link p { margin: 0 0 .5rem; }
+.admin-link code { font: .85rem var(--font-mono); overflow-wrap: anywhere; }
+.admin-people h2 { margin: 0 0 1rem; font-family: var(--font-display); }
+.admin-people__list { list-style: none; margin: 0; padding: 0; }
+.admin-person { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0; border-top: 1px solid var(--ink-blue); }
+.admin-person__identity { display: grid; gap: .3rem; min-width: 0; overflow-wrap: anywhere; }
+.admin-person__identity span { font: .75rem var(--font-mono); }
+.admin-person__actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.admin-person__actions form { margin: 0; }
+.admin-person .button--danger { color: var(--paper); border-color: var(--rust-stamp); }
 
 @media (max-width: 52rem) {
   .app-shell { grid-template-columns: minmax(0, 1fr); min-height: auto; }

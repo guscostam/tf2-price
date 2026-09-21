@@ -73,7 +73,7 @@ def mesma_origem(request: Request) -> None:
         return
     origem = request.headers.get("origin")
     if origem and urlparse(origem).netloc != request.headers.get("host"):
-        raise HTTPException(status_code=403, detail="origem não confere")
+        raise HTTPException(status_code=403, detail="request origin does not match")
 
 
 def gravar_cookie(resposta: Response, request: Request, token: str) -> None:

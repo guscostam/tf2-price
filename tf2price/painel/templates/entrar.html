@@ -1,20 +1,20 @@
 {% extends "auth_base.html" %}
-{% block title %}Entrar{% endblock %}
+{% block title %}Sign in{% endblock %}
 {% block content %}
 <section class="campo">
-  <h1 id="auth-title">Entrar</h1>
-  {% if erro %}<div class="erro"><b>Não deu para entrar</b>{{ erro }}</div>{% endif %}
+  <h1 id="auth-title">Sign in</h1>
+  {% if erro %}<div class="erro" role="alert"><b>Unable to sign in</b>{{ erro }}</div>{% endif %}
   <form method="post" action="/entrar">
     <div class="campo-form">
-      <label for="nome">Nome</label>
+      <label for="nome">Username</label>
       <input id="nome" name="nome" autocomplete="username" autofocus required>
     </div>
     <div class="campo-form">
-      <label for="senha">Senha</label>
+      <label for="senha">Password</label>
       <input id="senha" name="senha" type="password" autocomplete="current-password" required>
     </div>
-    <button class="acao" type="submit">Entrar</button>
+    <button class="acao" type="submit">Sign in</button>
   </form>
-  <p class="dica">Este painel é fechado. Quem entra, entra por um convite.</p>
+  <p class="dica">This is an invitation-only workspace.</p>
 </section>
 {% endblock %}

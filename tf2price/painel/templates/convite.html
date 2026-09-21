@@ -1,23 +1,23 @@
 {% extends "auth_base.html" %}
-{% block title %}{{ "Nova senha" if redefinicao else "Criar conta" }}{% endblock %}
+{% block title %}{{ "Set a new password" if redefinicao else "Create account" }}{% endblock %}
 {% block content %}
 <section class="campo">
-  <h1 id="auth-title">{{ "Nova senha" if redefinicao else "Criar conta" }}</h1>
-  {% if erro %}<div class="erro"><b>Não deu para continuar</b>{{ erro }}</div>{% endif %}
+  <h1 id="auth-title">{{ "Set a new password" if redefinicao else "Create account" }}</h1>
+  {% if erro %}<div class="erro" role="alert"><b>Unable to continue</b>{{ erro }}</div>{% endif %}
   <form method="post" action="/convite/{{ token }}">
     {% if not redefinicao %}
     <div class="campo-form">
-      <label for="nome">Nome</label>
+      <label for="nome">Username</label>
       <input id="nome" name="nome" autocomplete="username" autofocus required>
     </div>
     {% endif %}
     <div class="campo-form">
-      <label for="senha">{{ "Nova senha" if redefinicao else "Senha" }}</label>
+      <label for="senha">{{ "New password" if redefinicao else "Password" }}</label>
       <input id="senha" name="senha" type="password" autocomplete="new-password"
              minlength="10" required {% if redefinicao %}autofocus{% endif %}>
     </div>
-    <button class="acao" type="submit">{{ "Trocar senha" if redefinicao else "Criar conta" }}</button>
+    <button class="acao" type="submit">{{ "Set a new password" if redefinicao else "Create account" }}</button>
   </form>
-  <p class="dica">A senha precisa de pelo menos 10 caracteres. Este link vale uma vez só.</p>
+  <p class="dica">Use at least 10 characters. This link can only be used once.</p>
 </section>
 {% endblock %}

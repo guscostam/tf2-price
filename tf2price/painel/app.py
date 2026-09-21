@@ -46,7 +46,7 @@ def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
 
     @app.exception_handler(ses.PrecisaSerAdmin)
     def _sem_permissao(request: Request, _exc: ses.PrecisaSerAdmin) -> Response:
-        return HTMLResponse("Esta página é só do administrador.", status_code=403)
+        return HTMLResponse("This page is restricted to administrators.", status_code=403)
 
     app.include_router(acesso.ROTEADOR)
     app.include_router(admin.ROTEADOR)

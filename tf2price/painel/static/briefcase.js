@@ -1,4 +1,9 @@
 (() => {
+  document.addEventListener("submit", (event) => {
+    const message = event.target.dataset.confirm;
+    if (message && !window.confirm(message)) event.preventDefault();
+  });
+
   const toggle = document.querySelector("[data-nav-toggle]");
   const nav = document.querySelector("[data-app-nav]");
   if (toggle && nav) {

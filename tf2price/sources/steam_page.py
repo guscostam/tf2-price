@@ -102,7 +102,7 @@ def parse_page_price(text: str) -> Brl:
     """
     limpo = _SO_NUMERO.sub("", text)
     if not _EN_US.fullmatch(limpo):
-        raise PageStructureError(f"preço em formato inesperado: {text!r}")
+        raise PageStructureError(f"unexpected price format: {text!r}")
     return Brl.from_float(float(limpo.replace(",", "")))
 
 
@@ -110,26 +110,26 @@ def _render_context(html: str) -> dict[str, Any]:
     inicio = html.find(RENDER_CONTEXT_MARKER)
     if inicio < 0:
         raise PageStructureError(
-            f"não encontrei {RENDER_CONTEXT_MARKER!r} na página da Steam"
+            f"{RENDER_CONTEXT_MARKER!r} was not found on the Steam page"
         )
     aspas = html.find('"', inicio + len(RENDER_CONTEXT_MARKER))
     if aspas < 0:
-        raise PageStructureError("renderContext não vem como string JSON")
+        raise PageStructureError("renderContext is not a JSON string")
     try:
         texto, _ = json.JSONDecoder().raw_decode(html[aspas:])
         return json.loads(texto)
     except ValueError as erro:
-        raise PageStructureError(f"renderContext não decodificou: {erro}") from erro
+        raise PageStructureError(f"renderContext could not be decoded: {erro}") from erro
 
 
 def _query_data(ctx: dict[str, Any]) -> dict[str, Any]:
     bruto = ctx.get("queryData")
     if not isinstance(bruto, str):
-        raise PageStructureError("renderContext.queryData ausente ou não é string")
+        raise PageStructureError("renderContext.queryData is missing or is not a string")
     try:
         return json.loads(bruto)
     except ValueError as erro:
-        raise PageStructureError(f"queryData não decodificou: {erro}") from erro
+        raise PageStructureError(f"queryData could not be decoded: {erro}") from erro
 
 
 def _por_chave(qd: dict[str, Any], fragmento: str) -> Any:
@@ -137,7 +137,7 @@ def _por_chave(qd: dict[str, Any], fragmento: str) -> Any:
         if fragmento in str(consulta.get("queryKey")):
             return (consulta.get("state") or {}).get("data")
     raise PageStructureError(
-        f"consulta {fragmento!r} não está no renderContext da página"
+        f"query {fragmento!r} is missing from the page renderContext"
     )
 
 
@@ -169,8 +169,8 @@ def _fator(
     if moeda == CURRENCY_USD:
         return usd_to_brl
     raise PageStructureError(
-        f"{parte} veio na moeda {moeda!r}, esperava "
-        f"{CURRENCY_USD} (USD) ou {CURRENCY_BRL} (BRL)"
+        f"{parte} uses currency {moeda!r}; expected "
+        f"{CURRENCY_USD} (USD) or {CURRENCY_BRL} (BRL)"
     )
 
 
@@ -202,7 +202,7 @@ def _listagens(qd: dict[str, Any], usd_to_brl: float) -> list[PageListing]:
             if not bruto:
                 continue  # sem preço não dá para avaliar; pular é honesto
             # A moeda vem por listagem, ao lado do valor.
-            fator = _fator(item, "listagem", usd_to_brl)
+            fator = _fator(item, "listing", usd_to_brl)
             saida.append(
                 PageListing(
                     listing_id=str(item.get("listingid", "")),
@@ -221,7 +221,7 @@ def _centavos(valor: Any, fator: float) -> Brl | None:
 
 def _livro(qd: dict[str, Any], usd_to_brl: float) -> OrderBook:
     d = _por_chave(qd, "orderbook") or {}
-    fator = _fator(d, "livro de ofertas", usd_to_brl)
+    fator = _fator(d, "order book", usd_to_brl)
     return OrderBook(
         max_buy_order=_centavos(d.get("amtMaxBuyOrder"), fator),
         min_sell_order=_centavos(d.get("amtMinSellOrder"), fator),
@@ -232,7 +232,7 @@ def _livro(qd: dict[str, Any], usd_to_brl: float) -> OrderBook:
 
 def _historico(qd: dict[str, Any], usd_to_brl: float) -> list[SalePoint]:
     d = _por_chave(qd, "pricehistory") or {}
-    fator = _fator(d, "histórico", usd_to_brl, campo=CURRENCY_FIELD_HISTORY)
+    fator = _fator(d, "history", usd_to_brl, campo=CURRENCY_FIELD_HISTORY)
     saida: list[SalePoint] = []
     for ponto in d.get("prices") or []:
         mediana = ponto.get("price_median")
@@ -327,7 +327,7 @@ class SteamPageClient:
                 # um limitador, e sair daqui como RuntimeError puro deixaria
                 # a calma desligada justamente contra um IP já marcado.
                 classe = SteamLimitando if houve_429 else RuntimeError
-                raise classe(f"Steam recusou: {mensagem_saneada(erro)}") from erro
+                raise classe(f"Steam rejected the request: {mensagem_saneada(erro)}") from erro
             except httpx.RequestError as erro:
                 # Erro de transporte (timeout, conexão) — este sim é
                 # retentável: sem este `except`, um `httpx.ReadTimeout` subia
@@ -337,7 +337,7 @@ class SteamPageClient:
                 continue
             return parse_item_page(resposta.text, hash_name, usd_to_brl)
 
-        mensagem = f"Steam não respondeu após backoff (último: {ultimo})"
+        mensagem = f"Steam did not respond after backoff (last result: {ultimo})"
         # Qualquer 429 no laço liga a calma, mesmo que a última tentativa
         # tenha sido outra coisa (timeout, 500...): a mensagem acima só
         # guarda a ÚLTIMA falha, mas `houve_429` viu o laço inteiro.
