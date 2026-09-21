@@ -93,6 +93,24 @@ button:active { transform: translateY(1px); }
 .fan-disclaimer { max-width: 65ch; margin: 1.5rem 0 0; color: var(--paper); font-size: .82rem; }
 .dossier .empty-state { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; }
 
+.case-workflow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem); gap: 1rem; align-items: start; }
+.case-search, .analysis-region { grid-column: 1; }
+.case-drawer { grid-column: 2; grid-row: 1 / span 3; position: sticky; top: 1rem; padding: 1.25rem; background: var(--ink-panel); border: 1px solid var(--ink-blue); }
+.case-workflow h2 { margin: 0 0 1rem; font-family: var(--font-display); line-height: 1.15; }
+.case-search label { display: block; font: 600 .82rem var(--font-condensed); }
+.field-help { max-width: 65ch; margin: .65rem 0 0; font-size: .82rem; color: var(--ink-blue); }
+.choice-list { display: grid; gap: .5rem; margin-top: 1rem; }
+.choice-list button { width: 100%; min-height: 44px; padding: .7rem .8rem; border: 1px solid var(--ink-blue); background: transparent; color: inherit; text-align: left; }
+.choice-list button:hover, .choice-list button[data-selected], .choice-list button.is-selected { background: var(--active-blue); color: var(--paper); }
+.loading-indicator { display: none; margin-top: .75rem; font: 500 .72rem var(--font-mono); color: var(--warning); }
+.loading-indicator.htmx-request { display: grid; gap: .35rem; }
+.loading-bar { display: block; height: 2px; background: var(--warning); transform-origin: left; animation: loading-pulse 1.1s ease-in-out infinite; }
+@keyframes loading-pulse { 0%, 100% { transform: scaleX(0); } 50% { transform: scaleX(1); } }
+.empty-state { color: color-mix(in srgb, var(--paper) 65%, transparent); }
+.dossier .empty-state { color: color-mix(in srgb, var(--charcoal) 65%, transparent); }
+.error-state { padding: 1rem; border: 2px solid var(--rust-stamp); border-left-width: .4rem; }
+.error-state > :last-child { margin-bottom: 0; }
+
 .auth-page { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: clamp(1rem, 5vw, 4rem); background: var(--ink-panel); }
 .auth-shell { width: min(100%, 34rem); }
 .auth-shell > .brand { justify-content: center; margin-bottom: 2.75rem; }
@@ -112,6 +130,9 @@ button:active { transform: translateY(1px); }
   .nav-ready.nav-open .app-nav { display: flex; }
   .page-header { margin-bottom: 1.5rem; }
   .sources-grid { grid-template-columns: minmax(0, 1fr); }
+  .case-workflow { grid-template-columns: minmax(0, 1fr); }
+  .case-search, .analysis-region, .case-drawer { grid-column: 1; }
+  .case-drawer { grid-row: auto; position: static; }
 }
 
 @media (max-width: 38rem) {

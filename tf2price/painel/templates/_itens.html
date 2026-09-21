@@ -1,17 +1,17 @@
-{# Uma busca nova invalida o que estava embaixo: sem estes dois swaps
-   fora de banda, a avaliação do item anterior ficaria na tela ao lado dos
-   resultados de outro item. #}
-<div id="efeitos" class="opcoes colunas" hx-swap-oob="true">
-  <p class="vazio">aguardando item</p>
+{# A new search invalidates the selected item and effect immediately. #}
+<div id="effects" class="choice-list" aria-live="polite" hx-swap-oob="true">
+  <p class="empty-state">Waiting for an item</p>
 </div>
-<div id="analise" aria-live="polite" hx-swap-oob="true">
-  <p class="vazio">aguardando efeito</p>
+<div id="analysis" aria-live="polite" hx-swap-oob="true">
+  <p class="empty-state">Waiting for an effect</p>
 </div>
 {% if nomes %}
 {% for nome in nomes %}
-<button hx-get="/efeitos" hx-vals='{"nome": {{ nome | tojson }}}'
-        hx-target="#efeitos">{{ nome }}</button>
+<button type="button" hx-get="/efeitos"
+        hx-vals='{"nome": {{ nome|tojson }}}'
+        hx-target="#effects" hx-sync="#case-workflow:replace"
+        data-case-request="item">{{ nome }}</button>
 {% endfor %}
 {% else %}
-<p class="vazio">nenhum unusual com esse nome à venda</p>
+<p class="empty-state">No Unusual matches are on sale</p>
 {% endif %}

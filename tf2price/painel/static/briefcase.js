@@ -18,6 +18,30 @@
     });
   }
 
+  const empty = (id, message) => {
+    const target = document.getElementById(id);
+    if (target) target.innerHTML = `<p class="empty-state">${message}</p>`;
+  };
+
+  document.addEventListener("htmx:beforeRequest", (event) => {
+    const level = event.detail.elt.dataset.caseRequest;
+    if (level === "search") {
+      empty("effects", "Waiting for an item");
+      empty("analysis", "Waiting for an effect");
+    } else if (level === "item") {
+      empty("analysis", "Waiting for an effect");
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    const choice = event.target.closest(".choice-list button");
+    if (!choice) return;
+    choice.parentElement.querySelectorAll("button").forEach((button) => {
+      button.removeAttribute("data-selected");
+    });
+    choice.setAttribute("data-selected", "");
+  });
+
   document.addEventListener("visibilitychange", () => {
     document.querySelectorAll(".effect-layer, .aura").forEach((layer) => {
       layer.style.animationPlayState = document.hidden ? "paused" : "running";

@@ -1,37 +1,25 @@
-{# Trocar de item apaga a avaliação do item anterior — exceto quando quem
-   pediu a lista já veio com um efeito escolhido (o clique num acompanhado):
-   aí a avaliação daquele efeito entra aqui, reaproveitando `_analise.html`.
-   Se o efeito não tiver mais listagem, `efeito_ausente` avisa isso; nunca a
-   avaliação de outro efeito fica no lugar. #}
-<div id="analise" aria-live="polite" hx-swap-oob="true">
+{# Changing item clears the previous analysis unless a saved case supplied an effect. #}
+<div id="analysis" aria-live="polite" hx-swap-oob="true">
   {% if a %}
   {% include "_analise.html" %}
   {% elif efeito_ausente %}
-  <p class="vazio">{{ efeito_ausente }}</p>
-  {# Mesmo formato do ramo de sucesso (`_analise.html`): a idade do retrato
-     e o aviso de limitação não podem sumir só porque o efeito não está à
-     venda nesta página — a ausência é uma leitura sobre um retrato que tem
-     idade igual a qualquer outra. Mesmo include de `_analise.html`, ver o
-     comentário lá sobre por que o carimbo não pode viver em duas cópias. #}
+  <p class="empty-state">{{ efeito_ausente }}</p>
   {% include "_carimbo_steam.html" %}
   {% else %}
-  <p class="vazio">aguardando efeito</p>
+  <p class="empty-state">Waiting for an effect</p>
   {% endif %}
 </div>
-{# A esquerda tem de concordar com a direita: se o retrato estava vencido, a
-   busca acima trouxe um novo, e a linha do efeito aberto sai marcada. O
-   invólucro carrega o MESMO id que `new_case.html` dá a ele (sem classe extra
-   nenhuma, como lá) para o fora-de-banda trocar o elemento inteiro — nunca
-   aninhar um `#acompanhados` dentro do outro a cada clique. #}
+{# Keep the saved-case drawer synchronized with refreshed Steam evidence. #}
 <div id="acompanhados" hx-swap-oob="true">
   {% include "_acompanhados.html" %}
 </div>
 {% if efeitos %}
 {% for e in efeitos %}
-<button hx-get="/analise"
-        hx-vals='{"nome": {{ nome | tojson }}, "efeito": {{ e | tojson }}}'
-        hx-target="#analise"{% if e == efeito_atual %} class="escolhido"{% endif %}>{{ e }}</button>
+<button type="button" hx-get="/analise"
+        hx-vals='{"nome": {{ nome|tojson }}, "efeito": {{ e|tojson }}}'
+        hx-target="#analysis" hx-sync="#case-workflow:replace"
+        data-case-request="effect"{% if e == efeito_atual %} class="is-selected"{% endif %}>{{ e }}</button>
 {% endfor %}
 {% else %}
-<p class="vazio">nenhuma listagem com efeito legível nesta página</p>
+<p class="empty-state">No readable effect listings were found</p>
 {% endif %}

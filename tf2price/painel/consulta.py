@@ -120,9 +120,7 @@ class IndiceSobDemanda:
             return self._indice
 
 
-SEM_COTACAO = (
-    "a cotação da chave ainda não carregou; tente de novo em alguns minutos"
-)
+SEM_COTACAO = "The key exchange rate has not loaded yet. Try again in a few minutes."
 
 # Mesma validade do retrato, pelo mesmo raciocínio: 15 minutos é o que separa
 # "recente" de "vale pedir de novo" neste projeto. Uma cotação mais velha que
@@ -282,9 +280,7 @@ class CotacaoSobDemanda:
         )
 
 
-SEM_RETRATO = (
-    "não consegui ler os dados da Steam, e não há retrato guardado deste item"
-)
+SEM_RETRATO = "Steam data is unavailable and there is no stored snapshot for this item."
 
 
 @dataclass
@@ -378,7 +374,7 @@ def _contexto_da_analise(
     }
 
 
-SEM_LISTAGEM_DO_EFEITO = "sem listagem deste efeito agora"
+SEM_LISTAGEM_DO_EFEITO = "No listings for this effect in the current snapshot."
 
 
 @ROTEADOR.get("/efeitos", response_class=HTMLResponse)
@@ -520,10 +516,10 @@ def idade_por_extenso(quando: datetime | None, agora: datetime) -> str:
     teste — tratar o `None` aqui explicitamente é mais honesto que confiar
     nele silenciosamente."""
     if quando is None:
-        return "idade desconhecida"
+        return "unknown age"
     minutos = int((agora - quando).total_seconds() // 60)
     if minutos < 1:
-        return "agora"
+        return "now"
     if minutos < 60:
         return f"{minutos} min"
     horas = minutos // 60
@@ -553,7 +549,7 @@ def linhas_acompanhadas(
         guardado = preco_repo.ler(conn, a.hash_name)
         if guardado is None or cotacao is None:
             saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito, None, None, None,
-                                          "sem dado ainda", selecionado=marcado))
+                                          "Awaiting evidence", selecionado=marcado))
             continue
         dados, buscado_em = guardado
         idade = idade_por_extenso(buscado_em, agora)
@@ -567,15 +563,18 @@ def linhas_acompanhadas(
             # logo abaixo por isso: os dois nunca podem soar iguais.
             saida.append(LinhaAcompanhada(
                 a.id, a.hash_name, a.efeito, None, None, idade,
-                "retrato salvo numa forma antiga; será regravado na próxima busca",
+                "Stored snapshot uses an older format; refresh to replace it",
                 selecionado=marcado,
             ))
             continue
         try:
             resultado = analyse(pagina, a.efeito, indice, cotacao.key_brl)
         except ValueError:
-            saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito, None, None, idade,
-                                          "sem listagem deste efeito agora", selecionado=marcado))
+            saida.append(LinhaAcompanhada(
+                a.id, a.hash_name, a.efeito, None, None, idade,
+                "No listings for this effect in the current snapshot",
+                selecionado=marcado,
+            ))
             continue
         except Exception as erro:
             # Rede de segurança por linha, não reversão da separação acima:
@@ -594,8 +593,10 @@ def linhas_acompanhadas(
                 f"{type(erro).__name__}: {mensagem_saneada(erro)}",
                 flush=True,
             )
-            saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito, None, None, idade,
-                                          "não consegui avaliar esta linha", selecionado=marcado))
+            saida.append(LinhaAcompanhada(
+                a.id, a.hash_name, a.efeito, None, None, idade,
+                "This case could not be evaluated", selecionado=marcado,
+            ))
             continue
         premio = None
         premio_idade = None

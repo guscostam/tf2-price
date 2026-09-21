@@ -1,12 +1,9 @@
-<div class="erro">
-  <b>A Steam não respondeu o que a tela precisa</b>
-  {{ mensagem }}
+<div class="error-state" role="alert">
+  <strong>Source unavailable</strong>
+  <p>{{ mensagem }}</p>
 </div>
 {% if limpar_analise %}
-{# Sem isto, trocar de item e a Steam falhar deixava a avaliação do item
-   anterior na tela ao lado do erro sobre o novo — a mesma contradição que
-   `_itens.html` e `_efeitos.html` já resolvem no caminho de sucesso. #}
-<div id="analise" aria-live="polite" hx-swap-oob="true">
-  <p class="vazio">aguardando efeito</p>
+<div id="analysis" aria-live="polite" hx-swap-oob="true">
+  <p class="empty-state">Waiting for an effect</p>
 </div>
 {% endif %}

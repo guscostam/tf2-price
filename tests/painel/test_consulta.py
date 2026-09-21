@@ -52,10 +52,25 @@ def test_novo_caso_serve_o_formulario(cliente):
     assert "form" in r.text.lower()
 
 
+def test_new_case_define_um_unico_grupo_de_sincronizacao(cliente):
+    texto = cliente.get("/cases/new").text
+    assert 'id="case-workflow"' in texto
+    assert 'hx-sync="#case-workflow:replace"' in texto
+    assert 'data-case-request="search"' in texto
+
+
 def test_busca_lista_os_nomes(cliente):
     r = cliente.get("/buscar", params={"q": "Chairholder"})
     assert r.status_code == 200
     assert NOME in r.text
+
+
+def test_fragmentos_carregam_identidade_e_limpeza_em_ingles(cliente):
+    busca = cliente.get("/buscar", params={"q": "Chairholder"}).text
+    assert 'data-case-request="item"' in busca
+    assert 'id="effects"' in busca and 'hx-swap-oob="true"' in busca
+    assert "Waiting for an item" in busca
+    assert "Waiting for an effect" in busca
 
 
 def test_busca_vazia_nao_chama_a_steam(cliente):
@@ -149,7 +164,7 @@ def test_atualizar_com_timeout_de_transporte_mostra_mensagem_e_nao_quebra(engine
     r = cliente.post(f"/atualizar/{quote(NOME, safe='')}")
 
     assert r.status_code == 200
-    assert "sem dado ainda" in r.text
+    assert "Awaiting evidence" in r.text
 
 
 # --- retrato compartilhado -------------------------------------------------
@@ -278,7 +293,7 @@ def test_atualizar_com_falha_que_nao_e_429_nao_quebra(engine, erro):
     r = cliente.post(f"/atualizar/{quote(NOME, safe='')}")
 
     assert r.status_code == 200
-    assert "sem dado ainda" in r.text
+    assert "Awaiting evidence" in r.text
 
 
 # --- erro de /efeitos limpa #analise (achado I3) --------------------------
@@ -299,8 +314,9 @@ def test_efeitos_com_erro_limpa_a_avaliacao_anterior(engine):
 
     assert r.status_code == 200
     assert "renderContext sumiu" in r.text
-    assert 'id="analise"' in r.text and 'hx-swap-oob="true"' in r.text
-    assert "aguardando efeito" in r.text
+    assert "Source unavailable" in r.text
+    assert 'id="analysis"' in r.text and 'hx-swap-oob="true"' in r.text
+    assert "Waiting for an effect" in r.text
     assert "180,44" not in r.text  # avaliação de A não pode sobrar na tela
 
 
@@ -432,12 +448,12 @@ def test_busca_nova_apaga_efeito_e_avaliacao(cliente):
     """Sem isto, a avaliação do item anterior fica na tela sob outro item."""
     r = cliente.get("/buscar", params={"q": "Chairholder"})
     assert r.text.count('hx-swap-oob="true"') == 2
-    assert 'id="efeitos"' in r.text and 'id="analise"' in r.text
+    assert 'id="effects"' in r.text and 'id="analysis"' in r.text
 
 
 def test_trocar_de_item_apaga_a_avaliacao(cliente):
     r = cliente.get("/efeitos", params={"nome": NOME})
-    assert 'id="analise"' in r.text and 'hx-swap-oob="true"' in r.text
+    assert 'id="analysis"' in r.text and 'hx-swap-oob="true"' in r.text
 
 
 def test_a_cotacao_da_chave_aparece_no_overview(cliente):
@@ -485,7 +501,7 @@ def test_sem_cotacao_a_tela_diz_e_nao_quebra(engine):
     cliente = cliente_logado(engine, ctx)
 
     assert "Awaiting evidence" in cliente.get("/").text
-    assert "ainda não carregou" in cliente.get(
+    assert "has not loaded yet" in cliente.get(
         "/analise", params={"nome": NOME, "efeito": "Deep Dive"}
     ).text
 

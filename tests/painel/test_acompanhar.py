@@ -101,7 +101,7 @@ def test_item_sem_retrato_diz_que_nao_ha_dado_ainda(engine):
     """Acompanhar um item nunca aberto não pode deixar a linha em branco."""
     cliente = cliente_logado(engine, _contexto())
     cliente.post("/acompanhar", data={"nome": "Unusual Chapeu Nunca Aberto", "efeito": "Smoking"})
-    assert "sem dado ainda" in cliente.get("/cases/new").text
+    assert "Awaiting evidence" in cliente.get("/cases/new").text
 
 
 def test_abrir_acompanhado_com_efeito_a_venda_preenche_efeito_e_avaliacao(engine):
@@ -117,14 +117,14 @@ def test_abrir_acompanhado_com_efeito_a_venda_preenche_efeito_e_avaliacao(engine
     r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Deep Dive"})
 
     assert r.status_code == 200
-    assert "aguardando item" not in r.text
-    assert "aguardando efeito" not in r.text
+    assert "Waiting for an item" not in r.text
+    assert "Waiting for an effect" not in r.text
     for efeito in ("Deep Dive", "Midnight Whirlwind", "Screaming Tiger", "Silver Cyclone"):
         assert efeito in r.text
     assert "180,44" in r.text  # listagem mais barata do efeito, de _analise.html
-    assert 'id="analise"' in r.text and 'hx-swap-oob="true"' in r.text
+    assert 'id="analysis"' in r.text and 'hx-swap-oob="true"' in r.text
     # o efeito aberto fica marcado na lista, e só ele
-    assert r.text.count('class="escolhido"') == 1
+    assert r.text.count('class="is-selected"') == 1
 
 
 def test_abrir_acompanhado_com_efeito_sumido_mostra_lista_e_avisa_ausencia(engine):
@@ -142,7 +142,7 @@ def test_abrir_acompanhado_com_efeito_sumido_mostra_lista_e_avisa_ausencia(engin
     assert r.status_code == 200
     for efeito in ("Deep Dive", "Midnight Whirlwind", "Screaming Tiger", "Silver Cyclone"):
         assert efeito in r.text
-    assert "sem listagem deste efeito agora" in r.text
+    assert "No listings for this effect in the current snapshot." in r.text
     assert "180,44" not in r.text  # preço de Deep Dive não pode aparecer no lugar
 
 
@@ -164,7 +164,7 @@ def test_efeito_ausente_mostra_a_idade_do_retrato(engine):
     r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Burning Flames"})
 
     assert r.status_code == 200
-    assert "sem listagem deste efeito agora" in r.text
+    assert "No listings for this effect in the current snapshot." in r.text
     assert "6 min" in r.text
 
 
@@ -183,7 +183,7 @@ def test_efeito_ausente_com_steam_limitando_avisa_os_dois(engine):
     r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Burning Flames"})
 
     assert r.status_code == 200
-    assert "sem listagem deste efeito agora" in r.text
+    assert "No listings for this effect in the current snapshot." in r.text
     assert "3 h" in r.text
     assert "limitando" in r.text.lower()
 
@@ -208,7 +208,7 @@ def test_linha_sem_listagem_ainda_mostra_a_idade_do_retrato(engine):
 
     r = cliente.get("/cases/new")
 
-    assert "sem listagem deste efeito agora" in r.text
+    assert "No listings for this effect in the current snapshot" in r.text
     assert 'class="acompanhado-idade"' in r.text
 
 
@@ -233,8 +233,8 @@ def test_retrato_de_versao_antiga_avisa_que_sera_regravado(engine):
 
     r = cliente.get("/cases/new")
 
-    assert "retrato salvo numa forma antiga; será regravado na próxima busca" in r.text
-    assert "sem listagem deste efeito agora" not in r.text
+    assert "Stored snapshot uses an older format; refresh to replace it" in r.text
+    assert "No listings for this effect in the current snapshot" not in r.text
 
 
 # --- uma linha ruim não pode trancar ninguém para fora (achado N3) --------
@@ -265,7 +265,7 @@ def test_linha_com_erro_inesperado_nao_derruba_o_painel(engine, monkeypatch, cap
 
     r = cliente.get("/cases/new")
     assert r.status_code == 200
-    assert "não consegui avaliar esta linha" in r.text
+    assert "This case could not be evaluated" in r.text
     assert "KeyError" in capsys.readouterr().out
 
     with engine.begin() as conn:

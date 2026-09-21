@@ -7,7 +7,8 @@
      avaliação já preenchida. #}
   <button class="acompanhado-abrir" hx-get="/efeitos"
           hx-vals='{"nome": {{ l.hash_name | tojson }}, "efeito": {{ l.efeito | tojson }}}'
-          hx-target="#efeitos">
+          hx-target="#effects" hx-sync="#case-workflow:replace"
+          data-case-request="item">
     <span class="acompanhado-nome">{{ l.hash_name }}</span>
     <span class="acompanhado-efeito">{{ l.efeito }}</span>
     {% if l.preco %}
