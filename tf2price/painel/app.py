@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from sqlalchemy.engine import Engine
 
 from tf2price import db
 from tf2price.contas import servico
+from tf2price.efeitos import arte as arte_dos_efeitos
 from tf2price.painel import acesso, admin
 from tf2price.painel import sessao as ses
 
@@ -41,6 +43,25 @@ def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
         from tf2price.painel.consulta import ROTEADOR
 
         app.include_router(ROTEADOR)
+
+    # O nome só pode ser <digitos>.webp. Conferir com expressão regular em vez
+    # de juntar caminho e torcer: esta rota recebe texto de fora.
+    _NOME_DE_ARTE = re.compile(r"^\d{1,7}\.webp$")
+
+    @app.get("/arte/{nome}")
+    def servir_arte(nome: str) -> Response:
+        if not _NOME_DE_ARTE.match(nome):
+            return Response(status_code=404)
+        arquivo = arte_dos_efeitos.DIRETORIO / nome
+        if not arquivo.is_file():
+            return Response(status_code=404)
+        # A arte de um efeito nunca muda: cache longo evita pedir de novo a
+        # cada avaliação aberta.
+        return FileResponse(
+            arquivo,
+            media_type="image/webp",
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
 
     return app
 
