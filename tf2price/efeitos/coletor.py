@@ -1,15 +1,34 @@
 """Coleta única da arte dos efeitos, feita pelo navegador do dono.
 
-O Cloudflare da backpack.tf devolve 403 a cliente que não é navegador —
-medido, com e sem cabeçalhos de navegador falsos. Então quem busca é o
-navegador, numa página servida daqui, e quem grava é este servidor local.
+Duas barreiras, e é a combinação das duas que dita este desenho estranho:
 
-Roda uma vez:
+1. O Cloudflare da backpack.tf devolve **403 a cliente que não é navegador** —
+   medido, com e sem cabeçalhos de navegador forjados. Então quem busca tem
+   de ser um navegador.
+2. Um `fetch` para a backpack.tf a partir de uma página servida daqui é
+   **cross-origin, e o CORS recusa a leitura dos bytes**. A primeira versão
+   desta ferramenta ignorava isso e falhava nos 547, silenciosamente, porque
+   toda falha parecia "efeito sem arte na fonte".
+
+Ou seja: a busca precisa rodar **de dentro de uma aba da própria
+backpack.tf**, onde é same-origin. Este módulo é o outro lado — um servidor
+local que recebe os bytes e grava em disco.
+
+Uso:
 
     python -m tf2price.efeitos.coletor
 
-Abre http://127.0.0.1:8765, clica em começar, espera, e o relatório final diz
-quantas vieram e quais faltaram.
+Ele imprime o trecho a colar no console de uma aba aberta em
+https://backpack.tf. O envio de volta usa `mode: "no-cors"` com corpo
+`text/plain`, que é requisição simples e dispensa preflight.
+
+Conferir depois de coletar, sempre:
+
+    python -m tf2price.efeitos.coletor --verificar
+
+Agrupa os arquivos por hash. Se muitos ids tiverem bytes idênticos, a fonte
+devolveu imagem de ausência e aqueles precisam ser apagados — senão viram
+aura confiante de um efeito que não tem arte.
 """
 
 from __future__ import annotations
@@ -31,7 +50,14 @@ FONTE = "https://backpack.tf/images/440/particles/{id}_188x188.png"
 # Duas, porque as duas chegam aqui: quem digita `localhost` e quem digita
 # `127.0.0.1` são a mesma pessoa, e recusar uma delas faria a coleta gravar
 # zero arquivo enquanto a barra de progresso avança normalmente.
-ORIGENS_PERMITIDAS = (f"http://127.0.0.1:{PORTA}", f"http://localhost:{PORTA}")
+ORIGENS_PERMITIDAS = (
+    f"http://127.0.0.1:{PORTA}",
+    f"http://localhost:{PORTA}",
+    # A busca precisa sair de dentro da própria backpack.tf: servida daqui,
+    # ela é cross-origin e o navegador recusa ler os bytes por CORS. Então a
+    # página de lá é que busca e manda para cá, e esta origem tem de passar.
+    "https://backpack.tf",
+)
 
 
 def ids_a_coletar(effects_path: Path | None = None) -> list[int]:
@@ -75,64 +101,74 @@ def verificar(diretorio: Path | None = None) -> dict[str, list[int]]:
     return {h: ids for h, ids in por_hash.items() if len(ids) > 1}
 
 
-PAGINA = """<!doctype html>
-<meta charset="utf-8">
-<title>Coletor de arte</title>
-<style>
-  body { font-family: system-ui; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
-  progress { width: 100%; height: 1.2rem; }
-  #faltaram { font-family: ui-monospace, monospace; font-size: .85rem; color: #b3261e; }
-</style>
-<h1>Coletor de arte dos efeitos</h1>
-<p>Busca cada efeito na backpack.tf, converte para WebP e envia para este
-servidor local, que grava em <code>tf2price/data/efeitos/</code>. Uma pausa de
-300 ms entre as buscas, para não bater na fonte sem educação.</p>
-<button id="ir">Começar</button>
-<p><progress id="barra" value="0" max="1"></progress> <span id="conta"></span></p>
-<p id="faltaram"></p>
-<script>
-const ids = IDS_AQUI;
-document.getElementById("ir").onclick = async () => {
-  const barra = document.getElementById("barra");
-  const conta = document.getElementById("conta");
-  barra.max = ids.length;
-  let vieram = 0;
-  const faltaram = [];
-  const recusados = [];
-  for (let i = 0; i < ids.length; i++) {
-    const id = ids[i];
+TRECHO = """(async () => {
+  const ids = IDS_AQUI;
+  const semArte = [], erros = [];
+  let enviados = 0;
+  for (const id of ids) {
     try {
-      const r = await fetch(`https://backpack.tf/images/440/particles/${id}_188x188.png`);
-      if (!r.ok) { faltaram.push(id); }
+      const r = await fetch(`/images/440/particles/${id}_188x188.png`);
+      if (!r.ok) { semArte.push(id); }
       else {
         const bmp = await createImageBitmap(await r.blob());
         const c = document.createElement("canvas");
         c.width = bmp.width; c.height = bmp.height;
         c.getContext("2d").drawImage(bmp, 0, 0);
         const webp = await new Promise(res => c.toBlob(res, "image/webp", 0.85));
-        // Conferir a resposta: sem isto, um POST recusado contaria como
-        // gravado e o relatório mentiria com a barra cheia.
-        const g = await fetch(`/gravar/${id}`, { method: "POST", body: webp });
-        if (!g.ok) { recusados.push(id); } else { vieram++; }
+        // text/plain deixa a requisicao "simples": sem preflight, que o
+        // servidor local nao sabe responder.
+        await fetch(`http://127.0.0.1:PORTA_AQUI/gravar/${id}`, {
+          method: "POST", mode: "no-cors",
+          body: new Blob([webp], { type: "text/plain" }),
+        });
+        enviados++;
       }
-    } catch (e) { faltaram.push(id); }
-    barra.value = i + 1;
-    conta.textContent = `${i + 1} de ${ids.length} — ${vieram} gravadas`;
-    await new Promise(r => setTimeout(r, 300));
+    } catch (e) { erros.push(id); }
+    if (ids.indexOf(id) % 25 === 0) console.log(`${ids.indexOf(id)}/${ids.length}`);
+    await new Promise(res => setTimeout(res, 250));
   }
-  const partes = [];
-  if (faltaram.length) partes.push(`sem arte na fonte (${faltaram.length}): ${faltaram.join(", ")}`);
-  if (recusados.length) partes.push(`RECUSADAS PELO SERVIDOR (${recusados.length}) — algo está errado: ${recusados.join(", ")}`);
-  document.getElementById("faltaram").textContent = partes.length ? partes.join(" | ") : "todas vieram";
-  await fetch("/fim", { method: "POST", body: JSON.stringify(faltaram) });
-};
-</script>
+  console.log({ enviados, semArte: semArte.length, erros: erros.length, semArteIds: semArte });
+})();"""
+
+
+PAGINA = """<!doctype html>
+<meta charset="utf-8">
+<title>Coletor de arte</title>
+<style>
+  body { font-family: system-ui; max-width: 46rem; margin: 3rem auto; padding: 0 1rem;
+         line-height: 1.5; }
+  pre { background: #f4f4f5; padding: 1rem; overflow-x: auto; font-size: .78rem; }
+  .aviso { border-left: 4px solid #d08b00; background: #fff4e5; padding: .8rem 1rem; }
+</style>
+<h1>Coletor de arte dos efeitos</h1>
+
+<p class="aviso"><b>Esta página não busca nada sozinha, e não é descuido.</b>
+Um <code>fetch</code> daqui para a backpack.tf é cross-origin, e o navegador
+recusa ler os bytes. A busca precisa rodar de dentro de uma aba da própria
+backpack.tf.</p>
+
+<ol>
+  <li>Abra <a href="https://backpack.tf" target="_blank">https://backpack.tf</a>
+      numa aba.</li>
+  <li>Abra o console do navegador nessa aba (F12).</li>
+  <li>Cole o trecho abaixo e dê Enter. Leva uns três minutos; o console vai
+      contando.</li>
+  <li>Volte aqui e feche este servidor. Depois rode
+      <code>python -m tf2price.efeitos.coletor --verificar</code>.</li>
+</ol>
+
+<pre id="trecho">TRECHO_AQUI</pre>
 """
 
 
 class _Tratador(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
-        corpo = PAGINA.replace("IDS_AQUI", json.dumps(ids_a_coletar())).encode("utf-8")
+        trecho = (
+            TRECHO.replace("IDS_AQUI", json.dumps(ids_a_coletar()))
+            .replace("PORTA_AQUI", str(PORTA))
+            .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        )
+        corpo = PAGINA.replace("TRECHO_AQUI", trecho).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(corpo)))
@@ -185,7 +221,8 @@ def main() -> None:
     if "--verificar" in sys.argv[1:]:
         print(relatorio_de_verificacao(verificar()))
         return
-    print(f"Abra http://127.0.0.1:{PORTA} e clique em Começar.")
+    print(f"Abra http://127.0.0.1:{PORTA} — ele traz o trecho para colar")
+    print("no console de uma aba da backpack.tf (a busca precisa sair de lá).")
     print(f"As imagens vão para {DIRETORIO}")
     HTTPServer(("127.0.0.1", PORTA), _Tratador).serve_forever()
 
