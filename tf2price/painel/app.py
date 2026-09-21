@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import threading
+import time
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request
@@ -68,6 +70,53 @@ def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
     return app
 
 
+def aquecer(contexto: "Contexto") -> None:
+    """Puxa cotação e índice para a memória do processo, fora da requisição.
+
+    As duas nascem vazias e se preenchem na primeira necessidade. Quem pagava
+    esse primeiro carregamento era a primeira pessoa a abrir o painel depois
+    de cada deploy, de dentro do `GET /`, olhando uma página em branco —
+    medido em 21/09/2026: ~3,5s no caminho bom (duas requisições à Steam
+    espaçadas de 1s, mais 5 MB de IGetPrices da bp.tf) e de 31 a 62 segundos
+    por requisição se a Steam responder 429, porque aí entra o backoff.
+
+    Carregar na subida não é o mesmo que carregar no import: `obter()` engole
+    a exceção e registra no log (resistir a terceiro fora do ar é o objetivo
+    daquelas classes), então um CDN ou uma API caída continua não impedindo o
+    serviço de subir — que foi a razão de elas existirem. O `try` é só para
+    um erro que nasça fora do deles.
+
+    Sequencial, num thread só: as duas requisições da cotação compartilham o
+    espaçamento do `RateLimiter`, e buscar em paralelo não as faria chegar
+    mais rápido.
+    """
+    for nome, fonte in (("cotação", contexto.cotacao), ("índice", contexto.indice)):
+        inicio = time.monotonic()
+        try:
+            veio = fonte.obter() is not None
+        except Exception as erro:  # pragma: no cover - `obter` já captura
+            print(f"[aquecimento] {nome}: {type(erro).__name__}: {erro}", flush=True)
+            continue
+        estado = "ok" if veio else "falhou; a tela pede de novo sob demanda"
+        print(
+            f"[aquecimento] {nome}: {estado} em {time.monotonic() - inicio:.1f}s",
+            flush=True,
+        )
+
+
+def aquecer_em_segundo_plano(contexto: "Contexto") -> threading.Thread:
+    """Aquece sem segurar a subida.
+
+    `daemon=True` de propósito: o backoff da Steam pode levar um minuto, e
+    um encerramento não deve ficar esperando por ele.
+    """
+    thread = threading.Thread(
+        target=aquecer, args=(contexto,), name="aquecimento", daemon=True
+    )
+    thread.start()
+    return thread
+
+
 def servir() -> None:
     """Ponto de entrada: python -m tf2price.painel.app"""
     import uvicorn
@@ -88,15 +137,19 @@ def servir() -> None:
     if token:
         print(f"[partida] nenhum usuário ainda. Convite de administrador: /convite/{token}")
 
-    uvicorn.run(criar_app(engine, construir_contexto()), host="127.0.0.1", port=8000)
+    contexto = construir_contexto()
+    aquecer_em_segundo_plano(contexto)
+    uvicorn.run(criar_app(engine, contexto), host="127.0.0.1", port=8000)
 
 
 def construir_aplicacao() -> FastAPI:
-    """Aplicação de produção: schema, convite de partida e contexto.
+    """Aplicação de produção: schema, convite de partida, contexto e aquecimento.
 
-    É fábrica, e não uma variável de módulo, porque `construir_contexto` faz
-    requisições à Steam: criar a aplicação no import faria qualquer `import
-    tf2price.painel.app` — inclusive o de um teste — sair para a rede.
+    É fábrica, e não uma variável de módulo, porque monta o que fala com
+    terceiros: criar a aplicação no import faria qualquer `import
+    tf2price.painel.app` — inclusive o de um teste — sair para a rede. Isso
+    valia por `construir_contexto`, que hoje já não toca a rede, e voltou a
+    valer literalmente com o aquecimento, que sai.
     """
     from dotenv import load_dotenv
 
@@ -115,7 +168,12 @@ def construir_aplicacao() -> FastAPI:
     if token:
         # Primeiro acesso: o link sai no log, uma vez, e vale 24 horas.
         print(f"[partida] convite de administrador: /convite/{token}", flush=True)
-    return criar_app(engine, construir_contexto())
+    contexto = construir_contexto()
+    # Em segundo plano, e antes de a primeira pessoa chegar: é a diferença
+    # entre o processo esperar pelos terceiros e alguém esperar olhando uma
+    # página em branco.
+    aquecer_em_segundo_plano(contexto)
+    return criar_app(engine, contexto)
 
 
 if __name__ == "__main__":
