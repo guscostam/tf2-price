@@ -409,12 +409,22 @@ git add -A && git commit -m "Acrescenta as tabelas do retrato e do acompanhado"
 - Produces: `retrato.VALIDADE`, `retrato.PISO_PARA_FORCAR`, `retrato.CALMA_APOS_429`,
   `retrato.Leitura(pagina, buscado_em, limitando)`,
   `retrato.Retratos(paginas, relogio=time.monotonic)` com
-  `obter(conn, hash_name, usd_to_brl, quando, forcar=False) -> Leitura`.
+  `obter(engine, hash_name, usd_to_brl, quando, forcar=False) -> Leitura`.
 
 **O que esta peça decide.** Ela é a única que fala com a Steam pela página, e
 carrega as três regras da §8 da spec: validade de 15 minutos, piso de 60
 segundos para forçar, e 5 minutos de calma depois de um 429 — durante os quais
 **nenhuma** requisição sai, e o retrato guardado é servido com a idade à vista.
+
+**Ela recebe o `engine`, não uma conexão, e isso não é detalhe.** A busca na
+Steam leva segundos. `tests/painel/test_transacao.py` mede, com eventos do pool
+do SQLAlchemy, que **zero** conexões estão emprestadas no instante em que a
+página é buscada — porque no Postgres do Railway uma conexão emprestada é uma
+conexão indisponível, e um punhado de gente clicando depois de um deploy
+esgotaria o pool com conexões ociosas. Por isso `obter` abre uma transação
+curta para ler, **fecha**, busca, e abre outra para gravar. É também por isso
+que `/efeitos` e `/analise` não declaram `conn` hoje, e não podem passar a
+declarar.
 
 - [ ] **Step 1: Escrever o teste que falha**
 
@@ -470,10 +480,10 @@ class _Relogio:
 def test_primeira_leitura_busca_e_guarda(engine):
     paginas = _PaginasFalsas()
     retratos = mod.Retratos(paginas, relogio=_Relogio())
+    leitura = retratos.obter(engine, NOME, 1.0, AGORA)
+    assert leitura.pagina.hash_name == NOME
+    assert leitura.buscado_em == AGORA
     with engine.begin() as conn:
-        leitura = retratos.obter(conn, NOME, 1.0, AGORA)
-        assert leitura.pagina.hash_name == NOME
-        assert leitura.buscado_em == AGORA
         assert repo.ler(conn, NOME) is not None
     assert paginas.chamadas == 1
 
@@ -481,9 +491,8 @@ def test_primeira_leitura_busca_e_guarda(engine):
 def test_dentro_da_validade_nao_busca_de_novo(engine):
     paginas = _PaginasFalsas()
     retratos = mod.Retratos(paginas, relogio=_Relogio())
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA)
-        leitura = retratos.obter(conn, NOME, 1.0, AGORA + timedelta(minutes=14))
+    retratos.obter(engine, NOME, 1.0, AGORA)
+    leitura = retratos.obter(engine, NOME, 1.0, AGORA + timedelta(minutes=14))
     assert paginas.chamadas == 1
     assert leitura.buscado_em == AGORA
 
@@ -492,9 +501,8 @@ def test_depois_da_validade_busca_de_novo(engine):
     paginas = _PaginasFalsas()
     retratos = mod.Retratos(paginas, relogio=_Relogio())
     depois = AGORA + mod.VALIDADE + timedelta(seconds=1)
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA)
-        leitura = retratos.obter(conn, NOME, 1.0, depois)
+    retratos.obter(engine, NOME, 1.0, AGORA)
+    leitura = retratos.obter(engine, NOME, 1.0, depois)
     assert paginas.chamadas == 2
     assert leitura.buscado_em == depois
 
@@ -503,10 +511,8 @@ def test_o_retrato_e_compartilhado_entre_pessoas(engine):
     """Duas pessoas no mesmo chapéu custam uma requisição, não duas."""
     paginas = _PaginasFalsas()
     retratos = mod.Retratos(paginas, relogio=_Relogio())
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA)
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA + timedelta(minutes=1))
+    retratos.obter(engine, NOME, 1.0, AGORA)
+    retratos.obter(engine, NOME, 1.0, AGORA + timedelta(minutes=1))
     assert paginas.chamadas == 1
 
 
@@ -514,10 +520,9 @@ def test_forcar_busca_mesmo_dentro_da_validade(engine):
     paginas = _PaginasFalsas()
     relogio = _Relogio()
     retratos = mod.Retratos(paginas, relogio=relogio)
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA)
-        relogio.avancar(mod.PISO_PARA_FORCAR.total_seconds() + 1)
-        retratos.obter(conn, NOME, 1.0, AGORA + timedelta(minutes=1), forcar=True)
+    retratos.obter(engine, NOME, 1.0, AGORA)
+    relogio.avancar(mod.PISO_PARA_FORCAR.total_seconds() + 1)
+    retratos.obter(engine, NOME, 1.0, AGORA + timedelta(minutes=1), forcar=True)
     assert paginas.chamadas == 2
 
 
@@ -525,9 +530,8 @@ def test_forcar_duas_vezes_seguidas_respeita_o_piso(engine):
     """Sem piso, segurar o botão vira uma enxurrada na Steam."""
     paginas = _PaginasFalsas()
     retratos = mod.Retratos(paginas, relogio=_Relogio())
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA, forcar=True)
-        retratos.obter(conn, NOME, 1.0, AGORA, forcar=True)
+    retratos.obter(engine, NOME, 1.0, AGORA, forcar=True)
+    retratos.obter(engine, NOME, 1.0, AGORA, forcar=True)
     assert paginas.chamadas == 1
 
 
@@ -536,13 +540,11 @@ def test_429_liga_a_calma_e_serve_o_guardado(engine):
     bons = _PaginasFalsas()
     relogio = _Relogio()
     retratos = mod.Retratos(bons, relogio=relogio)
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA)
+    retratos.obter(engine, NOME, 1.0, AGORA)
 
     bons.erro = RuntimeError("status 429")  # a Steam começa a recusar
     depois = AGORA + mod.VALIDADE + timedelta(minutes=1)
-    with engine.begin() as conn:
-        leitura = retratos.obter(conn, NOME, 1.0, depois)
+    leitura = retratos.obter(engine, NOME, 1.0, depois)
     assert leitura.pagina is not None
     assert leitura.buscado_em == AGORA
     assert leitura.limitando is True
@@ -551,18 +553,39 @@ def test_429_liga_a_calma_e_serve_o_guardado(engine):
 def test_durante_a_calma_nenhuma_requisicao_sai(engine):
     ruins = _PaginasFalsas(erro=RuntimeError("status 429"))
     retratos = mod.Retratos(ruins, relogio=_Relogio())
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA)
-        retratos.obter(conn, NOME, 1.0, AGORA)
-        retratos.obter(conn, NOME, 1.0, AGORA)
+    retratos.obter(engine, NOME, 1.0, AGORA)
+    retratos.obter(engine, NOME, 1.0, AGORA)
+    retratos.obter(engine, NOME, 1.0, AGORA)
     assert ruins.chamadas == 1
+
+
+def test_nenhuma_conexao_fica_emprestada_durante_a_busca(engine):
+    """A busca leva segundos; segurar conexão do pool nela esgota o Postgres.
+
+    Mesma medição de `tests/painel/test_transacao.py`, aplicada na origem: é
+    aqui que a decisão de abrir duas transações curtas em volta do `fetch`
+    fica travada contra um refactor futuro.
+    """
+    from sqlalchemy import event
+
+    estado = {"emprestadas": 0}
+    event.listen(engine, "checkout", lambda *a: estado.__setitem__("emprestadas", estado["emprestadas"] + 1))
+    event.listen(engine, "checkin", lambda *a: estado.__setitem__("emprestadas", estado["emprestadas"] - 1))
+
+    class _Observa(_PaginasFalsas):
+        def item_page(self, hash_name, usd_to_brl):
+            self.durante = estado["emprestadas"]
+            return super().item_page(hash_name, usd_to_brl)
+
+    paginas = _Observa()
+    mod.Retratos(paginas, relogio=_Relogio()).obter(engine, NOME, 1.0, AGORA)
+    assert paginas.durante == 0
 
 
 def test_sem_retrato_e_com_falha_a_leitura_vem_vazia(engine):
     ruins = _PaginasFalsas(erro=RuntimeError("status 429"))
     retratos = mod.Retratos(ruins, relogio=_Relogio())
-    with engine.begin() as conn:
-        leitura = retratos.obter(conn, NOME, 1.0, AGORA)
+    leitura = retratos.obter(engine, NOME, 1.0, AGORA)
     assert leitura.pagina is None
     assert leitura.limitando is True
 ```
@@ -590,7 +613,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
-from sqlalchemy.engine import Connection
+from sqlalchemy.engine import Engine
 
 from tf2price.preco import repositorio as repo
 from tf2price.preco import serial
@@ -630,13 +653,21 @@ class Retratos:
 
     def obter(
         self,
-        conn: Connection,
+        engine: Engine,
         hash_name: str,
         usd_to_brl: float,
         quando: datetime,
         forcar: bool = False,
     ) -> Leitura:
-        guardado = repo.ler(conn, hash_name)
+        """Recebe o `engine`, e não uma conexão, de propósito.
+
+        A busca na Steam leva segundos. Duas transações curtas — uma para ler,
+        outra para gravar — com a busca **entre** elas é o que mantém zero
+        conexões emprestadas durante a rede, que é o que o Postgres do Railway
+        exige e o que `test_transacao.py` mede.
+        """
+        with engine.begin() as conn:
+            guardado = repo.ler(conn, hash_name)
         pagina, buscado_em = None, None
         if guardado is not None:
             dados, buscado_em = guardado
@@ -661,7 +692,8 @@ class Retratos:
             raise
 
         self._ultima_busca[hash_name] = self._relogio()
-        repo.guardar(conn, hash_name, json.dumps(serial.para_dict(nova)), quando)
+        with engine.begin() as conn:
+            repo.guardar(conn, hash_name, json.dumps(serial.para_dict(nova)), quando)
         return Leitura(nova, quando, False)
 
     def _em_calma(self) -> bool:
@@ -691,19 +723,24 @@ Apague a classe `PageCache` e o campo `cache` do `Contexto`; ponha no lugar
 `Retratos(SteamPageClient(limitador))` e passe o mesmo limitador ao
 `SteamClient`, como hoje.
 
-`_pagina_do_item` deixa de existir. As rotas `/efeitos` e `/analise` passam a
-receber `conn` e a chamar:
+`_pagina_do_item` deixa de existir. As rotas `/efeitos` e `/analise` **não
+ganham parâmetro novo** — elas continuam sem declarar `conn`, e pegam o motor
+do próprio app:
 
 ```python
-    leitura = contexto.retratos.obter(conn, nome, cotacao.usd_to_brl, db.agora())
+    leitura = contexto.retratos.obter(
+        request.app.state.engine, nome, cotacao.usd_to_brl, db.agora()
+    )
     if leitura.pagina is None:
         return _erro(request, SEM_RETRATO)
 ```
 
 com `SEM_RETRATO = "não consegui ler os dados da Steam, e não há retrato guardado deste item"`.
 
-**Atenção à ordem dos parâmetros:** `usuario` (ou `exigir_admin`) vem antes de
-`conn`, pelo motivo comentado em `sessao.py`.
+**Não declare `conn: Connection = Depends(ses.conexao)` nestas duas rotas.**
+Elas falam com a Steam, e `tests/painel/test_transacao.py` exige zero conexões
+emprestadas nesse instante. `sessao.usuario_opcional` já usa esse mesmo padrão
+de abrir a própria conexão curta.
 
 Ajuste `tests/painel/conftest.py`: o contexto falso passa a ter `retratos` em
 vez de `cache`, com um duplo que devolve `Leitura(pagina, db.agora(), False)`.
@@ -711,7 +748,8 @@ vez de `cache`, com um duplo que devolve `Leitura(pagina, db.agora(), False)`.
 - [ ] **Step 5: Rodar tudo e commitar**
 
 Run: `.venv/Scripts/python -m pytest`
-Expected: verde. Se algum teste de `test_consulta.py` quebrar por causa do
+Expected: verde, **inclusive `tests/painel/test_transacao.py`, que não pode
+ser tocado**. Se algum teste de `test_consulta.py` quebrar por causa do
 contexto, ajuste **só a construção**, nunca a asserção.
 
 ```bash
@@ -1064,13 +1102,17 @@ def _idade_por_extenso(quando: datetime, agora: datetime) -> str:
     return f"{horas} h" if horas < 24 else f"{horas // 24} d"
 
 
-def linhas_acompanhadas(conn, contexto, usuario_id, agora) -> list[LinhaAcompanhada]:
+def linhas_acompanhadas(conn, cotacao, indice, usuario_id, agora) -> list[LinhaAcompanhada]:
     """O que a coluna esquerda mostra, calculado na hora.
 
-    Nada de preço guardado aqui: a linha sai do mesmo `analyse` do detalhe,
-    então a esquerda nunca discorda da direita.
+    Recebe a cotação e o índice já resolvidos, e não o `Contexto`: os dois são
+    carregados sob demanda e podem ir à rede na primeira chamada. Resolvê-los
+    aqui dentro seguraria a conexão do banco durante esse download, que é
+    justamente o que `test_transacao.py` proíbe.
+
+    Nada de preço guardado: a linha sai do mesmo `analyse` do detalhe, então a
+    esquerda nunca discorda da direita.
     """
-    cotacao = contexto.cotacao.obter()
     saida = []
     for a in acompanhamento.listar(conn, usuario_id):
         guardado = preco_repo.ler(conn, a.hash_name)
@@ -1079,63 +1121,73 @@ def linhas_acompanhadas(conn, contexto, usuario_id, agora) -> list[LinhaAcompanh
                                           "sem dado ainda"))
             continue
         dados, buscado_em = guardado
+        idade = _idade_por_extenso(buscado_em, agora)
         try:
             pagina = serial.de_dict(json.loads(dados))
-            resultado = analyse(pagina, a.efeito, contexto.indice.obter(), cotacao.key_brl)
-        except ValueError:
-            saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito, None, None,
-                                          _idade_por_extenso(buscado_em, agora),
+            resultado = analyse(pagina, a.efeito, indice, cotacao.key_brl)
+        except (ValueError, KeyError, TypeError):
+            saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito, None, None, idade,
                                           "sem listagem deste efeito agora"))
             continue
         premio = None
         if resultado.patient.available and resultado.patient.fair_value.cents > 0:
             premio = f"{resultado.cheapest.total_price.cents / resultado.patient.fair_value.cents:.1f}"
         saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito,
-                                      resultado.cheapest.total_price, premio,
-                                      _idade_por_extenso(buscado_em, agora), None))
+                                      resultado.cheapest.total_price, premio, idade, None))
     return saida
 
 
+def _coluna(request: Request, usuario_id: int) -> HTMLResponse:
+    """Monta a coluna esquerda, resolvendo a rede antes de tocar no banco."""
+    contexto = _contexto(request)
+    cotacao = contexto.cotacao.obter()
+    indice = contexto.indice.obter()
+    agora = db.agora()
+    with request.app.state.engine.begin() as conn:
+        linhas = linhas_acompanhadas(conn, cotacao, indice, usuario_id, agora)
+    return TEMPLATES.TemplateResponse(
+        request=request, name="_acompanhados.html", context={"linhas": linhas}
+    )
+
+
+# Nenhuma destas três rotas declara `conn`: cada uma abre a sua transação
+# curta, e `_coluna` pode ir à rede antes de abrir a dela. Declarar `conn`
+# como dependência prenderia a conexão durante esse instante.
 @ROTEADOR.post("/acompanhar", response_class=HTMLResponse,
                dependencies=[Depends(ses.mesma_origem)])
 def acompanhar(request: Request, nome: str = Form(...), efeito: str = Form(...),
-               usuario: Usuario = Depends(ses.usuario_obrigatorio),
-               conn: Connection = Depends(ses.conexao)):
-    acompanhamento.adicionar(conn, usuario_id=usuario.id, hash_name=nome,
-                             efeito=efeito, quando=db.agora())
-    return _coluna(request, conn, usuario)
+               usuario: Usuario = Depends(ses.usuario_obrigatorio)):
+    with request.app.state.engine.begin() as conn:
+        acompanhamento.adicionar(conn, usuario_id=usuario.id, hash_name=nome,
+                                 efeito=efeito, quando=db.agora())
+    return _coluna(request, usuario.id)
 
 
 @ROTEADOR.delete("/acompanhar/{ident}", response_class=HTMLResponse,
                  dependencies=[Depends(ses.mesma_origem)])
 def parar_de_acompanhar(request: Request, ident: int,
-                        usuario: Usuario = Depends(ses.usuario_obrigatorio),
-                        conn: Connection = Depends(ses.conexao)):
-    acompanhamento.remover(conn, usuario.id, ident)
-    return _coluna(request, conn, usuario)
+                        usuario: Usuario = Depends(ses.usuario_obrigatorio)):
+    with request.app.state.engine.begin() as conn:
+        acompanhamento.remover(conn, usuario.id, ident)
+    return _coluna(request, usuario.id)
 
 
 @ROTEADOR.post("/atualizar/{hash_name:path}", response_class=HTMLResponse,
                dependencies=[Depends(ses.mesma_origem)])
 def atualizar(request: Request, hash_name: str,
-              usuario: Usuario = Depends(ses.usuario_obrigatorio),
-              conn: Connection = Depends(ses.conexao)):
+              usuario: Usuario = Depends(ses.usuario_obrigatorio)):
     contexto = _contexto(request)
     cotacao = contexto.cotacao.obter()
     if cotacao is not None:
-        contexto.retratos.obter(conn, hash_name, cotacao.usd_to_brl, db.agora(), forcar=True)
-    return _coluna(request, conn, usuario)
-
-
-def _coluna(request: Request, conn: Connection, usuario: Usuario) -> HTMLResponse:
-    linhas = linhas_acompanhadas(conn, _contexto(request), usuario.id, db.agora())
-    return TEMPLATES.TemplateResponse(
-        request=request, name="_acompanhados.html", context={"linhas": linhas}
-    )
+        contexto.retratos.obter(
+            request.app.state.engine, hash_name, cotacao.usd_to_brl,
+            db.agora(), forcar=True,
+        )
+    return _coluna(request, usuario.id)
 ```
 
 Acrescente os imports necessários (`dataclass`, `datetime`, `json`, `Form`,
-`Connection`, `acompanhamento.repositorio as acompanhamento`,
+`acompanhamento.repositorio as acompanhamento`,
 `preco.repositorio as preco_repo`, `preco.serial as serial`).
 
 No `_analise.html`, acrescente o botão de acompanhar logo abaixo do bloco
@@ -1187,13 +1239,19 @@ Expected: FAIL — não existe `#acompanhados`
 
 - [ ] **Step 3: A rota `/` passa as linhas**
 
-Em `painel`, acrescente ao contexto do template:
+A rota `painel` já resolve `cotacao`. Acrescente o índice ao lado dele e abra
+uma transação curta só depois, do mesmo jeito que `_coluna` faz:
 
 ```python
-    "linhas": linhas_acompanhadas(conn, contexto, usuario.id, db.agora()),
+    indice = _contexto(request).indice.obter()
+    agora = db.agora()
+    with request.app.state.engine.begin() as conn:
+        linhas = linhas_acompanhadas(conn, cotacao, indice, usuario.id, agora)
 ```
 
-e o parâmetro `conn: Connection = Depends(ses.conexao)` **depois** de `usuario`.
+e passe `"linhas": linhas` ao contexto do template. **Não declare
+`conn: Connection = Depends(ses.conexao)` nesta rota** — `indice.obter()` pode
+baixar o índice da backpack.tf, que tem timeout de 180 s.
 
 - [ ] **Step 4: As duas colunas no `painel.html`**
 
