@@ -98,7 +98,12 @@ def test_forcar_duas_vezes_seguidas_respeita_o_piso(engine):
     paginas = _PaginasFalsas()
     retratos = mod.Retratos(paginas, relogio=_Relogio())
     retratos.obter(engine, NOME, 1.0, AGORA, forcar=True)
-    retratos.obter(engine, NOME, 1.0, AGORA, forcar=True)
+    # `quando` avança para fora da validade, mas o relógio (que governa o
+    # piso) fica parado: se a implementação ignorasse `forcar` e caísse no
+    # caminho normal (`quando - buscado_em > VALIDADE`), a segunda busca
+    # sairia mesmo assim. Só o piso de 60s pode estar segurando ela aqui.
+    depois_da_validade = AGORA + mod.VALIDADE + timedelta(minutes=1)
+    retratos.obter(engine, NOME, 1.0, depois_da_validade, forcar=True)
     assert paginas.chamadas == 1
 
 

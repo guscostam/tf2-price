@@ -6,7 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tf2price.painel.app import criar_app
-from tf2price.painel.consulta import Contexto, Cotacao
+from tf2price.painel.consulta import SEM_RETRATO, Contexto, Cotacao
+from tf2price.preco.retrato import Retratos
 from tf2price.sources.backpacktf import PriceIndex
 from tf2price.sources.steam_page import PageStructureError
 
@@ -79,6 +80,53 @@ def test_mudanca_na_valve_vira_mensagem_e_nao_traceback(engine):
 
     assert r.status_code == 200
     assert "renderContext sumiu" in r.text
+
+
+# --- retrato compartilhado -------------------------------------------------
+
+
+def test_efeitos_e_analise_do_mesmo_item_buscam_a_pagina_uma_vez(engine):
+    """A garantia do retrato compartilhado, medida na aplicação montada.
+
+    `_RetratosFalsos` (o duplo padrão de `_contexto`) busca direto na página
+    falsa, sem validade nem calma — não é capaz de provar isto. É por isso
+    que aqui entra um `Retratos` de verdade sobre `_PaginasFalsas`: só ele
+    exercita a regra de que duas rotas no mesmo item custam uma busca só.
+    """
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+
+    cliente.get("/efeitos", params={"nome": NOME})
+    cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
+
+    assert paginas.chamadas == 1
+
+
+def test_efeitos_sem_retrato_guardado_e_com_429_mostra_sem_retrato(engine):
+    """A Steam limitando num item nunca visto: nem retrato velho para mostrar."""
+    paginas = _PaginasFalsas(erro=RuntimeError("status 429"))
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+
+    r = cliente.get("/efeitos", params={"nome": NOME})
+
+    assert r.status_code == 200
+    assert SEM_RETRATO in r.text
+
+
+def test_analise_sem_retrato_guardado_e_com_429_mostra_sem_retrato(engine):
+    paginas = _PaginasFalsas(erro=RuntimeError("status 429"))
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+
+    r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
+
+    assert r.status_code == 200
+    assert SEM_RETRATO in r.text
 
 
 # --- taxa de conversão ---------------------------------------------------
