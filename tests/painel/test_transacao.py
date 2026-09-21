@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy import event
 
+from tf2price.preco.retrato import Retratos
+
 from tests.painel.conftest import NOME, _contexto, _pagina, cliente_logado
 
 
@@ -41,11 +43,18 @@ def test_nenhuma_conexao_fica_emprestada_durante_o_io(engine):
     A primeira carga do índice baixa dezenas de MB. Se a transação da
     requisição ficar aberta durante isso, algumas pessoas clicando depois de
     um deploy esgotam o pool do Postgres com conexões ociosas.
+
+    Usa um `Retratos` de verdade, não `_RetratosFalsos` (o padrão de
+    `_contexto`): o duplo busca direto na página falsa sem nunca abrir uma
+    conexão, então mediria a garantia contra um código que não toca o banco
+    — provando zero de qualquer jeito. É exatamente na rota que fala com a
+    Steam que a garantia precisa valer contra o `Retratos` de verdade.
     """
     contador = _contar_conexoes(engine)
     ctx = _contexto()
     paginas = _PaginasQueObservamOPool(contador, _pagina())
     ctx.paginas = paginas
+    ctx.retratos = Retratos(paginas)
     cliente = cliente_logado(engine, ctx)
 
     resposta = cliente.get("/efeitos", params={"nome": NOME})

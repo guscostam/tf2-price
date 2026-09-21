@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-import pytest
+import json
+import time
+from datetime import timedelta
+
 from fastapi.testclient import TestClient
 
 from tf2price import db
@@ -8,9 +11,32 @@ from tf2price.acompanhamento import repositorio as repo
 from tf2price.contas import repositorio as contas
 from tf2price.contas import servico
 from tf2price.painel.app import criar_app
-from .conftest import NOME, _contexto, cliente_logado
+from tf2price.preco import repositorio as preco_repo
+from tf2price.preco import serial
+from tf2price.preco.retrato import Retratos
+from tf2price.sources.backpacktf import PriceIndex
+from .conftest import NOME, _contexto, _pagina, _PaginasFalsas, cliente_logado
 
 SENHA = "uma senha longa"
+
+
+def _indice_com_preco(idade_dias: int) -> PriceIndex:
+    """Índice onde Deep Dive (id 3229 no mapa real) tem preço com essa idade.
+
+    Mesma fixture de `test_consulta.py`, reescrita aqui: os dois arquivos
+    testam camadas diferentes (rota de detalhe vs. coluna de acompanhados) e
+    não vale a pena acoplar um ao outro por causa de um índice falso.
+    """
+    agora = int(time.time())
+    return PriceIndex.from_payload(
+        {"response": {"items": {"Taunt: Chairholder": {"prices": {"5": {"Tradable": {
+            "Craftable": {"3229": {
+                "currency": "keys", "value": 20.0,
+                "last_update": agora - idade_dias * 86400,
+            }}
+        }}}}}}},
+        key_in_refined=64.11,
+    )
 
 
 def test_acompanhar_guarda_e_aparece_na_lista(engine):
@@ -117,3 +143,140 @@ def test_abrir_acompanhado_com_efeito_sumido_mostra_lista_e_avisa_ausencia(engin
         assert efeito in r.text
     assert "sem listagem deste efeito agora" in r.text
     assert "180,44" not in r.text  # preço de Deep Dive não pode aparecer no lugar
+
+
+# --- a idade não pode sumir quando mais importa (achado I4) ---------------
+
+
+def test_linha_sem_listagem_ainda_mostra_a_idade_do_retrato(engine):
+    """"Sem listagem deste efeito agora" é uma afirmação sobre o PRESENTE —
+    não pode aparecer sem dizer de que idade é o retrato por trás dela.
+
+    Usa um `Retratos` de verdade: `_RetratosFalsos` (o padrão de `_contexto`)
+    nunca grava no banco, então a linha ficaria em "sem dado ainda" e o
+    teste não exercitaria o caminho que existe para provar.
+    """
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Burning Flames"})
+    cliente.get("/efeitos", params={"nome": NOME})  # popula o retrato guardado
+
+    r = cliente.get("/")
+
+    assert "sem listagem deste efeito agora" in r.text
+    assert 'class="acompanhado-idade"' in r.text
+
+
+# --- o × não pode carregar a idade errada (achado I5) ----------------------
+
+
+def test_premio_desaparece_quando_a_referencia_da_bptf_esta_vencida(engine):
+    """O × cruza a Steam (numerador) com a bp.tf (denominador). Com a
+    referência vencida (> 365 dias, o mesmo limiar de `_analise.html`), a
+    linha não pode somar uma idade fresca a uma velha sem dizer isso —
+    melhor sumir o ×."""
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas, indice=_indice_com_preco(900))
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+    cliente.get("/efeitos", params={"nome": NOME})
+
+    r = cliente.get("/")
+
+    inicio = r.text.index('class="acompanhado-preco"')
+    trecho_do_preco = r.text[inicio:inicio + 200]
+    assert "×" not in trecho_do_preco
+    inicio_idade = r.text.index('class="acompanhado-idade"')
+    trecho_da_idade = r.text[inicio_idade:inicio_idade + 200]
+    assert "troca" not in trecho_da_idade
+
+
+def test_premio_mostra_a_idade_da_bptf_junto_da_idade_do_retrato(engine):
+    """Quando o × aparece, a linha mostra as DUAS idades — a do retrato da
+    Steam e a da referência da bp.tf — porque pertencem a metades diferentes
+    da conta."""
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas, indice=_indice_com_preco(12))
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+    cliente.get("/efeitos", params={"nome": NOME})
+
+    r = cliente.get("/")
+
+    assert "troca 12 d" in r.text
+    inicio = r.text.index('class="acompanhado-preco"')
+    trecho_do_preco = r.text[inicio:inicio + 200]
+    assert "×" in trecho_do_preco
+
+
+# --- esquerda e direita concordam, sem aninhar (achado I6) -----------------
+
+
+def test_efeitos_marca_a_linha_aberta_na_coluna_esquerda(engine):
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Midnight Whirlwind"})
+
+    r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Deep Dive"})
+
+    assert r.status_code == 200
+    assert r.text.count('class="acompanhado escolhido"') == 1
+    trecho = r.text[r.text.index('class="acompanhado escolhido"'):][:400]
+    assert "Deep Dive" in trecho
+    assert "Midnight Whirlwind" not in trecho
+
+
+def test_efeitos_sem_efeito_nao_marca_nenhuma_linha(engine):
+    """Chamada pela busca de itens, sem `efeito`: nenhuma linha é "a aberta"."""
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+
+    r = cliente.get("/efeitos", params={"nome": NOME})
+
+    assert r.status_code == 200
+    assert 'class="acompanhado escolhido"' not in r.text
+
+
+def test_efeitos_atualiza_acompanhados_sem_aninhar_o_involucro(engine):
+    """O id="acompanhados" mora no invólucro de `painel.html`; o fragmento
+    `_acompanhados.html` não o declara. Se o fora-de-banda não carregasse o
+    id (substituindo o invólucro inteiro), cada resposta aninharia um
+    `#acompanhados` dentro do outro."""
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+
+    for _ in range(2):
+        r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Deep Dive"})
+        assert r.status_code == 200
+        assert r.text.count('id="acompanhados"') == 1
+
+
+def test_efeitos_atualiza_o_preco_na_esquerda_quando_o_retrato_estava_vencido(engine):
+    """Antes da correção, `/efeitos` não devolvia `#acompanhados`: se o
+    retrato estava vencido e a busca trouxe um novo, a esquerda ficava com o
+    preço velho ao lado do novo que a direita acabou de mostrar."""
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+    # Um retrato vencido (> 15 min) força a busca de um novo dentro de /efeitos.
+    velho = db.agora() - timedelta(minutes=20)
+    with engine.begin() as conn:
+        preco_repo.guardar(conn, NOME, json.dumps(serial.para_dict(_pagina())), velho)
+
+    r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Deep Dive"})
+
+    assert r.status_code == 200
+    assert paginas.chamadas == 1  # buscou de novo por estar vencido
+    # O preço mais barato do efeito aparece na linha do acompanhado
+    # (esquerda), concordando com a avaliação (direita, que já é coberta
+    # por `test_efeitos_marca_a_linha_aberta_na_coluna_esquerda` e pelos
+    # testes de `test_acompanhar.py` que checam "180,44" em `_analise.html`).
+    inicio = r.text.index('id="acompanhados"')
+    trecho_esquerda = r.text[inicio:]
+    assert "180,44" in trecho_esquerda

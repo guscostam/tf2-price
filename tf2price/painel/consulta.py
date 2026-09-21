@@ -34,21 +34,10 @@ from tf2price.sources.backpacktf import BackpackTfClient, PriceIndex
 from tf2price.sources.ratelimit import RateLimiter
 from tf2price.sources.steam import SteamClient
 from tf2price.sources.steam_page import PageStructureError, SteamPageClient, url_da_imagem
+from tf2price.texto import mensagem_saneada as _mensagem_saneada
 
 BUSCA_MAX = 25
 INTERVALO_S = 1.0
-
-
-def _mensagem_saneada(erro: Exception) -> str:
-    """Corta a mensagem no primeiro '?', onde começa a query string.
-
-    `BackpackTfClient._get` manda a chave da API como parâmetro `key=` na
-    URL, e o `str()` de um `httpx.HTTPStatusError` inclui a URL inteira do
-    pedido que falhou. A backpack.tf devolve 403 para quem não é navegador,
-    então esse caminho é exercitado de verdade, não só em teoria — e o log
-    não pode ser onde a chave aparece em claro.
-    """
-    return str(erro).split("?", 1)[0]
 
 
 def _registra_falha_sob_demanda(origem: str, erro: Exception, espera_s: float) -> None:
@@ -177,18 +166,29 @@ class Contexto:
     # real.
     #
     # O retrato compartilhado guarda a página já convertida e é chaveado só
-    # pelo nome do item — e isso basta: a taxa é uma foto por processo
-    # (`_usd_to_brl_rate` calcula uma vez por instância de SteamClient e
-    # guarda), então ela não muda enquanto o retrato guardado vale.
-    # Se um dia a taxa passar a ser reavaliada em tempo de execução, a
-    # chave do retrato precisa incluí-la.
+    # pelo nome do item, sem a taxa. Isso já foi seguro quando o cache vivia
+    # só na memória do processo (a taxa era uma foto por processo, e o cache
+    # morria junto com ela) — mas o retrato agora persiste no banco e
+    # sobrevive ao processo: a cada deploy, o processo novo calcula outra
+    # `usd_to_brl`, e por até `VALIDADE` (15 min) ele serve o retrato antigo,
+    # convertido pela taxa velha, ao lado de uma cotação já nova. O erro
+    # numérico é desprezível (o real não anda tanto em 15 min), mas é real —
+    # e é por isso que este comentário existe: para quem for mexer aqui não
+    # presumir, pelo nome da chave, que ela já inclui a taxa.
     cotacao: CotacaoSobDemanda
     retratos: Retratos
 
 
-def _erro(request: Request, mensagem: str) -> HTMLResponse:
+def _erro(request: Request, mensagem: str, *, limpar_analise: bool = False) -> HTMLResponse:
+    """`limpar_analise` manda `_erro.html` também esvaziar `#analise` por fora
+    de banda — necessário quando o alvo da resposta é outro bloco (`/efeitos`
+    mira `#efeitos`) e uma avaliação de um item anterior ficaria na tela.
+    Rotas cujo próprio alvo já é `#analise` (como `/analise`) não precisam
+    disso: a troca normal já substitui o bloco."""
     return TEMPLATES.TemplateResponse(
-        request=request, name="_erro.html", context={"mensagem": mensagem}
+        request=request,
+        name="_erro.html",
+        context={"mensagem": mensagem, "limpar_analise": limpar_analise},
     )
 
 
@@ -235,9 +235,17 @@ def buscar(request: Request, q: str = ""):
     )
 
 
-def _contexto_da_analise(resultado, efeito: str) -> dict[str, Any]:
+def _contexto_da_analise(
+    resultado, efeito: str, retrato_idade: str, retrato_limitando: bool
+) -> dict[str, Any]:
     """Contexto de `_analise.html`, comum a `/analise` e a `/efeitos` (esta
-    quando o clique já pede um efeito aberto, como o de um acompanhado)."""
+    quando o clique já pede um efeito aberto, como o de um acompanhado).
+
+    `retrato_idade` e `retrato_limitando` são a idade do retrato da Steam e
+    se ela está em calma — a outra idade que a tela precisa mostrar, e que
+    antes desta correção era descartada: sem ela, um retrato de horas atrás
+    parecia "agora".
+    """
     return {
         "a": resultado,
         "arte": arte_dos_efeitos.url_do_efeito(efeito),
@@ -248,6 +256,8 @@ def _contexto_da_analise(resultado, efeito: str) -> dict[str, Any]:
             if resultado.cheapest.icon_url
             else None
         ),
+        "retrato_idade": retrato_idade,
+        "retrato_limitando": retrato_limitando,
     }
 
 
@@ -255,20 +265,28 @@ SEM_LISTAGEM_DO_EFEITO = "sem listagem deste efeito agora"
 
 
 @ROTEADOR.get("/efeitos", response_class=HTMLResponse)
-def efeitos(request: Request, nome: str, efeito: str = ""):
+def efeitos(request: Request, nome: str, efeito: str = "",
+            usuario: Usuario = Depends(ses.usuario_obrigatorio)):
+    # Sem `conn: Connection = Depends(ses.conexao)` de propósito: esta rota
+    # fala com a Steam, e `test_transacao.py` exige zero conexões do pool
+    # emprestadas durante esse instante. `usuario` é de graça — o FastAPI
+    # reaproveita o resultado já calculado pela dependência do roteador.
     contexto = _contexto(request)
     cotacao = contexto.cotacao.obter()
     if cotacao is None:
-        return _erro(request, SEM_COTACAO)
+        return _erro(request, SEM_COTACAO, limpar_analise=True)
+    agora = db.agora()
     try:
         leitura = contexto.retratos.obter(
-            request.app.state.engine, nome, cotacao.usd_to_brl, db.agora()
+            request.app.state.engine, nome, cotacao.usd_to_brl, agora
         )
     except (RuntimeError, PageStructureError) as erro:
-        return _erro(request, str(erro))
+        return _erro(request, str(erro), limpar_analise=True)
     if leitura.pagina is None:
-        return _erro(request, SEM_RETRATO)
+        return _erro(request, SEM_RETRATO, limpar_analise=True)
     pagina = leitura.pagina
+    retrato_idade = _idade_por_extenso(leitura.buscado_em, agora)
+    indice = contexto.indice.obter()
     contexto_analise: dict[str, Any] = {}
     if efeito:
         # O botão de um acompanhado pede a lista e a avaliação num só clique.
@@ -276,11 +294,23 @@ def efeitos(request: Request, nome: str, efeito: str = ""):
         # ValueError; a lista aparece normal e a avaliação avisa a ausência —
         # nunca o preço de outro efeito, que vale outra ordem de grandeza.
         try:
-            resultado = analyse(pagina, efeito, contexto.indice.obter(), cotacao.key_brl)
+            resultado = analyse(pagina, efeito, indice, cotacao.key_brl)
         except ValueError:
             contexto_analise = {"efeito_ausente": SEM_LISTAGEM_DO_EFEITO}
         else:
-            contexto_analise = _contexto_da_analise(resultado, efeito)
+            contexto_analise = _contexto_da_analise(
+                resultado, efeito, retrato_idade, leitura.limitando
+            )
+    # A esquerda tem de concordar com a direita: se o retrato estava vencido,
+    # a busca acima trouxe um novo, e sem atualizar `#acompanhados` também
+    # aqui a coluna esquerda ficaria mostrando o preço velho ao lado do novo
+    # que a direita acabou de exibir. A linha do efeito aberto sai marcada,
+    # para dar pra saber de qual linha a direita está falando.
+    with request.app.state.engine.begin() as conn:
+        linhas = linhas_acompanhadas(
+            conn, cotacao, indice, usuario.id, agora,
+            selecionado=(nome, efeito) if efeito else None,
+        )
     return TEMPLATES.TemplateResponse(
         request=request,
         name="_efeitos.html",
@@ -288,6 +318,7 @@ def efeitos(request: Request, nome: str, efeito: str = ""):
             "nome": nome,
             "efeitos": effects_available(pagina),
             "efeito_atual": efeito,
+            "linhas": linhas,
             **contexto_analise,
         },
     )
@@ -299,9 +330,10 @@ def rota_analise(request: Request, nome: str, efeito: str):
     cotacao = contexto.cotacao.obter()
     if cotacao is None:
         return _erro(request, SEM_COTACAO)
+    agora = db.agora()
     try:
         leitura = contexto.retratos.obter(
-            request.app.state.engine, nome, cotacao.usd_to_brl, db.agora()
+            request.app.state.engine, nome, cotacao.usd_to_brl, agora
         )
     except (RuntimeError, PageStructureError) as erro:
         return _erro(request, str(erro))
@@ -312,10 +344,11 @@ def rota_analise(request: Request, nome: str, efeito: str):
         resultado = analyse(pagina, efeito, contexto.indice.obter(), cotacao.key_brl)
     except ValueError as erro:
         return _erro(request, str(erro))
+    retrato_idade = _idade_por_extenso(leitura.buscado_em, agora)
     return TEMPLATES.TemplateResponse(
         request=request,
         name="_analise.html",
-        context=_contexto_da_analise(resultado, efeito),
+        context=_contexto_da_analise(resultado, efeito, retrato_idade, leitura.limitando),
     )
 
 
@@ -325,10 +358,16 @@ class LinhaAcompanhada:
     hash_name: str
     efeito: str
     preco: Brl | None
-    premio: str | None
+    # Número puro, não texto: o template formata com o filtro `chaves`
+    # (vírgula decimal), como o resto da tela.
+    premio: float | None
     idade: str | None
     motivo: str | None
     selecionado: bool = False
+    # Idade do preço da bp.tf que entrou no `premio` — não a do retrato da
+    # Steam. As duas idades pertencem a metades diferentes da conta do ×, e
+    # `premio_idade` só vem preenchida quando `premio` também vem.
+    premio_idade: str | None = None
 
 
 def _idade_por_extenso(quando: datetime, agora: datetime) -> str:
@@ -341,7 +380,9 @@ def _idade_por_extenso(quando: datetime, agora: datetime) -> str:
     return f"{horas} h" if horas < 24 else f"{horas // 24} d"
 
 
-def linhas_acompanhadas(conn, cotacao, indice, usuario_id, agora) -> list[LinhaAcompanhada]:
+def linhas_acompanhadas(
+    conn, cotacao, indice, usuario_id, agora, selecionado: tuple[str, str] | None = None
+) -> list[LinhaAcompanhada]:
     """O que a coluna esquerda mostra, calculado na hora.
 
     Recebe a cotação e o índice já resolvidos, e não o `Contexto`: os dois são
@@ -351,28 +392,59 @@ def linhas_acompanhadas(conn, cotacao, indice, usuario_id, agora) -> list[LinhaA
 
     Nada de preço guardado: a linha sai do mesmo `analyse` do detalhe, então a
     esquerda nunca discorda da direita.
+
+    `selecionado`, quando dado, é o par `(hash_name, efeito)` aberto agora na
+    direita — a linha correspondente sai marcada, para a esquerda dizer de
+    qual linha a direita está falando.
     """
     saida = []
     for a in acompanhamento.listar(conn, usuario_id):
+        marcado = selecionado is not None and (a.hash_name, a.efeito) == selecionado
         guardado = preco_repo.ler(conn, a.hash_name)
         if guardado is None or cotacao is None:
             saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito, None, None, None,
-                                          "sem dado ainda"))
+                                          "sem dado ainda", selecionado=marcado))
             continue
         dados, buscado_em = guardado
         idade = _idade_por_extenso(buscado_em, agora)
         try:
             pagina = serial.de_dict(json.loads(dados))
-            resultado = analyse(pagina, a.efeito, indice, cotacao.key_brl)
         except (ValueError, KeyError, TypeError):
+            # Retrato salvo numa forma que este processo não lê mais (p.ex.
+            # `VERSAO` subiu). Isto é um problema NOSSO, de banco — bem
+            # diferente de "sem listagem deste efeito agora", que é uma
+            # afirmação sobre o mercado. Separado do `except` de `analyse`
+            # logo abaixo por isso: os dois nunca podem soar iguais.
+            saida.append(LinhaAcompanhada(
+                a.id, a.hash_name, a.efeito, None, None, idade,
+                "retrato salvo numa forma antiga; será regravado na próxima busca",
+                selecionado=marcado,
+            ))
+            continue
+        try:
+            resultado = analyse(pagina, a.efeito, indice, cotacao.key_brl)
+        except ValueError:
             saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito, None, None, idade,
-                                          "sem listagem deste efeito agora"))
+                                          "sem listagem deste efeito agora", selecionado=marcado))
             continue
         premio = None
-        if resultado.patient.available and resultado.patient.fair_value.cents > 0:
-            premio = f"{resultado.cheapest.total_price.cents / resultado.patient.fair_value.cents:.1f}"
-        saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito,
-                                      resultado.cheapest.total_price, premio, idade, None))
+        premio_idade = None
+        dias_bptf = resultado.patient.age_days
+        if (
+            resultado.patient.available
+            and resultado.patient.fair_value.cents > 0
+            # Mesmo limiar de "vencido" que `_analise.html` usa: o numerador
+            # do × vem da Steam (a idade do retrato) e o denominador vem da
+            # bp.tf, que pode ter anos. Com a referência vencida, o ×
+            # somaria uma idade à outra sem dizer isso — melhor sumir.
+            and dias_bptf is not None and dias_bptf <= 365
+        ):
+            premio = resultado.cheapest.total_price.cents / resultado.patient.fair_value.cents
+            premio_idade = f"{dias_bptf} d"
+        saida.append(LinhaAcompanhada(
+            a.id, a.hash_name, a.efeito, resultado.cheapest.total_price, premio, idade, None,
+            selecionado=marcado, premio_idade=premio_idade,
+        ))
     return saida
 
 
@@ -418,10 +490,20 @@ def atualizar(request: Request, hash_name: str,
     contexto = _contexto(request)
     cotacao = contexto.cotacao.obter()
     if cotacao is not None:
-        contexto.retratos.obter(
-            request.app.state.engine, hash_name, cotacao.usd_to_brl,
-            db.agora(), forcar=True,
-        )
+        try:
+            contexto.retratos.obter(
+                request.app.state.engine, hash_name, cotacao.usd_to_brl,
+                db.agora(), forcar=True,
+            )
+        except (RuntimeError, PageStructureError) as erro:
+            # O botão ↻ é o que a pessoa aperta bem quando a linha diz "sem
+            # dado ainda" — é o caminho com mais chance de achar a Steam
+            # ruim, e era o único, entre as quatro rotas que chamam
+            # `retratos.obter`, sem captura: timeout, 503 ou HTML mudado
+            # virava 500 depois de a network nem ter quebrado de verdade.
+            # A coluna segue sem retrato novo, o que já é uma resposta
+            # honesta: nada mudou.
+            print(f"[atualizar] {hash_name}: {_mensagem_saneada(erro)}", flush=True)
     return _coluna(request, usuario.id)
 
 

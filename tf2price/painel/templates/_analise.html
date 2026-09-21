@@ -24,6 +24,23 @@
   <h2>{{ a.effect }}</h2>
   <p class="item-nome">{{ a.hash_name }}</p>
 
+  {# A idade do retrato da STEAM — diferente da idade da backpack.tf, lá
+     embaixo no bloco "Saída paciente". As duas datam fontes diferentes, e
+     confundi-las é como mostrar o preço de outro efeito: os números acima
+     (o que você paga) são desta idade, não daquela. #}
+  <div class="carimbo{{ ' carimbo-vencido' if retrato_limitando else '' }}">
+    Steam
+    <b>{{ retrato_idade }}</b>
+    {{ 'Steam limitando — retrato congelado' if retrato_limitando else 'retrato' }}
+  </div>
+  {% if retrato_limitando %}
+  <p class="nota">
+    † A Steam está recusando buscas agora (limite de requisições). O que você
+    vê acima é o último retrato guardado, com <b>{{ retrato_idade }}</b> —
+    não o preço deste minuto.
+  </p>
+  {% endif %}
+
   <div class="pago">
     <span class="rotulo">você paga</span>
     <span class="numero-grande"><span class="cifrao">R$</span>{{ a.cheapest.total_price|string|replace("R$ ", "") }}</span>
