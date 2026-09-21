@@ -120,13 +120,40 @@ def convite_por_hash(conn: Connection, hash_do_token: str) -> Convite | None:
     )
 
 
-def marcar_convite_usado(
-    conn: Connection, hash_do_token: str, *, usado_em: datetime, usado_por: int
+def consumir_convite(
+    conn: Connection, hash_do_token: str, *, usado_em: datetime
+) -> bool:
+    """Marca o convite como usado se ainda não estava, e diz se conseguiu.
+
+    O `usado_em IS NULL` no WHERE é a atomicidade toda: duas requisições com
+    o mesmo link viram dois UPDATE na mesma linha, o banco as serializa, e a
+    segunda encontra a linha já marcada e afeta zero linhas. Conferir em
+    Python o que o SELECT leu antes deixaria as duas passarem — as rotas
+    correm em threads de verdade.
+
+    Quem usou entra depois, por `registrar_quem_usou`: o id de um usuário
+    recém-nascido só existe após o INSERT, e o consumo precisa vir antes
+    dele.
+    """
+    resultado = conn.execute(
+        update(db.convite)
+        .where(
+            db.convite.c.hash_do_token == hash_do_token,
+            db.convite.c.usado_em.is_(None),
+        )
+        .values(usado_em=usado_em)
+    )
+    return resultado.rowcount == 1
+
+
+def registrar_quem_usou(
+    conn: Connection, hash_do_token: str, *, usado_por: int
 ) -> None:
+    """Completa o consumo com o id de quem usou. Roda na mesma transação."""
     conn.execute(
         update(db.convite)
         .where(db.convite.c.hash_do_token == hash_do_token)
-        .values(usado_em=usado_em, usado_por=usado_por)
+        .values(usado_por=usado_por)
     )
 
 

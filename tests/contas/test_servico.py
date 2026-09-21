@@ -6,7 +6,8 @@ import pytest
 
 from tf2price import db
 from tf2price.contas import repositorio as repo
-from tf2price.contas import servico
+from tf2price.contas import servico, tokens
+from tf2price.contas.senhas import SenhaCurta
 
 AGORA = db.agora()
 SENHA = "uma senha longa"
@@ -46,6 +47,69 @@ def test_convite_nao_serve_duas_vezes(engine):
             servico.aceitar_convite(
                 conn, token, nome="outra", senha=SENHA, quando=AGORA
             )
+
+
+def test_dois_cliques_no_mesmo_link_criam_uma_conta_só(engine, monkeypatch):
+    """A corrida de verdade, encenada.
+
+    As rotas são `def` síncrono, então o uvicorn as roda num pool de threads:
+    duas requisições com o mesmo link podem ambas ler o convite ainda não
+    usado antes de qualquer uma marcar. Com o fixture de SQLite (uma conexão
+    só, StaticPool) não dá para pôr duas threads de verdade nisso, então o
+    segundo clique entra aqui como efeito colateral no meio da janela — entre
+    a leitura do convite e o consumo, que é exatamente onde a outra thread
+    cabia. O que se prova é que o consumo, e não a leitura, é quem decide.
+    """
+    original = repo.usuario_por_nome
+
+    def também_o_outro_clique(conn, nome):
+        # Este é o último ponto antes do consumo; a outra requisição chega
+        # aqui e leva o convite.
+        repo.consumir_convite(conn, alvo["hash"], usado_em=AGORA)
+        monkeypatch.setattr(repo, "usuario_por_nome", original)
+        return original(conn, nome)
+
+    with engine.begin() as conn:
+        token = servico.convidar(conn, criado_por=_dono(conn), quando=AGORA)
+        alvo = {"hash": repo.convite_por_hash(conn, tokens.hash_de(token)).hash_do_token}
+        monkeypatch.setattr(repo, "usuario_por_nome", também_o_outro_clique)
+
+        with pytest.raises(servico.ConviteInvalido):
+            servico.aceitar_convite(
+                conn, token, nome="amiga", senha=SENHA, quando=AGORA
+            )
+        # Só o "dono" do teste: o segundo clique não virou conta.
+        assert [u.nome for u in repo.listar_usuarios(conn)] == ["dono"]
+
+
+def test_senha_curta_nao_queima_o_convite(engine):
+    """A recusa acontece antes do consumo, de propósito: a rota devolve a
+    página de erro e a transação da requisição fecha com commit, então um
+    convite consumido antes da recusa ficaria consumido para sempre."""
+    with engine.begin() as conn:
+        token = servico.convidar(conn, criado_por=_dono(conn), quando=AGORA)
+        with pytest.raises(SenhaCurta):
+            servico.aceitar_convite(
+                conn, token, nome="amiga", senha="curta", quando=AGORA
+            )
+        # O link continua servindo para quem digitar uma senha de verdade.
+        novo = servico.aceitar_convite(
+            conn, token, nome="amiga", senha=SENHA, quando=AGORA
+        )
+    assert novo.nome == "amiga"
+
+
+def test_nome_em_uso_nao_queima_o_convite(engine):
+    with engine.begin() as conn:
+        token = servico.convidar(conn, criado_por=_dono(conn), quando=AGORA)
+        with pytest.raises(servico.NomeEmUso):
+            servico.aceitar_convite(
+                conn, token, nome="dono", senha=SENHA, quando=AGORA
+            )
+        novo = servico.aceitar_convite(
+            conn, token, nome="amiga", senha=SENHA, quando=AGORA
+        )
+    assert novo.nome == "amiga"
 
 
 def test_convite_expirado_e_recusado(engine):

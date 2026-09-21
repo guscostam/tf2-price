@@ -41,9 +41,7 @@ def test_link_invalido_diz_a_mesma_coisa_que_o_usado(cliente, engine):
 
     token = _convite(engine)
     with engine.begin() as conn:
-        repo.marcar_convite_usado(
-            conn, tokens.hash_de(token), usado_em=db.agora(), usado_por=1
-        )
+        repo.consumir_convite(conn, tokens.hash_de(token), usado_em=db.agora())
     usado = cliente.get(f"/convite/{token}")
     assert usado.status_code == 404
     assert usado.text == inexistente.text
@@ -65,9 +63,7 @@ def test_post_com_token_morto_devolve_o_mesmo_corpo_do_get(cliente, engine):
     escrita e ficava sem teste."""
     token = _convite(engine)
     with engine.begin() as conn:
-        repo.marcar_convite_usado(
-            conn, tokens.hash_de(token), usado_em=db.agora(), usado_por=1
-        )
+        repo.consumir_convite(conn, tokens.hash_de(token), usado_em=db.agora())
     esperado = cliente.get(f"/convite/{token}")
     r = cliente.post(f"/convite/{token}", data={"nome": "amiga", "senha": SENHA})
     assert r.status_code == esperado.status_code == 404

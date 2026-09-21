@@ -120,16 +120,27 @@ def aceitar_convite(
     if repo.usuario_por_nome(conn, nome) is not None:
         raise NomeEmUso("esse nome já está em uso")
 
+    # O hash da senha antes de consumir o convite: `gerar` recusa senha curta,
+    # e uma recusa depois do consumo queimaria o link. A rota devolve a página
+    # de erro, e a transação da requisição fecha com commit — ela não volta
+    # atrás.
+    senha_hash = senhas.gerar(senha)
+
+    # Consumir antes de criar a conta, não depois. Ler o convite e só então
+    # marcá-lo deixava duas requisições com o mesmo link passarem pela
+    # leitura antes de qualquer marca — dois cliques, duas contas. Num painel
+    # fechado o convite é a política de porta inteira.
+    if not repo.consumir_convite(conn, convite.hash_do_token, usado_em=quando):
+        raise ConviteInvalido("convite inválido")
+
     ident = repo.criar_usuario(
         conn,
         nome=nome,
-        senha_hash=senhas.gerar(senha),
+        senha_hash=senha_hash,
         admin=convite.concede_admin,
         quando=quando,
     )
-    repo.marcar_convite_usado(
-        conn, convite.hash_do_token, usado_em=quando, usado_por=ident
-    )
+    repo.registrar_quem_usou(conn, convite.hash_do_token, usado_por=ident)
     return repo.usuario_por_id(conn, ident)
 
 
@@ -140,13 +151,17 @@ def redefinir(
     if convite.alvo is None:
         raise ConviteInvalido("convite inválido")
 
-    repo.trocar_senha(conn, convite.alvo, senhas.gerar(senha))
+    # Mesma ordem de `aceitar_convite`, pela mesma razão: hash antes (pode
+    # recusar), consumo antes da escrita (duas requisições, um link).
+    senha_hash = senhas.gerar(senha)
+    if not repo.consumir_convite(conn, convite.hash_do_token, usado_em=quando):
+        raise ConviteInvalido("convite inválido")
+
+    repo.trocar_senha(conn, convite.alvo, senha_hash)
     # Trocar a senha derruba o que já estava aberto: se a troca foi por
     # suspeita, deixar a sessão antiga viva anularia a troca.
     repo.apagar_sessoes_do_usuario(conn, convite.alvo)
-    repo.marcar_convite_usado(
-        conn, convite.hash_do_token, usado_em=quando, usado_por=convite.alvo
-    )
+    repo.registrar_quem_usou(conn, convite.hash_do_token, usado_por=convite.alvo)
     return repo.usuario_por_id(conn, convite.alvo)
 
 

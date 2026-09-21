@@ -70,7 +70,7 @@ def test_convite_guarda_e_devolve_os_campos(engine):
     assert achado.usado_em is None
 
 
-def test_marcar_convite_usado(engine):
+def test_consumir_convite_marca_e_registra_quem_usou(engine):
     with engine.begin() as conn:
         dono = _usuario(conn)
         repo.criar_convite(
@@ -78,10 +78,38 @@ def test_marcar_convite_usado(engine):
             alvo=None, criado_por=dono, criado_em=AGORA,
             expira_em=AGORA + timedelta(days=7),
         )
-        repo.marcar_convite_usado(conn, "b" * 64, usado_em=AGORA, usado_por=dono)
+        assert repo.consumir_convite(conn, "b" * 64, usado_em=AGORA) is True
+        repo.registrar_quem_usou(conn, "b" * 64, usado_por=dono)
         achado = repo.convite_por_hash(conn, "b" * 64)
     assert achado.usado_em == AGORA
     assert achado.usado_por == dono
+
+
+def test_consumir_convite_só_dá_certo_uma_vez(engine):
+    """A trava do uso único: o segundo UPDATE não encontra linha com
+    `usado_em IS NULL` e devolve False. É esta resposta que o serviço usa
+    para saber se foi ele quem ficou com o convite."""
+    with engine.begin() as conn:
+        dono = _usuario(conn)
+        repo.criar_convite(
+            conn, hash_do_token="d" * 64, tipo="conta", concede_admin=False,
+            alvo=None, criado_por=dono, criado_em=AGORA,
+            expira_em=AGORA + timedelta(days=7),
+        )
+        primeiro = repo.consumir_convite(conn, "d" * 64, usado_em=AGORA)
+        segundo = repo.consumir_convite(
+            conn, "d" * 64, usado_em=AGORA + timedelta(minutes=1)
+        )
+        achado = repo.convite_por_hash(conn, "d" * 64)
+    assert primeiro is True
+    assert segundo is False
+    # E não sobrescreveu a marca de quem chegou primeiro.
+    assert achado.usado_em == AGORA
+
+
+def test_consumir_convite_inexistente_devolve_falso(engine):
+    with engine.begin() as conn:
+        assert repo.consumir_convite(conn, "e" * 64, usado_em=AGORA) is False
 
 
 def test_sessao_criada_e_apagada(engine):
