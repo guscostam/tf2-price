@@ -14,6 +14,7 @@ from tf2price.sources.steam_page import (
     SteamPageClient,
     parse_item_page,
     parse_page_price,
+    url_da_imagem,
 )
 
 FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "steam_listing_page.html"
@@ -101,6 +102,29 @@ def test_o_mesmo_efeito_aparece_em_precos_diferentes(pagina: ItemPage):
     )
     assert len(deep) == 2
     assert deep[0] < deep[1]
+
+
+def test_listagem_traz_o_icone_do_item():
+    """O icon_url já vem na página e era descartado.
+
+    Ele é por listagem, não por item: chapéu pintado tem ícone próprio, então
+    usar o de outra listagem mostraria a variante errada.
+    """
+    pagina = parse_item_page(_html(), NOME, 1.0)
+    assert pagina.listings[0].icon_url
+    assert len(pagina.listings[0].icon_url) > 40
+
+
+def test_url_da_imagem_monta_o_endereco_da_cdn():
+    assert url_da_imagem("abc123", "330x192").endswith("/economy/image/abc123/330x192")
+
+
+def test_listagem_sem_icone_nao_quebra():
+    """Ausência do campo é possível e não pode derrubar a página inteira."""
+    from tf2price.sources.steam_page import _icone
+
+    assert _icone({}) is None
+    assert _icone({"description": {}}) is None
 
 
 # --- livro de ofertas ----------------------------------------------------
