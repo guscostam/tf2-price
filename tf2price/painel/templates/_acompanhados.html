@@ -1,0 +1,27 @@
+{% if linhas %}
+<p class="nivel">acompanhados · {{ linhas|length }}</p>
+{% for l in linhas %}
+<div class="acompanhado{% if l.selecionado %} escolhido{% endif %}">
+  <button class="acompanhado-abrir" hx-get="/analise"
+          hx-vals='{"nome": {{ l.hash_name | tojson }}, "efeito": {{ l.efeito | tojson }}}'
+          hx-target="#analise">
+    <span class="acompanhado-nome">{{ l.hash_name }}</span>
+    <span class="acompanhado-efeito">{{ l.efeito }}</span>
+    {% if l.preco %}
+    <span class="acompanhado-preco">{{ l.preco }}{% if l.premio %} · {{ l.premio }}× {% endif %}</span>
+    <span class="acompanhado-idade">retrato de {{ l.idade }}</span>
+    {% else %}
+    <span class="acompanhado-vazio">{{ l.motivo }}</span>
+    {% endif %}
+  </button>
+  <form hx-post="/atualizar/{{ l.hash_name | urlencode }}" hx-target="#acompanhados" class="acompanhado-acao">
+    <button type="submit" title="Atualizar o retrato deste item">↻</button>
+  </form>
+  <form hx-delete="/acompanhar/{{ l.id }}" hx-target="#acompanhados" class="acompanhado-acao">
+    <button type="submit" title="Parar de acompanhar">×</button>
+  </form>
+</div>
+{% endfor %}
+{% else %}
+<p class="vazio">nada acompanhado ainda</p>
+{% endif %}

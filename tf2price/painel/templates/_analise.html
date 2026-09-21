@@ -30,6 +30,12 @@
     <span class="em-chaves">{{ a.price_in_keys|chaves }} chaves · listagem mais barata deste efeito</span>
   </div>
 
+  <form hx-post="/acompanhar" hx-target="#acompanhados" class="acompanhar">
+    <input type="hidden" name="nome" value="{{ a.hash_name }}">
+    <input type="hidden" name="efeito" value="{{ a.effect }}">
+    <button type="submit">acompanhar este efeito</button>
+  </form>
+
   <section class="bloco" data-nivel="efeito">
     <div class="niveis"><span class="tag tag-efeito">este efeito</span></div>
     <h3>À venda agora</h3>

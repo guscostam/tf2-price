@@ -22,6 +22,11 @@
   <div id="itens" class="opcoes"></div>
 </section>
 
+{# O invólucro com `id="acompanhados"` e o layout de duas colunas ficam para
+   a Task 6; aqui só garante que a lista já apareça em algum lugar da
+   página, sem esperar a próxima task para a coluna esquerda ter conteúdo. #}
+{% include "_acompanhados.html" %}
+
 <section class="campo" data-campo="efeito">
   <span class="rotulo">Efeito</span>
   <div id="efeitos" class="opcoes colunas">

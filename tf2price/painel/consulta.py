@@ -7,16 +7,19 @@ só há transporte e apresentação. O que decide número continua em
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 
 from tf2price import db
+from tf2price.acompanhamento import repositorio as acompanhamento
 from tf2price.contas.modelo import Usuario
 from tf2price.domain.identity import is_unusual_name
 from tf2price.domain.money import Brl
@@ -24,6 +27,8 @@ from tf2price.efeitos import arte as arte_dos_efeitos
 from tf2price.lookup.analysis import analyse, effects_available
 from tf2price.painel import sessao as ses
 from tf2price.painel.templates import TEMPLATES
+from tf2price.preco import repositorio as preco_repo
+from tf2price.preco import serial
 from tf2price.preco.retrato import Retratos
 from tf2price.sources.backpacktf import BackpackTfClient, PriceIndex
 from tf2price.sources.ratelimit import RateLimiter
@@ -195,11 +200,19 @@ def _contexto(request: Request) -> Contexto:
 def painel(request: Request, usuario: Usuario = Depends(ses.usuario_obrigatorio)):
     # A cotação pode não ter carregado ainda; o painel abre assim mesmo e o
     # timbre diz isso, em vez de a aplicação não subir.
-    cotacao = _contexto(request).cotacao.obter()
+    contexto = _contexto(request)
+    cotacao = contexto.cotacao.obter()
+    # Índice e cotação resolvidos antes de abrir a conexão, pelo mesmo motivo
+    # de `_coluna`: os dois podem ir à rede na primeira chamada, e a
+    # transação da lista de acompanhados tem de ser curta.
+    indice = contexto.indice.obter()
+    agora = db.agora()
+    with request.app.state.engine.begin() as conn:
+        linhas = linhas_acompanhadas(conn, cotacao, indice, usuario.id, agora)
     return TEMPLATES.TemplateResponse(
         request=request,
         name="painel.html",
-        context={"usuario": usuario, "cotacao": cotacao},
+        context={"usuario": usuario, "cotacao": cotacao, "linhas": linhas},
     )
 
 
@@ -277,6 +290,112 @@ def rota_analise(request: Request, nome: str, efeito: str):
             ),
         },
     )
+
+
+@dataclass(frozen=True)
+class LinhaAcompanhada:
+    id: int
+    hash_name: str
+    efeito: str
+    preco: Brl | None
+    premio: str | None
+    idade: str | None
+    motivo: str | None
+    selecionado: bool = False
+
+
+def _idade_por_extenso(quando: datetime, agora: datetime) -> str:
+    minutos = int((agora - quando).total_seconds() // 60)
+    if minutos < 1:
+        return "agora"
+    if minutos < 60:
+        return f"{minutos} min"
+    horas = minutos // 60
+    return f"{horas} h" if horas < 24 else f"{horas // 24} d"
+
+
+def linhas_acompanhadas(conn, cotacao, indice, usuario_id, agora) -> list[LinhaAcompanhada]:
+    """O que a coluna esquerda mostra, calculado na hora.
+
+    Recebe a cotação e o índice já resolvidos, e não o `Contexto`: os dois são
+    carregados sob demanda e podem ir à rede na primeira chamada. Resolvê-los
+    aqui dentro seguraria a conexão do banco durante esse download, que é
+    justamente o que `test_transacao.py` proíbe.
+
+    Nada de preço guardado: a linha sai do mesmo `analyse` do detalhe, então a
+    esquerda nunca discorda da direita.
+    """
+    saida = []
+    for a in acompanhamento.listar(conn, usuario_id):
+        guardado = preco_repo.ler(conn, a.hash_name)
+        if guardado is None or cotacao is None:
+            saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito, None, None, None,
+                                          "sem dado ainda"))
+            continue
+        dados, buscado_em = guardado
+        idade = _idade_por_extenso(buscado_em, agora)
+        try:
+            pagina = serial.de_dict(json.loads(dados))
+            resultado = analyse(pagina, a.efeito, indice, cotacao.key_brl)
+        except (ValueError, KeyError, TypeError):
+            saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito, None, None, idade,
+                                          "sem listagem deste efeito agora"))
+            continue
+        premio = None
+        if resultado.patient.available and resultado.patient.fair_value.cents > 0:
+            premio = f"{resultado.cheapest.total_price.cents / resultado.patient.fair_value.cents:.1f}"
+        saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito,
+                                      resultado.cheapest.total_price, premio, idade, None))
+    return saida
+
+
+def _coluna(request: Request, usuario_id: int) -> HTMLResponse:
+    """Monta a coluna esquerda, resolvendo a rede antes de tocar no banco."""
+    contexto = _contexto(request)
+    cotacao = contexto.cotacao.obter()
+    indice = contexto.indice.obter()
+    agora = db.agora()
+    with request.app.state.engine.begin() as conn:
+        linhas = linhas_acompanhadas(conn, cotacao, indice, usuario_id, agora)
+    return TEMPLATES.TemplateResponse(
+        request=request, name="_acompanhados.html", context={"linhas": linhas}
+    )
+
+
+# Nenhuma destas três rotas declara `conn`: cada uma abre a sua transação
+# curta, e `_coluna` pode ir à rede antes de abrir a dela. Declarar `conn`
+# como dependência prenderia a conexão durante esse instante.
+@ROTEADOR.post("/acompanhar", response_class=HTMLResponse,
+               dependencies=[Depends(ses.mesma_origem)])
+def acompanhar(request: Request, nome: str = Form(...), efeito: str = Form(...),
+               usuario: Usuario = Depends(ses.usuario_obrigatorio)):
+    with request.app.state.engine.begin() as conn:
+        acompanhamento.adicionar(conn, usuario_id=usuario.id, hash_name=nome,
+                                 efeito=efeito, quando=db.agora())
+    return _coluna(request, usuario.id)
+
+
+@ROTEADOR.delete("/acompanhar/{ident}", response_class=HTMLResponse,
+                 dependencies=[Depends(ses.mesma_origem)])
+def parar_de_acompanhar(request: Request, ident: int,
+                        usuario: Usuario = Depends(ses.usuario_obrigatorio)):
+    with request.app.state.engine.begin() as conn:
+        acompanhamento.remover(conn, usuario.id, ident)
+    return _coluna(request, usuario.id)
+
+
+@ROTEADOR.post("/atualizar/{hash_name:path}", response_class=HTMLResponse,
+               dependencies=[Depends(ses.mesma_origem)])
+def atualizar(request: Request, hash_name: str,
+              usuario: Usuario = Depends(ses.usuario_obrigatorio)):
+    contexto = _contexto(request)
+    cotacao = contexto.cotacao.obter()
+    if cotacao is not None:
+        contexto.retratos.obter(
+            request.app.state.engine, hash_name, cotacao.usd_to_brl,
+            db.agora(), forcar=True,
+        )
+    return _coluna(request, usuario.id)
 
 
 def construir_contexto() -> Contexto:
