@@ -239,12 +239,15 @@ def test_retrato_de_versao_antiga_avisa_que_sera_regravado(engine):
 # --- uma linha ruim não pode trancar ninguém para fora (achado N3) --------
 
 
-def test_linha_com_erro_inesperado_nao_derruba_o_painel(engine, monkeypatch):
+def test_linha_com_erro_inesperado_nao_derruba_o_painel(engine, monkeypatch, capsys):
     """A separação dos `except` (ValueError vs. o resto) está certa e não é
     revertida aqui: um `KeyError`/`TypeError` de uma linha ruim, sem uma
     rede de segurança final, derrubaria `GET /` e `DELETE /acompanhar`
     inteiros — e a pessoa não teria como remover justo o item que quebra,
-    trancada para fora."""
+    trancada para fora.
+
+    Mas a rede de segurança tem de logar: uma linha educada na tela e nada
+    no log do Railway é como este bug ficaria invisível para sempre."""
     from tf2price.painel import consulta
 
     paginas = _PaginasFalsas(_pagina())
@@ -262,6 +265,7 @@ def test_linha_com_erro_inesperado_nao_derruba_o_painel(engine, monkeypatch):
     r = cliente.get("/")
     assert r.status_code == 200
     assert "não consegui avaliar esta linha" in r.text
+    assert "KeyError" in capsys.readouterr().out
 
     with engine.begin() as conn:
         eu = contas.usuario_por_nome(conn, "gusco")

@@ -304,15 +304,19 @@ class SteamPageClient:
                     ultimo = resposta.status_code
                     continue
                 resposta.raise_for_status()
-            except httpx.HTTPError as erro:
-                # Erro de transporte (timeout, conexão) OU o HTTPStatusError
-                # que `raise_for_status()` levanta para um 4xx que não é 429:
-                # nenhum dos dois é RuntimeError, e as três rotas que chamam
-                # esta função só capturam (RuntimeError, PageStructureError) —
-                # sem este `except`, um `httpx.ReadTimeout` subia cru e virava
-                # 500 na tela. Conta como mais uma tentativa gasta do mesmo
-                # backoff que já existe para 429/5xx; saneada porque a
-                # mensagem de um HTTPStatusError carrega a URL do pedido.
+            except httpx.HTTPStatusError as erro:
+                # `raise_for_status()` só levanta isto para um 4xx que não é
+                # 429 (429 e 5xx já deram `continue` acima) — e um 4xx não é
+                # retentável: tentar de novo não muda um 403 (bloqueio) nem
+                # um 404 (item deslistado). Falha na hora, saneada porque a
+                # mensagem de um HTTPStatusError carrega a URL do pedido; as
+                # três rotas que chamam esta função capturam RuntimeError.
+                raise RuntimeError(f"Steam recusou: {mensagem_saneada(erro)}") from erro
+            except httpx.RequestError as erro:
+                # Erro de transporte (timeout, conexão) — este sim é
+                # retentável: sem este `except`, um `httpx.ReadTimeout` subia
+                # cru e virava 500 na tela. Conta como mais uma tentativa
+                # gasta do mesmo backoff que já existe para 429/5xx.
                 ultimo = mensagem_saneada(erro)
                 continue
             return parse_item_page(resposta.text, hash_name, usd_to_brl)

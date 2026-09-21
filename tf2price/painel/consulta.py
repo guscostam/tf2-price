@@ -460,12 +460,23 @@ def linhas_acompanhadas(
             saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito, None, None, idade,
                                           "sem listagem deste efeito agora", selecionado=marcado))
             continue
-        except Exception:
+        except Exception as erro:
             # Rede de segurança por linha, não reversão da separação acima:
             # esta função é o caminho crítico de `GET /` e de
             # `DELETE /acompanhar`. Um `KeyError`/`TypeError` de uma linha
             # ruim sem isto derrubaria o painel inteiro — e trancaria a
             # pessoa para fora de remover justo o item que quebrou.
+            #
+            # Mas rede de segurança silenciosa é rede de segurança que
+            # esconde o bug para sempre: `_registra_falha_sob_demanda`, logo
+            # acima neste arquivo, já tomou essa decisão para o outro
+            # `except Exception` do módulo, com o mesmo argumento. O print
+            # é o que o Railway capta no log do serviço.
+            print(
+                f"[linha-acompanhada] {a.hash_name} ({a.efeito}): "
+                f"{type(erro).__name__}: {mensagem_saneada(erro)}",
+                flush=True,
+            )
             saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito, None, None, idade,
                                           "não consegui avaliar esta linha", selecionado=marcado))
             continue

@@ -11,19 +11,9 @@
   {# Mesmo formato do ramo de sucesso (`_analise.html`): a idade do retrato
      e o aviso de limitação não podem sumir só porque o efeito não está à
      venda nesta página — a ausência é uma leitura sobre um retrato que tem
-     idade igual a qualquer outra. #}
-  <div class="carimbo{{ ' carimbo-limitando' if retrato_limitando else '' }}">
-    Steam
-    <b>{{ retrato_idade }}</b>
-    {{ 'Steam limitando — retrato congelado' if retrato_limitando else 'retrato' }}
-  </div>
-  {% if retrato_limitando %}
-  <p class="nota">
-    † A Steam está recusando buscas agora (limite de requisições). O que você
-    vê acima é o último retrato guardado, com <b>{{ retrato_idade }}</b> —
-    não o preço deste minuto.
-  </p>
-  {% endif %}
+     idade igual a qualquer outra. Mesmo include de `_analise.html`, ver o
+     comentário lá sobre por que o carimbo não pode viver em duas cópias. #}
+  {% include "_carimbo_steam.html" %}
   {% else %}
   <p class="vazio">aguardando efeito</p>
   {% endif %}

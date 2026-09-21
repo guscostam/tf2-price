@@ -261,8 +261,19 @@ def test_timeout_esporadico_e_absorvido_pelo_backoff():
 
 def test_4xx_que_nao_e_429_tambem_vira_runtimeerror():
     """`raise_for_status()` levanta `httpx.HTTPStatusError` para um 403, por
-    exemplo — também não é `RuntimeError` por si só."""
+    exemplo — também não é `RuntimeError` por si só.
+
+    Conta as tentativas, e não só o tipo da exceção: um 403 ou 404 não é
+    retentável (o pedido não vai mudar de resultado tentando de novo), e uma
+    versão anterior deste código retentava mesmo assim porque um `except
+    httpx.HTTPError` largo também captura `HTTPStatusError`. Sem contar
+    `tentativas["n"]`, esse regressão passava por este teste sem ser notada —
+    `sleep=lambda _: None` e `min_interval_s=0.0` escondem o custo em tempo,
+    mas não escondem o número de requisições."""
+    tentativas = {"n": 0}
+
     def handler(request: httpx.Request) -> httpx.Response:
+        tentativas["n"] += 1
         return httpx.Response(403, text="")
 
     cliente = SteamPageClient(
@@ -273,6 +284,8 @@ def test_4xx_que_nao_e_429_tambem_vira_runtimeerror():
 
     with pytest.raises(RuntimeError):
         cliente.item_page(NOME, 1.0)
+
+    assert tentativas["n"] == 1
 
 
 # --- moeda declarada pelo payload ----------------------------------------

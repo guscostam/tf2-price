@@ -1,0 +1,17 @@
+{# O carimbo da Steam: data um único número (a idade do retrato) e avisa
+   quando a Steam está limitando. Usado por `_analise.html` (avaliação
+   normal) e `_efeitos.html` (efeito ausente na página atual) — os dois
+   contextos já resolvem `retrato_idade` e `retrato_limitando` antes de
+   incluir este parcial, com os mesmos nomes. #}
+<div class="carimbo{{ ' carimbo-limitando' if retrato_limitando else '' }}">
+  Steam
+  <b>{{ retrato_idade }}</b>
+  {{ 'Steam limitando — retrato congelado' if retrato_limitando else 'retrato' }}
+</div>
+{% if retrato_limitando %}
+<p class="nota">
+  † A Steam está recusando buscas agora (limite de requisições). O que você
+  vê acima é o último retrato guardado, com <b>{{ retrato_idade }}</b> —
+  não o preço deste minuto.
+</p>
+{% endif %}

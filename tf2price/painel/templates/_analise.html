@@ -27,19 +27,13 @@
   {# A idade do retrato da STEAM — diferente da idade da backpack.tf, lá
      embaixo no bloco "Saída paciente". As duas datam fontes diferentes, e
      confundi-las é como mostrar o preço de outro efeito: os números acima
-     (o que você paga) são desta idade, não daquela. #}
-  <div class="carimbo{{ ' carimbo-limitando' if retrato_limitando else '' }}">
-    Steam
-    <b>{{ retrato_idade }}</b>
-    {{ 'Steam limitando — retrato congelado' if retrato_limitando else 'retrato' }}
-  </div>
-  {% if retrato_limitando %}
-  <p class="nota">
-    † A Steam está recusando buscas agora (limite de requisições). O que você
-    vê acima é o último retrato guardado, com <b>{{ retrato_idade }}</b> —
-    não o preço deste minuto.
-  </p>
-  {% endif %}
+     (o que você paga) são desta idade, não daquela.
+
+     O carimbo em si (o `<div>` e a nota de limitação) mora em
+     `_carimbo_steam.html`, incluído aqui e em `_efeitos.html` — as duas
+     cópias byte a byte já divergiram uma vez, e o trabalho inteiro deste
+     bloco é datar um número; a segunda cópia esquecida mentiria calada. #}
+  {% include "_carimbo_steam.html" %}
 
   <div class="pago">
     <span class="rotulo">você paga</span>
