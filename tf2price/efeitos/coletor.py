@@ -28,7 +28,10 @@ PORTA = 8765
 FONTE = "https://backpack.tf/images/440/particles/{id}_188x188.png"
 # Same-origin: o fetch da própria página do coletor não manda `Origin`.
 # Qualquer outra aba aberta no navegador manda, e é a que recusamos.
-ORIGEM_PERMITIDA = f"http://127.0.0.1:{PORTA}"
+# Duas, porque as duas chegam aqui: quem digita `localhost` e quem digita
+# `127.0.0.1` são a mesma pessoa, e recusar uma delas faria a coleta gravar
+# zero arquivo enquanto a barra de progresso avança normalmente.
+ORIGENS_PERMITIDAS = (f"http://127.0.0.1:{PORTA}", f"http://localhost:{PORTA}")
 
 
 def ids_a_coletar(effects_path: Path | None = None) -> list[int]:
@@ -95,6 +98,7 @@ document.getElementById("ir").onclick = async () => {
   barra.max = ids.length;
   let vieram = 0;
   const faltaram = [];
+  const recusados = [];
   for (let i = 0; i < ids.length; i++) {
     const id = ids[i];
     try {
@@ -106,16 +110,20 @@ document.getElementById("ir").onclick = async () => {
         c.width = bmp.width; c.height = bmp.height;
         c.getContext("2d").drawImage(bmp, 0, 0);
         const webp = await new Promise(res => c.toBlob(res, "image/webp", 0.85));
-        await fetch(`/gravar/${id}`, { method: "POST", body: webp });
-        vieram++;
+        // Conferir a resposta: sem isto, um POST recusado contaria como
+        // gravado e o relatório mentiria com a barra cheia.
+        const g = await fetch(`/gravar/${id}`, { method: "POST", body: webp });
+        if (!g.ok) { recusados.push(id); } else { vieram++; }
       }
     } catch (e) { faltaram.push(id); }
     barra.value = i + 1;
     conta.textContent = `${i + 1} de ${ids.length} — ${vieram} gravadas`;
     await new Promise(r => setTimeout(r, 300));
   }
-  document.getElementById("faltaram").textContent =
-    faltaram.length ? `sem arte na fonte (${faltaram.length}): ${faltaram.join(", ")}` : "todas vieram";
+  const partes = [];
+  if (faltaram.length) partes.push(`sem arte na fonte (${faltaram.length}): ${faltaram.join(", ")}`);
+  if (recusados.length) partes.push(`RECUSADAS PELO SERVIDOR (${recusados.length}) — algo está errado: ${recusados.join(", ")}`);
+  document.getElementById("faltaram").textContent = partes.length ? partes.join(" | ") : "todas vieram";
   await fetch("/fim", { method: "POST", body: JSON.stringify(faltaram) });
 };
 </script>
@@ -137,7 +145,7 @@ class _Tratador(BaseHTTPRequestHandler):
         # `\d+.webp` (sem escrita fora do diretório), mas isto ainda seria
         # escrita não solicitada; recusamos quem não é a própria página.
         origem = self.headers.get("Origin")
-        if origem is not None and origem != ORIGEM_PERMITIDA:
+        if origem is not None and origem not in ORIGENS_PERMITIDAS:
             self.send_response(403)
             self.end_headers()
             return
