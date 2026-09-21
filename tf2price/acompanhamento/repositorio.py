@@ -25,6 +25,27 @@ class Acompanhado:
     criado_em: datetime
 
 
+def _trio_ja_existe(
+    conn: Connection, *, usuario_id: int, hash_name: str, efeito: str
+) -> bool:
+    """Verifica se o trio já está na tabela.
+
+    Usada após IntegrityError para distinguir entre violação de chave única
+    (duplicata) e violação de chave estrangeira (usuario_id inválido). A
+    mensagem do driver não permite essa distinção de forma portável entre
+    SQLite e Postgres, então consultamos o banco. Se o trio está lá, o erro
+    foi duplicata; se não está, foi outro erro (p.ex. FK) e deve ser relançado.
+    """
+    resultado = conn.execute(
+        select(db.acompanhado).where(
+            db.acompanhado.c.usuario_id == usuario_id,
+            db.acompanhado.c.hash_name == hash_name,
+            db.acompanhado.c.efeito == efeito,
+        )
+    ).fetchone()
+    return resultado is not None
+
+
 def adicionar(
     conn: Connection, *, usuario_id: int, hash_name: str, efeito: str, quando: datetime
 ) -> int | None:
@@ -43,7 +64,12 @@ def adicionar(
                 )
             )
     except IntegrityError:
-        return None
+        # IntegrityError é amplo: captura tanto duplicata (chave única) quanto
+        # violação de chave estrangeira. Verificamos se o trio realmente existe.
+        if _trio_ja_existe(conn, usuario_id=usuario_id, hash_name=hash_name, efeito=efeito):
+            return None
+        # Não era duplicata: relança o erro original (p.ex. FK inválida).
+        raise
     return int(resultado.inserted_primary_key[0])
 
 
