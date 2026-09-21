@@ -235,8 +235,27 @@ def buscar(request: Request, q: str = ""):
     )
 
 
+def _contexto_da_analise(resultado, efeito: str) -> dict[str, Any]:
+    """Contexto de `_analise.html`, comum a `/analise` e a `/efeitos` (esta
+    quando o clique já pede um efeito aberto, como o de um acompanhado)."""
+    return {
+        "a": resultado,
+        "arte": arte_dos_efeitos.url_do_efeito(efeito),
+        # O ícone é o da listagem mais barata deste efeito: chapéu pintado
+        # tem ícone próprio, e o de outra listagem seria outra variante.
+        "chapeu": (
+            url_da_imagem(resultado.cheapest.icon_url)
+            if resultado.cheapest.icon_url
+            else None
+        ),
+    }
+
+
+SEM_LISTAGEM_DO_EFEITO = "sem listagem deste efeito agora"
+
+
 @ROTEADOR.get("/efeitos", response_class=HTMLResponse)
-def efeitos(request: Request, nome: str):
+def efeitos(request: Request, nome: str, efeito: str = ""):
     contexto = _contexto(request)
     cotacao = contexto.cotacao.obter()
     if cotacao is None:
@@ -249,10 +268,28 @@ def efeitos(request: Request, nome: str):
         return _erro(request, str(erro))
     if leitura.pagina is None:
         return _erro(request, SEM_RETRATO)
+    pagina = leitura.pagina
+    contexto_analise: dict[str, Any] = {}
+    if efeito:
+        # O botão de um acompanhado pede a lista e a avaliação num só clique.
+        # Se o efeito já não está à venda nesta página, `analyse` levanta
+        # ValueError; a lista aparece normal e a avaliação avisa a ausência —
+        # nunca o preço de outro efeito, que vale outra ordem de grandeza.
+        try:
+            resultado = analyse(pagina, efeito, contexto.indice.obter(), cotacao.key_brl)
+        except ValueError:
+            contexto_analise = {"efeito_ausente": SEM_LISTAGEM_DO_EFEITO}
+        else:
+            contexto_analise = _contexto_da_analise(resultado, efeito)
     return TEMPLATES.TemplateResponse(
         request=request,
         name="_efeitos.html",
-        context={"nome": nome, "efeitos": effects_available(leitura.pagina)},
+        context={
+            "nome": nome,
+            "efeitos": effects_available(pagina),
+            "efeito_atual": efeito,
+            **contexto_analise,
+        },
     )
 
 
@@ -278,17 +315,7 @@ def rota_analise(request: Request, nome: str, efeito: str):
     return TEMPLATES.TemplateResponse(
         request=request,
         name="_analise.html",
-        context={
-            "a": resultado,
-            "arte": arte_dos_efeitos.url_do_efeito(efeito),
-            # O ícone é o da listagem mais barata deste efeito: chapéu pintado
-            # tem ícone próprio, e o de outra listagem seria outra variante.
-            "chapeu": (
-                url_da_imagem(resultado.cheapest.icon_url)
-                if resultado.cheapest.icon_url
-                else None
-            ),
-        },
+        context=_contexto_da_analise(resultado, efeito),
     )
 
 

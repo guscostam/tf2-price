@@ -1,12 +1,22 @@
-{# Trocar de item apaga a avaliação do item anterior. #}
+{# Trocar de item apaga a avaliação do item anterior — exceto quando quem
+   pediu a lista já veio com um efeito escolhido (o clique num acompanhado):
+   aí a avaliação daquele efeito entra aqui, reaproveitando `_analise.html`.
+   Se o efeito não tiver mais listagem, `efeito_ausente` avisa isso; nunca a
+   avaliação de outro efeito fica no lugar. #}
 <div id="analise" aria-live="polite" hx-swap-oob="true">
+  {% if a %}
+  {% include "_analise.html" %}
+  {% elif efeito_ausente %}
+  <p class="vazio">{{ efeito_ausente }}</p>
+  {% else %}
   <p class="vazio">aguardando efeito</p>
+  {% endif %}
 </div>
 {% if efeitos %}
 {% for e in efeitos %}
 <button hx-get="/analise"
         hx-vals='{"nome": {{ nome | tojson }}, "efeito": {{ e | tojson }}}'
-        hx-target="#analise">{{ e }}</button>
+        hx-target="#analise"{% if e == efeito_atual %} class="escolhido"{% endif %}>{{ e }}</button>
 {% endfor %}
 {% else %}
 <p class="vazio">nenhuma listagem com efeito legível nesta página</p>

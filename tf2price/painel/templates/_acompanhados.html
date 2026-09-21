@@ -2,9 +2,12 @@
 <p class="nivel">acompanhados · {{ linhas|length }}</p>
 {% for l in linhas %}
 <div class="acompanhado{% if l.selecionado %} escolhido{% endif %}">
-  <button class="acompanhado-abrir" hx-get="/analise"
+  {# /efeitos (não /analise) porque o clique tem de preencher os dois blocos:
+     sem isso, EFEITO ficava dizendo "aguardando item" ao lado de uma
+     avaliação já preenchida. #}
+  <button class="acompanhado-abrir" hx-get="/efeitos"
           hx-vals='{"nome": {{ l.hash_name | tojson }}, "efeito": {{ l.efeito | tojson }}}'
-          hx-target="#analise">
+          hx-target="#efeitos">
     <span class="acompanhado-nome">{{ l.hash_name }}</span>
     <span class="acompanhado-efeito">{{ l.efeito }}</span>
     {% if l.preco %}

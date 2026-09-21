@@ -160,6 +160,10 @@
     .opcoes button:hover { background: rgba(228, 231, 236, .07); border-color: var(--tinta); }
     .opcoes button[data-escolhido] { background: var(--tinta); color: var(--slip); }
     .opcoes button[data-escolhido]::before { background: var(--slip); border-color: var(--slip); }
+    /* Efeito aberto no bloco AVALIAÇÃO: mesmo token do acompanhado
+       selecionado (.acompanhado.escolhido), não uma cor nova. */
+    .opcoes button.escolhido { border-color: var(--carimbo); }
+    .opcoes button.escolhido::before { background: var(--carimbo); border-color: var(--carimbo); }
 
     .opcoes .vazio { grid-column: 1 / -1; }
     .vazio {

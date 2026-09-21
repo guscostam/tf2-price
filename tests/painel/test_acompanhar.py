@@ -75,3 +75,45 @@ def test_item_sem_retrato_diz_que_nao_ha_dado_ainda(engine):
     cliente = cliente_logado(engine, _contexto())
     cliente.post("/acompanhar", data={"nome": "Unusual Chapeu Nunca Aberto", "efeito": "Smoking"})
     assert "sem dado ainda" in cliente.get("/").text
+
+
+def test_abrir_acompanhado_com_efeito_a_venda_preenche_efeito_e_avaliacao(engine):
+    """Reproduz o clique num acompanhado: os dois blocos têm que fechar juntos.
+
+    Antes da correção o botão chamava `/analise` e pulava `/efeitos`; a
+    avaliação vinha certa, mas o bloco EFEITO continuava dizendo "aguardando
+    item" — a tela se contradizendo.
+    """
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+
+    r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Deep Dive"})
+
+    assert r.status_code == 200
+    assert "aguardando item" not in r.text
+    assert "aguardando efeito" not in r.text
+    for efeito in ("Deep Dive", "Midnight Whirlwind", "Screaming Tiger", "Silver Cyclone"):
+        assert efeito in r.text
+    assert "180,44" in r.text  # listagem mais barata do efeito, de _analise.html
+    assert 'id="analise"' in r.text and 'hx-swap-oob="true"' in r.text
+    # o efeito aberto fica marcado na lista, e só ele
+    assert r.text.count('class="escolhido"') == 1
+
+
+def test_abrir_acompanhado_com_efeito_sumido_mostra_lista_e_avisa_ausencia(engine):
+    """O efeito acompanhado pode não estar mais à venda nesta página.
+
+    A lista de efeitos tem que aparecer normal, e a avaliação tem que avisar
+    a ausência — nunca mostrar o preço de outro efeito no lugar: o mesmo
+    chapéu com outro efeito vale outra ordem de grandeza.
+    """
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Burning Flames"})
+
+    r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Burning Flames"})
+
+    assert r.status_code == 200
+    for efeito in ("Deep Dive", "Midnight Whirlwind", "Screaming Tiger", "Silver Cyclone"):
+        assert efeito in r.text
+    assert "sem listagem deste efeito agora" in r.text
+    assert "180,44" not in r.text  # preço de Deep Dive não pode aparecer no lugar
