@@ -21,3 +21,16 @@ def test_gravar_recusa_id_invalido(tmp_path):
 
     with pytest.raises(ValueError):
         coletor.gravar(-1, b"x", tmp_path)
+
+
+def test_verificar_agrupa_apenas_bytes_repetidos(tmp_path):
+    """Dois arquivos com os mesmos bytes são placeholder; o diferente, não."""
+    coletor.gravar(1, b"placeholder-generico", tmp_path)
+    coletor.gravar(2, b"placeholder-generico", tmp_path)
+    coletor.gravar(3, b"arte de verdade", tmp_path)
+
+    grupos = coletor.verificar(tmp_path)
+
+    assert len(grupos) == 1
+    (ids,) = grupos.values()
+    assert sorted(ids) == [1, 2]
