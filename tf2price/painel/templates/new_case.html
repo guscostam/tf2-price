@@ -4,14 +4,14 @@
 {% block page_title %}New Case{% endblock %}
 {% block body_attrs %} data-case-page{% endblock %}
 {% block content %}
-<div data-page="new-case" id="case-workflow" class="case-workflow">
+<div data-page="new-case" id="case-workflow" class="case-workflow" hx-indicator="#case-loading">
   <section class="dossier case-search" aria-labelledby="search-title">
     <p class="dossier-id">FILE / NEW</p>
     <h2 id="search-title">Identify the item</h2>
     <label for="q">Steam Market name</label>
     <input id="q" name="q" autocomplete="off" placeholder="e.g. Chairholder"
            hx-get="/buscar" hx-target="#items" hx-trigger="keyup changed delay:400ms"
-           hx-sync="#case-workflow:replace" hx-indicator="#case-loading"
+           hx-sync="#case-workflow:replace"
            data-case-request="search">
     <div id="case-loading" class="loading-indicator" role="status" aria-live="polite">
       <span class="loading-bar" aria-hidden="true"></span><span>Loading evidence</span>

@@ -18,7 +18,7 @@
 <button type="button" hx-get="/analise"
         hx-vals='{"nome": {{ nome|tojson }}, "efeito": {{ e|tojson }}}'
         hx-target="#analysis" hx-sync="#case-workflow:replace"
-        data-case-request="effect"{% if e == efeito_atual %} class="is-selected"{% endif %}>{{ e }}</button>
+        data-case-request="effect"{% if e == efeito_atual %} class="is-selected" aria-pressed="true"{% else %} aria-pressed="false"{% endif %}>{{ e }}</button>
 {% endfor %}
 {% else %}
 <p class="empty-state">No readable effect listings were found</p>

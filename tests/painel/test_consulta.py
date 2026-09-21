@@ -73,6 +73,16 @@ def test_fragmentos_carregam_identidade_e_limpeza_em_ingles(cliente):
     assert "Waiting for an effect" in busca
 
 
+def test_escolhas_de_efeito_expõem_selecao_unica_para_tecnologia_assistiva(cliente):
+    efeitos = cliente.get(
+        "/efeitos", params={"nome": NOME, "efeito": "Deep Dive"}
+    ).text
+    assert efeitos.count('data-case-request="effect"') == 4
+    assert efeitos.count('aria-pressed="true"') == 1
+    assert efeitos.count('aria-pressed="false"') == 3
+    assert 'class="is-selected" aria-pressed="true"' in efeitos
+
+
 def test_busca_vazia_nao_chama_a_steam(cliente):
     cliente.get("/buscar", params={"q": "  "})
     assert cliente.ctx.steam.chamadas == 0

@@ -30,16 +30,24 @@
       empty("analysis", "Waiting for an effect");
     } else if (level === "item") {
       empty("analysis", "Waiting for an effect");
+    } else if (level === "effect") {
+      empty("analysis", "Loading evidence");
     }
   });
 
   document.addEventListener("click", (event) => {
     const choice = event.target.closest(".choice-list button");
     if (!choice) return;
+    const isEffect = choice.dataset.caseRequest === "effect";
     choice.parentElement.querySelectorAll("button").forEach((button) => {
       button.removeAttribute("data-selected");
+      button.classList.remove("is-selected");
+      if (isEffect && button.dataset.caseRequest === "effect") {
+        button.setAttribute("aria-pressed", "false");
+      }
     });
     choice.setAttribute("data-selected", "");
+    if (isEffect) choice.setAttribute("aria-pressed", "true");
   });
 
   document.addEventListener("visibilitychange", () => {

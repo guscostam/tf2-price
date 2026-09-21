@@ -141,7 +141,11 @@ def test_new_case_preserva_indicador_e_destinos_htmx(engine):
     cliente = cliente_logado(engine, _contexto())
     texto = cliente.get("/cases/new").text
 
-    assert 'hx-indicator="#case-loading"' in texto
+    assert texto.count('hx-indicator="#case-loading"') == 1
+    assert (
+        'id="case-workflow" class="case-workflow" '
+        'hx-indicator="#case-loading"'
+    ) in texto
     assert 'hx-get="/buscar" hx-target="#items"' in texto
     for destino in ("case-loading", "items", "acompanhados", "effects", "analysis"):
         assert f'id="{destino}"' in texto
