@@ -50,6 +50,55 @@ def test_acompanhar_guarda_e_aparece_na_lista(engine):
         assert len(repo.listar(conn, eu.id)) == 1
 
 
+def test_case_files_lists_saved_pair_with_real_age(engine):
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+
+    texto = cliente.get("/cases").text
+
+    assert NOME in texto and "Deep Dive" in texto
+    assert "Open case" in texto
+    assert "Refresh evidence" in texto
+    assert "Remove case" in texto
+
+
+def test_open_case_keeps_item_and_effect_together(engine):
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+
+    texto = cliente.get("/cases").text
+
+    assert "/cases/new?nome=" in texto
+    assert "efeito=Deep%20Dive" in texto or "efeito=Deep+Dive" in texto
+
+
+def test_remove_case_requires_explicit_confirmation(engine):
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+
+    texto = cliente.get("/cases").text
+
+    assert 'hx-confirm="Remove this case file?"' in texto
+
+
+def test_saving_a_case_does_not_load_the_price_index(engine):
+    class IndexAlreadyUnknown:
+        def em_memoria(self):
+            return None
+
+        def obter(self):
+            raise AssertionError("saving a case must not load backpack.tf")
+
+    contexto = _contexto()
+    contexto.indice = IndexAlreadyUnknown()
+
+    resposta = cliente_logado(engine, contexto).post(
+        "/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"}
+    )
+
+    assert resposta.status_code == 200
+
+
 def test_acompanhar_duas_vezes_nao_duplica(engine):
     cliente = cliente_logado(engine, _contexto())
     cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
@@ -152,7 +201,7 @@ def test_abrir_acompanhado_com_efeito_sumido_mostra_lista_e_avisa_ausencia(engin
 def test_efeito_ausente_mostra_a_idade_do_retrato(engine):
     """"sem listagem deste efeito agora" é uma afirmação sobre o PRESENTE,
     sentada em cima de um retrato que pode ter horas — o mesmo defeito já
-    corrigido em `_acompanhados.html` (achado I4), aqui no bloco da direita."""
+    coberto no partial dos Case Files (achado I4), aqui no bloco da direita."""
     paginas = _PaginasFalsas(_pagina())
     ctx = _contexto(paginas=paginas)
     ctx.retratos = Retratos(paginas)
@@ -209,7 +258,7 @@ def test_linha_sem_listagem_ainda_mostra_a_idade_do_retrato(engine):
     r = cliente.get("/cases/new")
 
     assert "No listings for this effect in the current snapshot" in r.text
-    assert 'class="acompanhado-idade"' in r.text
+    assert "Steam snapshot" in r.text
 
 
 # --- retrato de versão antiga não pode soar como "sumiu do mercado" (N9) --
@@ -294,12 +343,8 @@ def test_premio_desaparece_quando_a_referencia_da_bptf_esta_vencida(engine):
 
     r = cliente.get("/cases/new")
 
-    inicio = r.text.index('class="acompanhado-preco"')
-    trecho_do_preco = r.text[inicio:inicio + 200]
-    assert "×" not in trecho_do_preco
-    inicio_idade = r.text.index('class="acompanhado-idade"')
-    trecho_da_idade = r.text[inicio_idade:inicio_idade + 200]
-    assert "troca" not in trecho_da_idade
+    assert "Steam snapshot" in r.text
+    assert "backpack.tf reference" not in r.text
 
 
 def test_premio_mostra_a_idade_da_bptf_junto_da_idade_do_retrato(engine):
@@ -315,10 +360,8 @@ def test_premio_mostra_a_idade_da_bptf_junto_da_idade_do_retrato(engine):
 
     r = cliente.get("/cases/new")
 
-    assert "troca de 12 d" in r.text
-    inicio = r.text.index('class="acompanhado-preco"')
-    trecho_do_preco = r.text[inicio:inicio + 200]
-    assert "×" in trecho_do_preco
+    assert "Steam snapshot" in r.text
+    assert "backpack.tf reference · 12 d" in r.text
 
 
 # --- esquerda e direita concordam, sem aninhar (achado I6) -----------------
@@ -332,8 +375,8 @@ def test_efeitos_marca_a_linha_aberta_na_coluna_esquerda(engine):
     r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Deep Dive"})
 
     assert r.status_code == 200
-    assert r.text.count('class="acompanhado escolhido"') == 1
-    trecho = r.text[r.text.index('class="acompanhado escolhido"'):][:400]
+    assert r.text.count("case-file--selected") == 1
+    trecho = r.text[r.text.index("case-file--selected"):][:500]
     assert "Deep Dive" in trecho
     assert "Midnight Whirlwind" not in trecho
 
@@ -346,14 +389,14 @@ def test_efeitos_sem_efeito_nao_marca_nenhuma_linha(engine):
     r = cliente.get("/efeitos", params={"nome": NOME})
 
     assert r.status_code == 200
-    assert 'class="acompanhado escolhido"' not in r.text
+    assert "case-file--selected" not in r.text
 
 
-def test_efeitos_atualiza_acompanhados_sem_aninhar_o_involucro(engine):
-    """O id="acompanhados" mora no invólucro de `new_case.html`; o fragmento
-    `_acompanhados.html` não o declara. Se o fora-de-banda não carregasse o
+def test_efeitos_atualiza_case_files_sem_aninhar_o_involucro(engine):
+    """O id="case-files" mora no invólucro de `new_case.html`; o fragmento
+    `_case_files.html` não o declara. Se o fora-de-banda não carregasse o
     id (substituindo o invólucro inteiro), cada resposta aninharia um
-    `#acompanhados` dentro do outro.
+    `#case-files` dentro do outro.
 
     Estendido (achado N8) para cobrir também `/analise`: é a rota que os
     botões de efeito chamam (`_efeitos.html`), e ela também manda a coluna
@@ -365,7 +408,7 @@ def test_efeitos_atualiza_acompanhados_sem_aninhar_o_involucro(engine):
         for _ in range(2):
             r = cliente.get(rota, params={"nome": NOME, "efeito": "Deep Dive"})
             assert r.status_code == 200
-            assert r.text.count('id="acompanhados"') == 1
+            assert r.text.count('id="case-files"') == 1
 
 
 def test_analise_marca_a_linha_aberta_na_coluna_esquerda(engine):
@@ -381,14 +424,14 @@ def test_analise_marca_a_linha_aberta_na_coluna_esquerda(engine):
     r = cliente.get("/analise", params={"nome": NOME, "efeito": "Midnight Whirlwind"})
 
     assert r.status_code == 200
-    assert r.text.count('class="acompanhado escolhido"') == 1
-    trecho = r.text[r.text.index('class="acompanhado escolhido"'):][:400]
+    assert r.text.count("case-file--selected") == 1
+    trecho = r.text[r.text.index("case-file--selected"):][:500]
     assert "Midnight Whirlwind" in trecho
     assert "Deep Dive" not in trecho
 
 
 def test_efeitos_atualiza_o_preco_na_esquerda_quando_o_retrato_estava_vencido(engine):
-    """Antes da correção, `/efeitos` não devolvia `#acompanhados`: se o
+    """Antes da correção, `/efeitos` não devolvia os Case Files: se o
     retrato estava vencido e a busca trouxe um novo, a esquerda ficava com o
     preço velho ao lado do novo que a direita acabou de mostrar."""
     paginas = _PaginasFalsas(_pagina())
@@ -409,6 +452,6 @@ def test_efeitos_atualiza_o_preco_na_esquerda_quando_o_retrato_estava_vencido(en
     # (esquerda), concordando com a avaliação (direita, que já é coberta
     # por `test_efeitos_marca_a_linha_aberta_na_coluna_esquerda` e pelos
     # testes de `test_acompanhar.py` que checam "180,44" em `_analise.html`).
-    inicio = r.text.index('id="acompanhados"')
+    inicio = r.text.index('id="case-files"')
     trecho_esquerda = r.text[inicio:]
     assert "180,44" in trecho_esquerda

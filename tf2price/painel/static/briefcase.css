@@ -70,6 +70,24 @@ button:active { transform: translateY(1px); }
 .button:hover { background: var(--active-blue); }
 .button:active { transform: translateY(1px); }
 .button--primary { background: var(--rust-stamp); color: var(--paper); }
+.button--quiet { background: transparent; color: var(--paper); }
+.button--danger { background: transparent; color: var(--rust-stamp); }
+
+.case-files-list { display: grid; gap: .75rem; }
+.case-file { display: grid; grid-template-columns: minmax(12rem, 1.4fr) minmax(11rem, 1fr) auto; gap: 1rem; align-items: center; padding: 1rem; background: var(--ink-panel); border: 1px solid var(--ink-blue); }
+.case-file--selected { border-color: var(--warning); }
+.case-file__identity, .case-file__evidence { min-width: 0; }
+.case-file__item { margin: 0; font-family: var(--font-display); overflow-wrap: anywhere; }
+.case-file__effect { margin: .25rem 0 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
+.case-file__evidence strong { display: block; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.case-file__evidence p { margin: .25rem 0 0; color: var(--tinta-2); font-size: .82rem; }
+.case-file__evidence small { display: block; margin-top: .35rem; color: var(--tinta-2); font-family: var(--font-mono); line-height: 1.45; }
+.case-file__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
+.case-file__actions form { margin: 0; }
+.case-drawer .case-file { grid-template-columns: minmax(0, 1fr); }
+.case-drawer .case-file__actions { display: grid; justify-content: stretch; }
+.case-drawer .case-file__actions .button { width: 100%; }
+#case-files > .empty-state { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.25rem; background: var(--ink-panel); border: 1px dashed var(--ink-blue); }
 
 .overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 .sources-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
@@ -183,11 +201,16 @@ button:active { transform: translateY(1px); }
   .case-workflow { grid-template-columns: minmax(0, 1fr); }
   .case-search, .analysis-region, .case-drawer { grid-column: 1; }
   .case-drawer { grid-row: auto; position: static; }
+  .case-file { grid-template-columns: minmax(0, 1fr) minmax(11rem, auto); }
+  .case-file__actions { grid-column: 1 / -1; justify-content: flex-start; }
 }
 
 @media (max-width: 38rem) {
   .overview-grid { grid-template-columns: minmax(0, 1fr); }
   .source-evidence-list li { align-items: flex-start; flex-direction: column; gap: .25rem; }
+  .case-file { grid-template-columns: minmax(0, 1fr); }
+  .case-file__actions { grid-column: auto; display: grid; }
+  .case-file__actions .button { width: 100%; }
 }
 
 /* Existing lookup and authentication controls retain their visual mechanics. */
@@ -197,31 +220,6 @@ button:active { transform: translateY(1px); }
 .coluna-esquerda { border-right: 1px solid var(--linha); }
 .coluna-direita { min-width: 0; }
 
-.acompanhado {
-  display: grid; grid-template-columns: 1fr auto auto; gap: .2rem;
-  align-items: center; border: 1px solid var(--linha); margin-bottom: .3rem;
-}
-.acompanhado.escolhido { border-color: var(--carimbo); }
-.acompanhado-abrir {
-  display: flex; flex-direction: column; gap: .12rem; align-items: flex-start;
-  background: none; border: 0; padding: .5rem .6rem; cursor: pointer;
-  color: var(--tinta); text-align: left; width: 100%;
-}
-.acompanhado-abrir:hover { background: rgba(232, 225, 209, .07); }
-.acompanhado-nome { font-size: .85rem; }
-.acompanhado-efeito {
-  font-family: var(--mono); font-size: .64rem; letter-spacing: .1em;
-  text-transform: uppercase; color: var(--tinta-2);
-}
-.acompanhado-preco { font-family: var(--mono); font-size: .8rem; font-weight: 600; }
-.acompanhado-idade, .acompanhado-vazio {
-  font-family: var(--mono); font-size: .62rem; color: var(--tinta-2);
-}
-.acompanhado-acao button {
-  background: none; border: 0; color: var(--tinta-2); cursor: pointer;
-  padding: .3rem .4rem; font-size: .9rem;
-}
-.acompanhado-acao button:hover { color: var(--carimbo); }
 .acompanhar button {
   background: none; border: 1px solid var(--linha); color: var(--tinta);
   font-family: var(--mono); font-size: .7rem; letter-spacing: .1em;

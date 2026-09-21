@@ -26,7 +26,7 @@
       <h3>Purchase Price</h3>
       <strong class="evidence-price">{{ a.cheapest.total_price }}</strong>
       <p>{{ a.price_in_keys|keys }} keys · cheapest listing for this effect</p>
-      <form hx-post="/acompanhar" hx-target="#acompanhados">
+      <form hx-post="/acompanhar" hx-target="#case-files">
         <input type="hidden" name="nome" value="{{ a.hash_name }}">
         <input type="hidden" name="efeito" value="{{ a.effect }}">
         <button type="submit" class="button button--primary">Save Case</button>

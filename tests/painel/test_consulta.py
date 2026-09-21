@@ -118,7 +118,7 @@ def test_analysis_uses_approved_scope_headings(cliente):
     assert '<dl class="evidence-facts">' in texto
     assert 'name="nome" value="' + NOME + '"' in texto
     assert 'name="efeito" value="Deep Dive"' in texto
-    assert 'hx-target="#acompanhados"' in texto
+    assert 'hx-target="#case-files"' in texto
     assert "15.4 keys" in texto
 
 
@@ -536,11 +536,11 @@ def test_o_overview_diz_a_idade_da_cotacao(engine):
     assert "captured 3 h" in texto
 
 
-def test_o_painel_traz_a_coluna_de_acompanhados(engine):
+def test_o_painel_traz_o_gaveteiro_de_case_files(engine):
     cliente = cliente_logado(engine, _contexto())
     texto = cliente.get("/cases/new").text
-    assert 'id="acompanhados"' in texto
-    assert "nada acompanhado ainda" in texto
+    assert texto.count('id="case-files"') == 1
+    assert "No case files yet" in texto
 
 
 def test_analise_sem_indice_nao_mente_sobre_a_bptf(engine):

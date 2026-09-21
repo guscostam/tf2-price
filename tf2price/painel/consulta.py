@@ -431,7 +431,7 @@ def efeitos(request: Request, nome: str, efeito: str = "",
                 resultado, efeito, retrato_idade, leitura.limitando
             )
     # A esquerda tem de concordar com a direita: se o retrato estava vencido,
-    # a busca acima trouxe um novo, e sem atualizar `#acompanhados` também
+    # a busca acima trouxe um novo, e sem atualizar `#case-files` também
     # aqui a coluna esquerda ficaria mostrando o preço velho ao lado do novo
     # que a direita acabou de exibir. A linha do efeito aberto sai marcada,
     # para dar pra saber de qual linha a direita está falando.
@@ -458,7 +458,7 @@ def rota_analise(request: Request, nome: str, efeito: str,
                   usuario: Usuario = Depends(ses.usuario_obrigatorio)):
     # `usuario` é de graça (mesmo motivo de `/efeitos`: o FastAPI reaproveita
     # o resultado já calculado pela dependência do roteador) — precisa dele
-    # só agora, para marcar a linha aberta em `#acompanhados`.
+    # só agora, para marcar a linha aberta em `#case-files`.
     contexto = _contexto(request)
     agora = db.agora()
     cotacao = contexto.cotacao.obter(request.app.state.engine)
@@ -513,8 +513,7 @@ class LinhaAcompanhada:
     hash_name: str
     efeito: str
     preco: Brl | None
-    # Número puro, não texto: o template formata com o filtro `chaves`
-    # (vírgula decimal), como o resto da tela.
+    # Número puro usado para decidir se a referência da backpack.tf existe.
     premio: float | None
     idade: str | None
     motivo: str | None
@@ -637,15 +636,15 @@ def linhas_acompanhadas(
 
 
 def _coluna(request: Request, usuario_id: int) -> HTMLResponse:
-    """Monta a coluna esquerda, resolvendo a rede antes de tocar no banco."""
+    """Monta os Case Files sem iniciar a aquisição do índice da backpack.tf."""
     contexto = _contexto(request)
     agora = db.agora()
     cotacao = contexto.cotacao.obter(request.app.state.engine)
-    indice = contexto.indice.obter()
+    indice = contexto.indice.em_memoria()
     with request.app.state.engine.begin() as conn:
         linhas = linhas_acompanhadas(conn, cotacao, indice, usuario_id, agora)
     return TEMPLATES.TemplateResponse(
-        request=request, name="_acompanhados.html", context={"linhas": linhas}
+        request=request, name="_case_files.html", context={"linhas": linhas}
     )
 
 

@@ -147,7 +147,7 @@ def test_new_case_preserva_indicador_e_destinos_htmx(engine):
         'hx-indicator="#case-loading"'
     ) in texto
     assert 'hx-get="/buscar" hx-target="#items"' in texto
-    for destino in ("case-loading", "items", "acompanhados", "effects", "analysis"):
+    for destino in ("case-loading", "items", "case-files", "effects", "analysis"):
         assert f'id="{destino}"' in texto
 
 
