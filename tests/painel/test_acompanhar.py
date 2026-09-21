@@ -101,7 +101,7 @@ def test_item_sem_retrato_diz_que_nao_ha_dado_ainda(engine):
     """Acompanhar um item nunca aberto não pode deixar a linha em branco."""
     cliente = cliente_logado(engine, _contexto())
     cliente.post("/acompanhar", data={"nome": "Unusual Chapeu Nunca Aberto", "efeito": "Smoking"})
-    assert "sem dado ainda" in cliente.get("/").text
+    assert "sem dado ainda" in cliente.get("/cases/new").text
 
 
 def test_abrir_acompanhado_com_efeito_a_venda_preenche_efeito_e_avaliacao(engine):
@@ -206,7 +206,7 @@ def test_linha_sem_listagem_ainda_mostra_a_idade_do_retrato(engine):
     cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Burning Flames"})
     cliente.get("/efeitos", params={"nome": NOME})  # popula o retrato guardado
 
-    r = cliente.get("/")
+    r = cliente.get("/cases/new")
 
     assert "sem listagem deste efeito agora" in r.text
     assert 'class="acompanhado-idade"' in r.text
@@ -231,7 +231,7 @@ def test_retrato_de_versao_antiga_avisa_que_sera_regravado(engine):
             db.agora(),
         )
 
-    r = cliente.get("/")
+    r = cliente.get("/cases/new")
 
     assert "retrato salvo numa forma antiga; será regravado na próxima busca" in r.text
     assert "sem listagem deste efeito agora" not in r.text
@@ -263,7 +263,7 @@ def test_linha_com_erro_inesperado_nao_derruba_o_painel(engine, monkeypatch, cap
 
     monkeypatch.setattr(consulta, "analyse", _quebra)
 
-    r = cliente.get("/")
+    r = cliente.get("/cases/new")
     assert r.status_code == 200
     assert "não consegui avaliar esta linha" in r.text
     assert "KeyError" in capsys.readouterr().out
@@ -292,7 +292,7 @@ def test_premio_desaparece_quando_a_referencia_da_bptf_esta_vencida(engine):
     cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
     cliente.get("/efeitos", params={"nome": NOME})
 
-    r = cliente.get("/")
+    r = cliente.get("/cases/new")
 
     inicio = r.text.index('class="acompanhado-preco"')
     trecho_do_preco = r.text[inicio:inicio + 200]
@@ -313,7 +313,7 @@ def test_premio_mostra_a_idade_da_bptf_junto_da_idade_do_retrato(engine):
     cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
     cliente.get("/efeitos", params={"nome": NOME})
 
-    r = cliente.get("/")
+    r = cliente.get("/cases/new")
 
     assert "troca de 12 d" in r.text
     inicio = r.text.index('class="acompanhado-preco"')
@@ -350,7 +350,7 @@ def test_efeitos_sem_efeito_nao_marca_nenhuma_linha(engine):
 
 
 def test_efeitos_atualiza_acompanhados_sem_aninhar_o_involucro(engine):
-    """O id="acompanhados" mora no invólucro de `painel.html`; o fragmento
+    """O id="acompanhados" mora no invólucro de `new_case.html`; o fragmento
     `_acompanhados.html` não o declara. Se o fora-de-banda não carregasse o
     id (substituindo o invólucro inteiro), cada resposta aninharia um
     `#acompanhados` dentro do outro.

@@ -52,9 +52,10 @@ def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
     app.include_router(admin.ROTEADOR)
 
     if contexto is not None:
-        from tf2price.painel.consulta import ROTEADOR
+        from tf2price.painel import consulta, paginas
 
-        app.include_router(ROTEADOR)
+        app.include_router(paginas.ROTEADOR)
+        app.include_router(consulta.ROTEADOR)
 
     @app.get("/arte/{nome}")
     def servir_arte(nome: str) -> Response:

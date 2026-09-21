@@ -84,12 +84,21 @@ class IndiceSobDemanda:
         self._proxima_tentativa = 0.0
         self._trava = threading.Lock()
 
+    def em_memoria(self) -> PriceIndex | None:
+        """Devolve o índice já aquecido sem trava, espera ou rede.
+
+        A referência é publicada de uma vez por `obter`; ler `None` durante o
+        aquecimento é correto para páginas que não podem bloquear.
+        """
+        return self._indice
+
     def obter(self) -> PriceIndex | None:
         # O atalho antes da trava: depois de carregado, isto é só uma leitura
         # de referência, e põr toda requisição da vida do processo a
         # disputar uma trava por ela seria pagar caro pelo caso raro.
-        if self._indice is not None:
-            return self._indice
+        em_memoria = self.em_memoria()
+        if em_memoria is not None:
+            return em_memoria
         # A trava cobre a busca inteira: quem chegar durante ela espera o
         # resultado em vez de sair buscar o mesmo de novo. É o que faz o
         # aquecimento valer — senão a primeira visita, que chega junto com
@@ -197,12 +206,21 @@ class CotacaoSobDemanda:
         em_memoria = self._cotacao
         if em_memoria is not None:
             return em_memoria
-        with self._trava:
+        # `renovar` segura esta trava durante a rede para não duplicar buscas.
+        # Uma rota que chega nesse intervalo não pode esperar o mesmo I/O:
+        # sem valor publicado ainda, responde indisponível e deixa o fundo
+        # terminar. Quando a trava está livre, a leitura inicial do banco
+        # continua serializada como antes.
+        if not self._trava.acquire(blocking=False):
+            return self._cotacao
+        try:
             if self._cotacao is None:
                 # Memória vazia é processo novo: o banco tem a última que
                 # este serviço conheceu, e ler isso é um SELECT.
                 self._cotacao = self._do_banco(engine)
             return self._cotacao
+        finally:
+            self._trava.release()
 
     def renovar(self, engine: Engine, quando: datetime) -> Cotacao | None:
         """Busca na Steam se o que há está velho. **Só o fundo chama isto.**
@@ -315,37 +333,6 @@ def _contexto(request: Request) -> Contexto:
     return request.app.state.contexto
 
 
-@ROTEADOR.get("/", response_class=HTMLResponse)
-def painel(request: Request, usuario: Usuario = Depends(ses.usuario_obrigatorio)):
-    # A cotação pode não ter carregado ainda; o painel abre assim mesmo e o
-    # timbre diz isso, em vez de a aplicação não subir.
-    contexto = _contexto(request)
-    agora = db.agora()
-    cotacao = contexto.cotacao.obter(request.app.state.engine)
-    # Índice e cotação resolvidos antes de abrir a conexão, pelo mesmo motivo
-    # de `_coluna`: os dois podem ir à rede na primeira chamada, e a
-    # transação da lista de acompanhados tem de ser curta.
-    indice = contexto.indice.obter()
-    with request.app.state.engine.begin() as conn:
-        linhas = linhas_acompanhadas(conn, cotacao, indice, usuario.id, agora)
-    return TEMPLATES.TemplateResponse(
-        request=request,
-        name="painel.html",
-        context={
-            "usuario": usuario,
-            "cotacao": cotacao,
-            # A idade da cotação no timbre. Antes de ela atravessar o deploy
-            # no banco, era sempre "agora" por construção e não havia o que
-            # dizer; agora ela pode ser de horas atrás, e aí omitir a idade
-            # seria a única mentira da tela.
-            "cotacao_idade": (
-                _idade_por_extenso(cotacao.buscado_em, agora) if cotacao else None
-            ),
-            "linhas": linhas,
-        },
-    )
-
-
 @ROTEADOR.get("/buscar", response_class=HTMLResponse)
 def buscar(request: Request, q: str = ""):
     contexto = _contexto(request)
@@ -415,7 +402,7 @@ def efeitos(request: Request, nome: str, efeito: str = "",
     if leitura.pagina is None:
         return _erro(request, SEM_RETRATO, limpar_analise=True)
     pagina = leitura.pagina
-    retrato_idade = _idade_por_extenso(leitura.buscado_em, agora)
+    retrato_idade = idade_por_extenso(leitura.buscado_em, agora)
     indice = contexto.indice.obter()
     contexto_analise: dict[str, Any] = {}
     if efeito:
@@ -488,7 +475,7 @@ def rota_analise(request: Request, nome: str, efeito: str,
         resultado = analyse(pagina, efeito, indice, cotacao.key_brl)
     except ValueError as erro:
         return _erro(request, str(erro))
-    retrato_idade = _idade_por_extenso(leitura.buscado_em, agora)
+    retrato_idade = idade_por_extenso(leitura.buscado_em, agora)
     # A esquerda tem de concordar com a direita: sem isto, clicar noutro
     # efeito da mesma lista (que só troca `#analise`) deixava a marca antiga
     # na esquerda. Aberta depois de resolvida toda a rede acima, pelo mesmo
@@ -525,7 +512,7 @@ class LinhaAcompanhada:
     premio_idade: str | None = None
 
 
-def _idade_por_extenso(quando: datetime | None, agora: datetime) -> str:
+def idade_por_extenso(quando: datetime | None, agora: datetime) -> str:
     """`quando` é `datetime | None` no tipo de `Leitura.buscado_em`: hoje só é
     seguro chamar isto com um valor porque `pagina` e `buscado_em` são
     sempre setados juntos em `preco/retrato.py`, e cada rota já retornou se
@@ -569,7 +556,7 @@ def linhas_acompanhadas(
                                           "sem dado ainda", selecionado=marcado))
             continue
         dados, buscado_em = guardado
-        idade = _idade_por_extenso(buscado_em, agora)
+        idade = idade_por_extenso(buscado_em, agora)
         try:
             pagina = serial.de_dict(json.loads(dados))
         except (ValueError, KeyError, TypeError):

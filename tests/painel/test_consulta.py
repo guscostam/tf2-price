@@ -40,8 +40,14 @@ def cliente(engine):
 # --- rotas ---------------------------------------------------------------
 
 
-def test_raiz_serve_o_formulario(cliente):
+def test_raiz_serve_overview(cliente):
     r = cliente.get("/")
+    assert r.status_code == 200
+    assert "Overview" in r.text
+
+
+def test_novo_caso_serve_o_formulario(cliente):
+    r = cliente.get("/cases/new")
     assert r.status_code == 200
     assert "form" in r.text.lower()
 
@@ -436,7 +442,7 @@ def test_trocar_de_item_apaga_a_avaliacao(cliente):
 
 def test_a_cotacao_da_chave_aparece_no_timbre(cliente):
     """Os valores em chaves não significam nada sem o preço que os converteu."""
-    assert str(CHAVE) in cliente.get("/").text
+    assert str(CHAVE) in cliente.get("/cases/new").text
 
 
 def test_o_timbre_diz_a_idade_da_cotacao(engine):
@@ -449,14 +455,14 @@ def test_o_timbre_diz_a_idade_da_cotacao(engine):
     )
     cliente = cliente_logado(engine, ctx)
 
-    texto = cliente.get("/").text
+    texto = cliente.get("/cases/new").text
 
     assert "lida <b>3 h</b>" in texto
 
 
 def test_o_painel_traz_a_coluna_de_acompanhados(engine):
     cliente = cliente_logado(engine, _contexto())
-    texto = cliente.get("/").text
+    texto = cliente.get("/cases/new").text
     assert 'id="acompanhados"' in texto
     assert "nada acompanhado ainda" in texto
 
@@ -478,7 +484,7 @@ def test_sem_cotacao_a_tela_diz_e_nao_quebra(engine):
     ctx.cotacao = _CotacaoFalsa(None)
     cliente = cliente_logado(engine, ctx)
 
-    assert "indisponível" in cliente.get("/").text
+    assert "indisponível" in cliente.get("/cases/new").text
     assert "ainda não carregou" in cliente.get(
         "/analise", params={"nome": NOME, "efeito": "Deep Dive"}
     ).text

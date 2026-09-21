@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block titulo %}Avaliação de Unusual{% endblock %}
+{% block titulo %}New Case · briefcase.tf{% endblock %}
+{% block cabecalho %}New Case{% endblock %}
 {% block subtitulo %}
   {% if cotacao %}
   <p class="cotacao">
@@ -12,6 +13,7 @@
 {% endblock %}
 {% block corpo_attrs %} hx-indicator="#espera"{% endblock %}
 {% block conteudo %}
+<div data-page="new-case">
 <div class="duas-colunas">
   <aside class="coluna-esquerda">
     <section class="campo" data-campo="item">
@@ -69,4 +71,5 @@
     });
   });
 </script>
+</div>
 {% endblock %}
