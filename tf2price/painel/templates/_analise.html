@@ -24,11 +24,28 @@
   <h2>{{ a.effect }}</h2>
   <p class="item-nome">{{ a.hash_name }}</p>
 
+  {# A idade do retrato da STEAM — diferente da idade da backpack.tf, lá
+     embaixo no bloco "Saída paciente". As duas datam fontes diferentes, e
+     confundi-las é como mostrar o preço de outro efeito: os números acima
+     (o que você paga) são desta idade, não daquela.
+
+     O carimbo em si (o `<div>` e a nota de limitação) mora em
+     `_carimbo_steam.html`, incluído aqui e em `_efeitos.html` — as duas
+     cópias byte a byte já divergiram uma vez, e o trabalho inteiro deste
+     bloco é datar um número; a segunda cópia esquecida mentiria calada. #}
+  {% include "_carimbo_steam.html" %}
+
   <div class="pago">
     <span class="rotulo">você paga</span>
     <span class="numero-grande"><span class="cifrao">R$</span>{{ a.cheapest.total_price|string|replace("R$ ", "") }}</span>
     <span class="em-chaves">{{ a.price_in_keys|chaves }} chaves · listagem mais barata deste efeito</span>
   </div>
+
+  <form hx-post="/acompanhar" hx-target="#acompanhados" class="acompanhar">
+    <input type="hidden" name="nome" value="{{ a.hash_name }}">
+    <input type="hidden" name="efeito" value="{{ a.effect }}">
+    <button type="submit">acompanhar este efeito</button>
+  </form>
 
   <section class="bloco" data-nivel="efeito">
     <div class="niveis"><span class="tag tag-efeito">este efeito</span></div>

@@ -12,29 +12,42 @@
 {% endblock %}
 {% block corpo_attrs %} hx-indicator="#espera"{% endblock %}
 {% block conteudo %}
-<section class="campo" data-campo="item">
-  <label class="rotulo" for="q">Item</label>
-  <input id="q" name="q" autocomplete="off" placeholder="parte do nome, ex: Chairholder"
-         hx-get="/buscar" hx-target="#itens" hx-trigger="keyup changed delay:400ms">
-  <div id="espera"></div>
-  <p class="dica">Parte do nome basta. A busca aceita dupla qualidade —
-    <b>Strange Unusual</b> — e ignora as ferramentas <b>Unusualifier</b>.</p>
-  <div id="itens" class="opcoes"></div>
-</section>
+<div class="duas-colunas">
+  <aside class="coluna-esquerda">
+    <section class="campo" data-campo="item">
+      <label class="rotulo" for="q">Item</label>
+      <input id="q" name="q" autocomplete="off" placeholder="ex: Chairholder"
+             hx-get="/buscar" hx-target="#itens" hx-trigger="keyup changed delay:400ms">
+      <div id="espera"></div>
+      <p class="dica">Parte do nome basta. A busca aceita dupla qualidade —
+        <b>Strange Unusual</b> — e ignora as ferramentas <b>Unusualifier</b>.</p>
+      <div id="itens" class="opcoes"></div>
+    </section>
 
-<section class="campo" data-campo="efeito">
-  <span class="rotulo">Efeito</span>
-  <div id="efeitos" class="opcoes colunas">
-    <p class="vazio">aguardando item</p>
-  </div>
-</section>
+    <section class="campo" data-campo="acompanhados">
+      <span class="rotulo">Acompanhados</span>
+      <div id="acompanhados">
+        {% include "_acompanhados.html" %}
+      </div>
+    </section>
+  </aside>
 
-<section class="campo" data-campo="avaliacao">
-  <span class="rotulo">Avaliação</span>
-  <div id="analise" aria-live="polite">
-    <p class="vazio">aguardando efeito</p>
-  </div>
-</section>
+  <main class="coluna-direita">
+    <section class="campo" data-campo="efeito">
+      <span class="rotulo">Efeito</span>
+      <div id="efeitos" class="opcoes colunas">
+        <p class="vazio">aguardando item</p>
+      </div>
+    </section>
+
+    <section class="campo" data-campo="avaliacao">
+      <span class="rotulo">Avaliação</span>
+      <div id="analise" aria-live="polite">
+        <p class="vazio">aguardando efeito</p>
+      </div>
+    </section>
+  </main>
+</div>
 
 <script>
   // Marca a opção escolhida dentro do próprio grupo: sem isso, depois de

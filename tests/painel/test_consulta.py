@@ -1,14 +1,23 @@
 from __future__ import annotations
 
+import json
 import time
+from datetime import timedelta
+from urllib.parse import quote
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from tf2price import db
 from tf2price.painel.app import criar_app
-from tf2price.painel.consulta import Contexto, Cotacao, PageCache
+from tf2price.painel.consulta import SEM_RETRATO, Contexto, Cotacao
+from tf2price.preco import repositorio as preco_repo
+from tf2price.preco import serial
+from tf2price.preco.retrato import Retratos
 from tf2price.sources.backpacktf import PriceIndex
-from tf2price.sources.steam_page import PageStructureError
+from tf2price.sources.ratelimit import RateLimiter
+from tf2price.sources.steam_page import PageStructureError, SteamLimitando, SteamPageClient
 
 from .conftest import (
     CHAVE,
@@ -68,27 +77,6 @@ def test_analise_de_efeito_sem_listagem_avisa(cliente):
     assert "Burning Flames" in r.text
 
 
-# --- cache ---------------------------------------------------------------
-
-
-def test_efeitos_e_analise_do_mesmo_item_buscam_a_pagina_uma_vez(cliente):
-    cliente.get("/efeitos", params={"nome": NOME})
-    cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
-    assert cliente.ctx.paginas.chamadas == 1
-
-
-def test_cache_expira_pelo_relogio_injetado():
-    agora = {"t": 0.0}
-    cache = PageCache(ttl_s=10.0, clock=lambda: agora["t"])
-    cache.put(NOME, _pagina())
-
-    agora["t"] = 9.0
-    assert cache.get(NOME) is not None
-
-    agora["t"] = 11.0
-    assert cache.get(NOME) is None
-
-
 # --- falha de estrutura --------------------------------------------------
 
 
@@ -100,6 +88,214 @@ def test_mudanca_na_valve_vira_mensagem_e_nao_traceback(engine):
 
     assert r.status_code == 200
     assert "renderContext sumiu" in r.text
+
+
+# --- timeout de transporte não pode virar 500 (achado N2) -----------------
+#
+# `SteamPageClient.item_page` de verdade, com um `httpx.MockTransport` que
+# levanta `httpx.ReadTimeout` — duplo de rede, nunca a Steam de fato. Antes
+# da correção, `ReadTimeout` (que não é `RuntimeError`) subia cru por estas
+# três rotas, e cada uma virava 500.
+
+
+def _paginas_com_timeout() -> SteamPageClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("tempo esgotado", request=request)
+
+    return SteamPageClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+
+def test_efeitos_com_timeout_de_transporte_mostra_mensagem_e_nao_quebra(engine):
+    paginas = _paginas_com_timeout()
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+
+    r = cliente.get("/efeitos", params={"nome": NOME})
+
+    assert r.status_code == 200
+    assert "não respondeu" in r.text
+
+
+def test_analise_com_timeout_de_transporte_mostra_mensagem_e_nao_quebra(engine):
+    paginas = _paginas_com_timeout()
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+
+    r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
+
+    assert r.status_code == 200
+    assert "não respondeu" in r.text
+
+
+def test_atualizar_com_timeout_de_transporte_mostra_mensagem_e_nao_quebra(engine):
+    paginas = _paginas_com_timeout()
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+
+    r = cliente.post(f"/atualizar/{quote(NOME, safe='')}")
+
+    assert r.status_code == 200
+    assert "sem dado ainda" in r.text
+
+
+# --- retrato compartilhado -------------------------------------------------
+
+
+def test_efeitos_e_analise_do_mesmo_item_buscam_a_pagina_uma_vez(engine):
+    """A garantia do retrato compartilhado, medida na aplicação montada.
+
+    `_RetratosFalsos` (o duplo padrão de `_contexto`) busca direto na página
+    falsa, sem validade nem calma — não é capaz de provar isto. É por isso
+    que aqui entra um `Retratos` de verdade sobre `_PaginasFalsas`: só ele
+    exercita a regra de que duas rotas no mesmo item custam uma busca só.
+    """
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+
+    cliente.get("/efeitos", params={"nome": NOME})
+    cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
+
+    assert paginas.chamadas == 1
+
+
+def test_efeitos_sem_retrato_guardado_e_com_429_mostra_sem_retrato(engine):
+    """A Steam limitando num item nunca visto: nem retrato velho para mostrar."""
+    paginas = _PaginasFalsas(erro=SteamLimitando("status 429"))
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+
+    r = cliente.get("/efeitos", params={"nome": NOME})
+
+    assert r.status_code == 200
+    assert SEM_RETRATO in r.text
+
+
+def test_analise_sem_retrato_guardado_e_com_429_mostra_sem_retrato(engine):
+    paginas = _PaginasFalsas(erro=SteamLimitando("status 429"))
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+
+    r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
+
+    assert r.status_code == 200
+    assert SEM_RETRATO in r.text
+
+
+# --- idade do retrato da Steam (achado C1) --------------------------------
+
+
+def test_analise_mostra_a_idade_do_retrato_da_steam(engine):
+    """Sem isto, um retrato de minutos atrás parecia "agora" no detalhe.
+
+    A idade tem de vir de `buscado_em`, não do relógio da requisição — por
+    isso o retrato é gravado por dentro da validade (6 min < 15 min), para
+    que a rota sirva o retrato guardado em vez de buscar um novo.
+    """
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    velho = db.agora() - timedelta(minutes=6)
+    with engine.begin() as conn:
+        preco_repo.guardar(conn, NOME, json.dumps(serial.para_dict(_pagina())), velho)
+
+    r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
+
+    assert r.status_code == 200
+    assert "Steam" in r.text
+    assert "6 min" in r.text
+    assert paginas.chamadas == 0  # serviu o guardado; não buscou de novo
+    # As duas idades (Steam e backpack.tf) não podem se confundir na tela.
+    assert "Steam limitando" not in r.text
+
+
+def test_efeitos_com_efeito_mostra_a_idade_do_retrato_da_steam(engine):
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    velho = db.agora() - timedelta(minutes=6)
+    with engine.begin() as conn:
+        preco_repo.guardar(conn, NOME, json.dumps(serial.para_dict(_pagina())), velho)
+
+    r = cliente.get("/efeitos", params={"nome": NOME, "efeito": "Deep Dive"})
+
+    assert r.status_code == 200
+    assert "6 min" in r.text
+
+
+def test_analise_com_429_avisa_que_a_steam_esta_limitando_e_a_idade_do_dado(engine):
+    """A regra do §12: no 429, mostra o retrato guardado dizendo a idade E
+    que a Steam está limitando — nunca um dos dois sozinho."""
+    velho = db.agora() - timedelta(hours=3)
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    with engine.begin() as conn:
+        preco_repo.guardar(conn, NOME, json.dumps(serial.para_dict(_pagina())), velho)
+    paginas._erro = SteamLimitando("status 429")
+
+    r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
+
+    assert r.status_code == 200
+    assert "3 h" in r.text
+    assert "limitando" in r.text.lower()
+
+
+# --- o botão de atualizar não pode 500 (achado I2) ------------------------
+
+
+@pytest.mark.parametrize(
+    "erro", [RuntimeError("timeout"), PageStructureError("renderContext sumiu")]
+)
+def test_atualizar_com_falha_que_nao_e_429_nao_quebra(engine, erro):
+    """O botão ↻ é o caminho que mais busca a Steam ruim; sem captura,
+    timeout/503/HTML mudado virava 500 depois de a rede nem ter quebrado."""
+    from urllib.parse import quote
+
+    cliente = cliente_logado(engine, _contexto(paginas=_PaginasFalsas(erro=erro)))
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+
+    r = cliente.post(f"/atualizar/{quote(NOME, safe='')}")
+
+    assert r.status_code == 200
+    assert "sem dado ainda" in r.text
+
+
+# --- erro de /efeitos limpa #analise (achado I3) --------------------------
+
+
+def test_efeitos_com_erro_limpa_a_avaliacao_anterior(engine):
+    """Abre o item A (avaliação preenchida); clica no item B; a Steam falha:
+    #efeitos mostra o erro, mas #analise não pode continuar com a avaliação
+    de A — a mesma contradição que a busca nova já resolve."""
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas)
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    cliente.get("/efeitos", params={"nome": NOME, "efeito": "Deep Dive"})
+
+    paginas._erro = PageStructureError("renderContext sumiu")
+    r = cliente.get("/efeitos", params={"nome": "Unusual Team Captain"})
+
+    assert r.status_code == 200
+    assert "renderContext sumiu" in r.text
+    assert 'id="analise"' in r.text and 'hx-swap-oob="true"' in r.text
+    assert "aguardando efeito" in r.text
+    assert "180,44" not in r.text  # avaliação de A não pode sobrar na tela
 
 
 # --- taxa de conversão ---------------------------------------------------
@@ -196,6 +392,29 @@ def test_o_carimbo_reflete_a_idade_do_preco(engine, idade, classe, palavra):
         assert outra not in texto
 
 
+def test_carimbo_da_steam_limitando_nao_pede_emprestada_a_classe_do_bptf(engine):
+    """Os dois carimbos (Steam e bp.tf) emprestavam a mesma classe
+    `carimbo-vencido`. Com a Steam limitando e o preço da bp.tf fresco, a
+    página tinha "carimbo-vencido" (do carimbo da Steam) bem ao lado da
+    palavra "fresco" (do carimbo da bp.tf) — carimbos com significados
+    diferentes soando iguais."""
+    velho = db.agora() - timedelta(hours=3)
+    paginas = _PaginasFalsas(_pagina())
+    ctx = _contexto(paginas=paginas, indice=_indice_com_preco(5))  # bp.tf fresco
+    ctx.retratos = Retratos(paginas)
+    cliente = cliente_logado(engine, ctx)
+    with engine.begin() as conn:
+        preco_repo.guardar(conn, NOME, json.dumps(serial.para_dict(_pagina())), velho)
+    paginas._erro = SteamLimitando("status 429")
+
+    r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
+
+    assert r.status_code == 200
+    assert "carimbo-limitando" in r.text
+    assert "carimbo-vencido" not in r.text
+    assert "fresco" in r.text
+
+
 def test_carimbo_de_ausencia_quando_a_bptf_nao_precifica(cliente):
     """O índice padrão do teste é vazio: nenhum efeito tem preço."""
     r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
@@ -218,6 +437,13 @@ def test_trocar_de_item_apaga_a_avaliacao(cliente):
 def test_a_cotacao_da_chave_aparece_no_timbre(cliente):
     """Os valores em chaves não significam nada sem o preço que os converteu."""
     assert str(CHAVE) in cliente.get("/").text
+
+
+def test_o_painel_traz_a_coluna_de_acompanhados(engine):
+    cliente = cliente_logado(engine, _contexto())
+    texto = cliente.get("/").text
+    assert 'id="acompanhados"' in texto
+    assert "nada acompanhado ainda" in texto
 
 
 def test_analise_sem_indice_nao_mente_sobre_a_bptf(engine):

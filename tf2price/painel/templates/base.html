@@ -72,6 +72,53 @@
     }
     .cotacao b { color: var(--tinta); font-weight: 600; }
 
+    /* Duas colunas: a lista acompanha, a avaliação ocupa o espaço. Clicar num
+       acompanhado troca só a direita, então a esquerda não pisca nem perde o
+       lugar de rolagem. */
+    .duas-colunas { display: grid; grid-template-columns: 19rem 1fr; }
+    .coluna-esquerda { border-right: 1px solid var(--linha); }
+    .coluna-direita { min-width: 0; }
+
+    .acompanhado {
+      display: grid; grid-template-columns: 1fr auto auto; gap: .2rem;
+      align-items: center; border: 1px solid var(--linha); margin-bottom: .3rem;
+    }
+    .acompanhado.escolhido { border-color: var(--carimbo); }
+    .acompanhado-abrir {
+      display: flex; flex-direction: column; gap: .12rem; align-items: flex-start;
+      background: none; border: 0; padding: .5rem .6rem; cursor: pointer;
+      color: var(--tinta); text-align: left; width: 100%;
+    }
+    .acompanhado-abrir:hover { background: rgba(228, 231, 236, .07); }
+    .acompanhado-nome { font-size: .85rem; }
+    .acompanhado-efeito {
+      font-family: var(--mono); font-size: .64rem; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--tinta-2);
+    }
+    .acompanhado-preco { font-family: var(--mono); font-size: .8rem; font-weight: 600; }
+    .acompanhado-idade, .acompanhado-vazio {
+      font-family: var(--mono); font-size: .62rem; color: var(--tinta-2);
+    }
+    .acompanhado-acao button {
+      background: none; border: 0; color: var(--tinta-2); cursor: pointer;
+      padding: .3rem .4rem; font-size: .9rem;
+    }
+    .acompanhado-acao button:hover { color: var(--carimbo); }
+    .acompanhar button {
+      background: none; border: 1px solid var(--linha); color: var(--tinta);
+      font-family: var(--mono); font-size: .7rem; letter-spacing: .1em;
+      text-transform: uppercase; padding: .45rem .8rem; cursor: pointer;
+      margin-bottom: 1.2rem;
+    }
+    .acompanhar button:hover { border-color: var(--carimbo); color: var(--carimbo); }
+
+    /* Abaixo de 60rem não cabem duas colunas: a lista vira uma faixa no topo,
+       que é o que o celular consegue mostrar sem espremer os números. */
+    @media (max-width: 60rem) {
+      .duas-colunas { grid-template-columns: 1fr; }
+      .coluna-esquerda { border-right: 0; border-bottom: 1px solid var(--linha); }
+    }
+
     /* --- campos do formulário ---------------------------------------- */
     .campo { padding: clamp(1.1rem, 4vw, 1.7rem) clamp(1.1rem, 4vw, 2.4rem); }
     .campo + .campo { border-top: 1px dashed var(--linha); }
@@ -113,6 +160,10 @@
     .opcoes button:hover { background: rgba(228, 231, 236, .07); border-color: var(--tinta); }
     .opcoes button[data-escolhido] { background: var(--tinta); color: var(--slip); }
     .opcoes button[data-escolhido]::before { background: var(--slip); border-color: var(--slip); }
+    /* Efeito aberto no bloco AVALIAÇÃO: mesmo token do acompanhado
+       selecionado (.acompanhado.escolhido), não uma cor nova. */
+    .opcoes button.escolhido { border-color: var(--carimbo); }
+    .opcoes button.escolhido::before { background: var(--carimbo); border-color: var(--carimbo); }
 
     .opcoes .vazio { grid-column: 1 / -1; }
     .vazio {
@@ -209,6 +260,12 @@
     .carimbo-fresco  { --cor: var(--aprovado); }
     .carimbo-vencido { --giro: -6deg; }
     .carimbo-ausente { --cor: var(--tinta-2); --giro: 2.5deg; }
+    /* Carimbo próprio da Steam limitando — diferente de `carimbo-vencido`
+       (referência da bp.tf com mais de 365 dias). Os dois emprestavam a
+       mesma classe, e com a Steam limitando e o preço da bp.tf fresco a
+       página passava a ter "carimbo-vencido" ao lado da palavra "fresco".
+       Mesma rotação, pelos mesmos tokens — só o nome muda. */
+    .carimbo-limitando { --giro: -6deg; }
     @keyframes carimba {
       from { opacity: 0; transform: rotate(var(--giro)) scale(1.3); }
     }

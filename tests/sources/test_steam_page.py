@@ -11,6 +11,7 @@ from tf2price.sources.ratelimit import RateLimiter
 from tf2price.sources.steam_page import (
     ItemPage,
     PageStructureError,
+    SteamLimitando,
     SteamPageClient,
     parse_item_page,
     parse_page_price,
@@ -209,6 +210,158 @@ def test_cliente_repete_em_429_e_registra():
 
     assert len(cliente.item_page(NOME, 1.0).listings) == 7
     assert limiter.throttled == 1
+
+
+def test_timeout_e_repetido_e_depois_embrulhado_em_runtimeerror():
+    """`httpx.ReadTimeout` não é `RuntimeError` (a cadeia real é
+    ReadTimeout -> TimeoutException -> TransportError -> RequestError ->
+    HTTPError -> Exception), e as três rotas que chamam `item_page`
+    (`/atualizar`, `/efeitos`, `/analise`) só capturam
+    `(RuntimeError, PageStructureError)`. Sem embrulhar, um blip de rede no
+    Railway virava 500 em vez de mensagem na tela — medido com este mesmo
+    duplo antes da correção."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("tempo esgotado", request=request)
+
+    cliente = SteamPageClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        cliente.item_page(NOME, 1.0)
+
+    # Continua sendo RuntimeError, e não o ReadTimeout cru.
+    assert not isinstance(excinfo.value, httpx.HTTPError)
+
+
+def test_429_seguido_de_timeout_na_ultima_tentativa_ainda_liga_a_calma():
+    """Medido: três 429 seguidos de timeouts terminam em 'Steam não respondeu
+    após backoff (último: tempo esgotado)' — sem a palavra '429' na mensagem,
+    porque ela só guarda a ÚLTIMA tentativa do laço. Farejar a string faria a
+    calma de `Retratos` (o único freio real contra reiniciar seis tentativas
+    no mesmo IP que a Steam já está limitando) não ligar neste caso. O tipo
+    `SteamLimitando` prova que o laço viu o 429, mesmo perdido na mensagem."""
+    tentativas = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        tentativas["n"] += 1
+        if tentativas["n"] <= 3:
+            return httpx.Response(429, text="")
+        raise httpx.ReadTimeout("tempo esgotado", request=request)
+
+    cliente = SteamPageClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(SteamLimitando) as excinfo:
+        cliente.item_page(NOME, 1.0)
+
+    # A mensagem final não carrega mais "429" nenhum: é a marca de que a
+    # detecção não pode depender dela.
+    assert "429" not in str(excinfo.value)
+    assert tentativas["n"] == 6  # 1 inicial + 5 do backoff
+
+
+def test_429_seguido_de_4xx_tambem_liga_a_calma():
+    """Estrangular e depois bloquear o reincidente é o padrão de um limitador.
+
+    O 4xx sai do laço na hora — e é isso que queremos, um 403 não melhora
+    com retentativa. Mas sair como `RuntimeError` puro deixaria a calma
+    desligada contra um IP que a Steam já marcou, e o clique seguinte
+    recomeçaria tudo. Quem viu 429 manda, mesmo que o último seja outro.
+    """
+    tentativas = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        tentativas["n"] += 1
+        if tentativas["n"] <= 2:
+            return httpx.Response(429, text="")
+        return httpx.Response(403, text="")
+
+    cliente = SteamPageClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(SteamLimitando):
+        cliente.item_page(NOME, 1.0)
+
+    # O fail-fast do 4xx continua valendo: o 403 não é retentado.
+    assert tentativas["n"] == 3
+
+
+def test_4xx_sozinho_nao_liga_a_calma():
+    """Sem 429 nenhum, um 403 é só recusa — travar cinco minutos seria errado."""
+    cliente = SteamPageClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda r: httpx.Response(403, text=""))
+        ),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        cliente.item_page(NOME, 1.0)
+
+    assert not isinstance(excinfo.value, SteamLimitando)
+
+
+def test_timeout_esporadico_e_absorvido_pelo_backoff():
+    """Um timeout isolado não pode estourar a busca: é a mesma resiliência
+    que 429 e 5xx já têm, só que para erro de transporte."""
+    tentativas = {"n": 0}
+    corpo = _html()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        tentativas["n"] += 1
+        if tentativas["n"] == 1:
+            raise httpx.ReadTimeout("tempo esgotado", request=request)
+        return httpx.Response(200, text=corpo, headers={"content-type": "text/html"})
+
+    cliente = SteamPageClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    pagina = cliente.item_page(NOME, 1.0)
+
+    assert len(pagina.listings) == 7
+    assert tentativas["n"] == 2
+
+
+def test_4xx_que_nao_e_429_tambem_vira_runtimeerror():
+    """`raise_for_status()` levanta `httpx.HTTPStatusError` para um 403, por
+    exemplo — também não é `RuntimeError` por si só.
+
+    Conta as tentativas, e não só o tipo da exceção: um 403 ou 404 não é
+    retentável (o pedido não vai mudar de resultado tentando de novo), e uma
+    versão anterior deste código retentava mesmo assim porque um `except
+    httpx.HTTPError` largo também captura `HTTPStatusError`. Sem contar
+    `tentativas["n"]`, esse regressão passava por este teste sem ser notada —
+    `sleep=lambda _: None` e `min_interval_s=0.0` escondem o custo em tempo,
+    mas não escondem o número de requisições."""
+    tentativas = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        tentativas["n"] += 1
+        return httpx.Response(403, text="")
+
+    cliente = SteamPageClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(RuntimeError):
+        cliente.item_page(NOME, 1.0)
+
+    assert tentativas["n"] == 1
 
 
 # --- moeda declarada pelo payload ----------------------------------------

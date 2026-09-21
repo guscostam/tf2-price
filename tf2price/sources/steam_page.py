@@ -10,6 +10,7 @@ from typing import Any, Callable
 import httpx
 
 from tf2price.domain.money import Brl
+from tf2price.saneamento import mensagem_saneada
 from tf2price.sources.ratelimit import RateLimiter, backoff_delays
 from tf2price.sources.steam import APPID, CURRENCY_BRL, CURRENCY_USD
 
@@ -50,6 +51,18 @@ class PageStructureError(RuntimeError):
     Levantada com o caminho esperado na mensagem para que uma mudança na
     Valve apareça como diagnóstico, e não como KeyError cru no meio de uma
     requisição do usuário.
+    """
+
+
+class SteamLimitando(RuntimeError):
+    """O backoff de `item_page` viu pelo menos um 429 antes de desistir.
+
+    Herda de `RuntimeError` de propósito: quem já captura `RuntimeError` (as
+    três rotas do painel) continua funcionando sem mudar nada. O motivo de
+    existir é distinguir esta causa de qualquer outra por TIPO, não por
+    farejar "429" na mensagem final — que carrega só a ÚLTIMA tentativa do
+    laço, e um 429 seguido de timeout perde o 429 nessa mensagem sem perder
+    o motivo real de a Steam não ter respondido.
     """
 
 
@@ -287,21 +300,51 @@ class SteamPageClient:
         # é o campo de moeda que cada parte do payload declara.
         params = {"currency": CURRENCY_BRL, "l": "english"}
 
-        ultimo: int | None = None
+        ultimo: int | str | None = None
+        houve_429 = False
         for atraso in [0.0, *backoff_delays(5)]:
             if atraso:
                 self._sleep(atraso)
             self._limiter.wait()
 
-            resposta = self._http.get(url, params=params)
-            if resposta.status_code == 429:
-                self._limiter.record_throttle()
-                ultimo = 429
+            try:
+                resposta = self._http.get(url, params=params)
+                if resposta.status_code == 429:
+                    self._limiter.record_throttle()
+                    ultimo = 429
+                    houve_429 = True
+                    continue
+                if resposta.status_code >= 500:
+                    ultimo = resposta.status_code
+                    continue
+                resposta.raise_for_status()
+            except httpx.HTTPStatusError as erro:
+                # `raise_for_status()` só levanta isto para um 4xx que não é
+                # 429 (429 e 5xx já deram `continue` acima) — e um 4xx não é
+                # retentável: tentar de novo não muda um 403 (bloqueio) nem
+                # um 404 (item deslistado). Falha na hora, saneada porque a
+                # mensagem de um HTTPStatusError carrega a URL do pedido; as
+                # três rotas que chamam esta função capturam RuntimeError.
+                #
+                # Mas se já houve 429 antes deste 4xx, quem manda é o 429:
+                # estrangular e depois bloquear o reincidente é o padrão de
+                # um limitador, e sair daqui como RuntimeError puro deixaria
+                # a calma desligada justamente contra um IP já marcado.
+                classe = SteamLimitando if houve_429 else RuntimeError
+                raise classe(f"Steam recusou: {mensagem_saneada(erro)}") from erro
+            except httpx.RequestError as erro:
+                # Erro de transporte (timeout, conexão) — este sim é
+                # retentável: sem este `except`, um `httpx.ReadTimeout` subia
+                # cru e virava 500 na tela. Conta como mais uma tentativa
+                # gasta do mesmo backoff que já existe para 429/5xx.
+                ultimo = mensagem_saneada(erro)
                 continue
-            if resposta.status_code >= 500:
-                ultimo = resposta.status_code
-                continue
-            resposta.raise_for_status()
             return parse_item_page(resposta.text, hash_name, usd_to_brl)
 
-        raise RuntimeError(f"Steam não respondeu após backoff (último: {ultimo})")
+        mensagem = f"Steam não respondeu após backoff (último: {ultimo})"
+        # Qualquer 429 no laço liga a calma, mesmo que a última tentativa
+        # tenha sido outra coisa (timeout, 500...): a mensagem acima só
+        # guarda a ÚLTIMA falha, mas `houve_429` viu o laço inteiro.
+        if houve_429:
+            raise SteamLimitando(mensagem)
+        raise RuntimeError(mensagem)
