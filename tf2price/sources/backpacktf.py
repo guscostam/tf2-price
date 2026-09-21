@@ -141,7 +141,10 @@ class BackpackTfClient:
             raise ValueError("BPTF_API_KEY não configurada")
         self._api_key = api_key
         self._http = client or httpx.Client(
-            timeout=180.0,  # IGetPrices devolve dezenas de MB
+            # IGetPrices é grande: medido em 21/09/2026, 5,0 MB de JSON em
+            # ~2s. O timeout largo é folga para um dia ruim da bp.tf, não a
+            # medida do payload de hoje.
+            timeout=180.0,
             headers={"User-Agent": "tf2price/0.1"},
             follow_redirects=True,
         )
