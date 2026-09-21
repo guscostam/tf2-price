@@ -49,3 +49,26 @@ def test_base_usa_as_quatro_fontes_locais_sem_google_fonts(engine):
     assert '--corpo:   "Inter"' in texto
     assert '--mono:    "IBM Plex Mono"' in texto
     assert "font-family: var(--condensed)" in texto
+
+
+def test_ibm_plex_mono_declara_os_pesos_locais_que_a_tela_usa(engine):
+    cliente = TestClient(criar_app(engine))
+    texto = cliente.get("/entrar").text
+    fontes = (
+        ("/static/fonts/ibm-plex-mono-latin.woff2", 400),
+        ("/static/fonts/ibm-plex-mono-latin-500.woff2", 500),
+        ("/static/fonts/ibm-plex-mono-latin-600.woff2", 600),
+    )
+
+    for caminho, peso in fontes:
+        resposta = cliente.get(caminho)
+        assert resposta.status_code == 200, caminho
+        assert resposta.content.startswith(b"wOF2")
+        declaracao = (
+            f'font-family: "IBM Plex Mono"; src: url("{caminho}") '
+            f'format("woff2"); font-weight: {peso};'
+        )
+        assert declaracao in texto
+
+    assert 'font-family: "IBM Plex Mono"' in texto
+    assert "font-weight: 100 700" not in texto
