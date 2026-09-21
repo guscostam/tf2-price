@@ -185,7 +185,7 @@ def test_efeito_ausente_com_steam_limitando_avisa_os_dois(engine):
     assert r.status_code == 200
     assert "No listings for this effect in the current snapshot." in r.text
     assert "3 h" in r.text
-    assert "limitando" in r.text.lower()
+    assert "Steam rate limited" in r.text
 
 
 # --- a idade não pode sumir quando mais importa (achado I4) ---------------

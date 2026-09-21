@@ -3,6 +3,8 @@
   {% if a %}
   {% include "_analise.html" %}
   {% elif efeito_ausente %}
+  <h2>{{ efeito_atual }}</h2>
+  <p>{{ nome }}</p>
   <p class="empty-state">{{ efeito_ausente }}</p>
   {% include "_carimbo_steam.html" %}
   {% else %}

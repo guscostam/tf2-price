@@ -9,7 +9,16 @@
    O invólucro carrega o MESMO id que `new_case.html` dá a ele (sem classe
    extra, como em `_efeitos.html`) para o fora-de-banda trocar o elemento
    inteiro — nunca aninhar um `#acompanhados` dentro do outro. #}
+{% if a %}
 {% include "_analise.html" %}
+{% else %}
+<section class="missing-evidence" data-item-name="{{ nome }}" data-effect-name="{{ efeito_atual }}">
+  <h2>{{ efeito_atual }}</h2>
+  <p>{{ nome }}</p>
+  <p class="empty-state">{{ efeito_ausente }}</p>
+  {% include "_carimbo_steam.html" %}
+</section>
+{% endif %}
 <div id="acompanhados" hx-swap-oob="true">
   {% include "_acompanhados.html" %}
 </div>

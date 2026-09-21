@@ -15,3 +15,10 @@ def _chaves(valor: float) -> str:
 
 
 TEMPLATES.env.filters["chaves"] = _chaves
+
+
+def _keys(value: float) -> str:
+    return f"{value:.1f}"
+
+
+TEMPLATES.env.filters["keys"] = _keys

@@ -329,6 +329,13 @@ def _contexto(request: Request) -> Contexto:
     return request.app.state.contexto
 
 
+def _mensagem_falha_steam(erro: Exception) -> str:
+    """Texto público estável; detalhes de terceiros não pertencem à interface."""
+    if isinstance(erro, PageStructureError):
+        return "Steam returned an unreadable market page."
+    return "Steam could not provide market data. Try again later."
+
+
 @ROTEADOR.get("/buscar", response_class=HTMLResponse)
 def buscar(request: Request, q: str = ""):
     contexto = _contexto(request)
@@ -340,7 +347,7 @@ def buscar(request: Request, q: str = ""):
     try:
         pagina = contexto.steam.search_page(start=0, count=BUSCA_MAX, query=termo)
     except (RuntimeError, PageStructureError) as erro:
-        return _erro(request, str(erro))
+        return _erro(request, _mensagem_falha_steam(erro))
 
     nomes = [r.hash_name for r in pagina.results if is_unusual_name(r.hash_name)]
     return TEMPLATES.TemplateResponse(
@@ -394,7 +401,7 @@ def efeitos(request: Request, nome: str, efeito: str = "",
             request.app.state.engine, nome, cotacao.usd_to_brl, agora
         )
     except (RuntimeError, PageStructureError) as erro:
-        return _erro(request, str(erro), limpar_analise=True)
+        return _erro(request, _mensagem_falha_steam(erro), limpar_analise=True)
     if leitura.pagina is None:
         return _erro(request, SEM_RETRATO, limpar_analise=True)
     pagina = leitura.pagina
@@ -462,16 +469,26 @@ def rota_analise(request: Request, nome: str, efeito: str,
             request.app.state.engine, nome, cotacao.usd_to_brl, agora
         )
     except (RuntimeError, PageStructureError) as erro:
-        return _erro(request, str(erro))
+        return _erro(request, _mensagem_falha_steam(erro))
     if leitura.pagina is None:
         return _erro(request, SEM_RETRATO)
     pagina = leitura.pagina
     indice = contexto.indice.obter()
+    retrato_idade = idade_por_extenso(leitura.buscado_em, agora)
     try:
         resultado = analyse(pagina, efeito, indice, cotacao.key_brl)
-    except ValueError as erro:
-        return _erro(request, str(erro))
-    retrato_idade = idade_por_extenso(leitura.buscado_em, agora)
+    except ValueError:
+        contexto_analise = {
+            "efeito_ausente": SEM_LISTAGEM_DO_EFEITO,
+            "nome": nome,
+            "efeito_atual": efeito,
+            "retrato_idade": retrato_idade,
+            "retrato_limitando": leitura.limitando,
+        }
+    else:
+        contexto_analise = _contexto_da_analise(
+            resultado, efeito, retrato_idade, leitura.limitando
+        )
     # A esquerda tem de concordar com a direita: sem isto, clicar noutro
     # efeito da mesma lista (que só troca `#analise`) deixava a marca antiga
     # na esquerda. Aberta depois de resolvida toda a rede acima, pelo mesmo
@@ -484,7 +501,7 @@ def rota_analise(request: Request, nome: str, efeito: str,
         request=request,
         name="_analise_resposta.html",
         context={
-            **_contexto_da_analise(resultado, efeito, retrato_idade, leitura.limitando),
+            **contexto_analise,
             "linhas": linhas,
         },
     )

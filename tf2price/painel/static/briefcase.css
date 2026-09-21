@@ -111,6 +111,56 @@ button:active { transform: translateY(1px); }
 .error-state { padding: 1rem; border: 2px solid var(--rust-stamp); border-left-width: .4rem; }
 .error-state > :last-child { margin-bottom: 0; }
 
+.analysis-region { min-width: 0; container-type: inline-size; }
+.case-dossier { min-width: 0; }
+.case-dossier__header { padding: 1.25rem; border: 1px solid var(--ink-blue); border-bottom: 0; }
+.case-workflow .case-dossier__header h2 { margin-bottom: .35rem; font-size: clamp(1.8rem, 4vw, 2.75rem); overflow-wrap: anywhere; }
+.case-dossier__header > p { overflow-wrap: anywhere; }
+.case-dossier__header > :last-child { margin-bottom: 0; }
+.evidence-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
+.evidence-panel { min-width: 0; overflow-wrap: anywhere; }
+.evidence-panel[data-scope="effect"] { border-top: 3px solid var(--paper); }
+.evidence-panel[data-scope="crossed"] { border-top: 3px solid var(--warning); }
+.evidence-panel[data-scope="aggregate"] { border-top: 3px double var(--active-blue); grid-column: 1 / -1; }
+.evidence-panel h3 { margin: 0 0 1rem; font: 700 1.5rem/1.15 var(--font-condensed); }
+.evidence-panel > :last-child { margin-bottom: 0; }
+.evidence-facts, .evidence-listings { margin: 0; padding: 0; }
+.evidence-listings { list-style: none; }
+.evidence-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: baseline; padding: .45rem 0; border-bottom: 1px dotted var(--ink-blue); }
+.evidence-row strong, .evidence-row dd, .evidence-price { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.evidence-row dd { margin: 0; text-align: right; font-weight: 500; }
+.evidence-amount { display: grid; text-align: right; }
+.evidence-amount small { font: 400 .75rem/1.6 var(--font-mono); }
+.evidence-price { display: block; font-size: clamp(1.65rem, 4vw, 2.5rem); letter-spacing: -.04em; }
+.evidence-row--total { margin-top: .5rem; border-top: 1px solid var(--paper); border-bottom: 0; }
+.evidence-note { max-width: 58ch; font-size: .85rem; color: color-mix(in srgb, var(--paper) 70%, transparent); }
+.evidence-note--stale { color: var(--warning); }
+.evidence-visual { position: relative; min-height: 16rem; overflow: hidden; background: var(--charcoal); border: 1px solid var(--ink-blue); }
+.item-image { position: absolute; z-index: 2; left: 50%; top: 55%; width: min(11rem, 42vw); transform: translate(-50%, -50%); filter: drop-shadow(0 1rem 1.5rem rgba(0, 0, 0, .7)); }
+.effect-layer { position: absolute; left: 50%; top: 52%; width: 13rem; height: 13rem; transform: translate(-50%, -50%); mix-blend-mode: screen; pointer-events: none; animation: evidence-emission 3.6s linear infinite; }
+.effect-layer:nth-of-type(2) { width: 10rem; height: 10rem; animation-delay: -2.4s; }
+.effect-layer:nth-of-type(3) { width: 15rem; height: 15rem; animation-delay: -1.2s; opacity: .5; }
+@keyframes evidence-emission {
+  0% { transform: translate(-50%, -32%) scale(.8); opacity: 0; }
+  20% { opacity: .95; }
+  100% { transform: translate(-50%, -74%) scale(1.18); opacity: 0; }
+}
+.evidence-visual--fallback { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1.5rem; gap: 1rem; }
+.evidence-visual--fallback .item-image { position: static; transform: none; width: 7rem; }
+.effect-fallback { display: grid; gap: .35rem; margin: 0; text-align: center; }
+.effect-fallback strong { font-family: var(--font-display); }
+.effect-fallback span, .item-fallback { font: 400 .75rem/1.5 var(--font-mono); }
+.item-fallback { position: relative; z-index: 2; margin: 1rem; text-align: center; }
+.source-stamp { color: var(--warning); font-family: var(--font-mono); text-transform: uppercase; }
+.error-state, .status-badge--error, .button--danger { color: var(--rust-stamp); }
+@container (max-width: 42rem) {
+  .evidence-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 25rem) {
+  .evidence-row { grid-template-columns: minmax(0, 1fr); gap: .2rem; }
+  .evidence-row dd, .evidence-amount { text-align: left; }
+}
+
 .auth-page { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: clamp(1rem, 5vw, 4rem); background: var(--ink-panel); }
 .auth-shell { width: min(100%, 34rem); }
 .auth-shell > .brand { justify-content: center; margin-bottom: 2.75rem; }
