@@ -47,10 +47,10 @@ class _Relogio:
 def test_primeira_leitura_busca_e_guarda(engine):
     paginas = _PaginasFalsas()
     retratos = mod.Retratos(paginas, relogio=_Relogio())
+    leitura = retratos.obter(engine, NOME, 1.0, AGORA)
+    assert leitura.pagina.hash_name == NOME
+    assert leitura.buscado_em == AGORA
     with engine.begin() as conn:
-        leitura = retratos.obter(conn, NOME, 1.0, AGORA)
-        assert leitura.pagina.hash_name == NOME
-        assert leitura.buscado_em == AGORA
         assert repo.ler(conn, NOME) is not None
     assert paginas.chamadas == 1
 
@@ -58,9 +58,8 @@ def test_primeira_leitura_busca_e_guarda(engine):
 def test_dentro_da_validade_nao_busca_de_novo(engine):
     paginas = _PaginasFalsas()
     retratos = mod.Retratos(paginas, relogio=_Relogio())
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA)
-        leitura = retratos.obter(conn, NOME, 1.0, AGORA + timedelta(minutes=14))
+    retratos.obter(engine, NOME, 1.0, AGORA)
+    leitura = retratos.obter(engine, NOME, 1.0, AGORA + timedelta(minutes=14))
     assert paginas.chamadas == 1
     assert leitura.buscado_em == AGORA
 
@@ -69,9 +68,8 @@ def test_depois_da_validade_busca_de_novo(engine):
     paginas = _PaginasFalsas()
     retratos = mod.Retratos(paginas, relogio=_Relogio())
     depois = AGORA + mod.VALIDADE + timedelta(seconds=1)
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA)
-        leitura = retratos.obter(conn, NOME, 1.0, depois)
+    retratos.obter(engine, NOME, 1.0, AGORA)
+    leitura = retratos.obter(engine, NOME, 1.0, depois)
     assert paginas.chamadas == 2
     assert leitura.buscado_em == depois
 
@@ -80,10 +78,8 @@ def test_o_retrato_e_compartilhado_entre_pessoas(engine):
     """Duas pessoas no mesmo chapéu custam uma requisição, não duas."""
     paginas = _PaginasFalsas()
     retratos = mod.Retratos(paginas, relogio=_Relogio())
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA)
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA + timedelta(minutes=1))
+    retratos.obter(engine, NOME, 1.0, AGORA)
+    retratos.obter(engine, NOME, 1.0, AGORA + timedelta(minutes=1))
     assert paginas.chamadas == 1
 
 
@@ -91,10 +87,9 @@ def test_forcar_busca_mesmo_dentro_da_validade(engine):
     paginas = _PaginasFalsas()
     relogio = _Relogio()
     retratos = mod.Retratos(paginas, relogio=relogio)
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA)
-        relogio.avancar(mod.PISO_PARA_FORCAR.total_seconds() + 1)
-        retratos.obter(conn, NOME, 1.0, AGORA + timedelta(minutes=1), forcar=True)
+    retratos.obter(engine, NOME, 1.0, AGORA)
+    relogio.avancar(mod.PISO_PARA_FORCAR.total_seconds() + 1)
+    retratos.obter(engine, NOME, 1.0, AGORA + timedelta(minutes=1), forcar=True)
     assert paginas.chamadas == 2
 
 
@@ -102,9 +97,8 @@ def test_forcar_duas_vezes_seguidas_respeita_o_piso(engine):
     """Sem piso, segurar o botão vira uma enxurrada na Steam."""
     paginas = _PaginasFalsas()
     retratos = mod.Retratos(paginas, relogio=_Relogio())
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA, forcar=True)
-        retratos.obter(conn, NOME, 1.0, AGORA, forcar=True)
+    retratos.obter(engine, NOME, 1.0, AGORA, forcar=True)
+    retratos.obter(engine, NOME, 1.0, AGORA, forcar=True)
     assert paginas.chamadas == 1
 
 
@@ -113,13 +107,11 @@ def test_429_liga_a_calma_e_serve_o_guardado(engine):
     bons = _PaginasFalsas()
     relogio = _Relogio()
     retratos = mod.Retratos(bons, relogio=relogio)
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA)
+    retratos.obter(engine, NOME, 1.0, AGORA)
 
     bons.erro = RuntimeError("status 429")  # a Steam começa a recusar
     depois = AGORA + mod.VALIDADE + timedelta(minutes=1)
-    with engine.begin() as conn:
-        leitura = retratos.obter(conn, NOME, 1.0, depois)
+    leitura = retratos.obter(engine, NOME, 1.0, depois)
     assert leitura.pagina is not None
     assert leitura.buscado_em == AGORA
     assert leitura.limitando is True
@@ -128,17 +120,38 @@ def test_429_liga_a_calma_e_serve_o_guardado(engine):
 def test_durante_a_calma_nenhuma_requisicao_sai(engine):
     ruins = _PaginasFalsas(erro=RuntimeError("status 429"))
     retratos = mod.Retratos(ruins, relogio=_Relogio())
-    with engine.begin() as conn:
-        retratos.obter(conn, NOME, 1.0, AGORA)
-        retratos.obter(conn, NOME, 1.0, AGORA)
-        retratos.obter(conn, NOME, 1.0, AGORA)
+    retratos.obter(engine, NOME, 1.0, AGORA)
+    retratos.obter(engine, NOME, 1.0, AGORA)
+    retratos.obter(engine, NOME, 1.0, AGORA)
     assert ruins.chamadas == 1
+
+
+def test_nenhuma_conexao_fica_emprestada_durante_a_busca(engine):
+    """A busca leva segundos; segurar conexão do pool nela esgota o Postgres.
+
+    Mesma medição de `tests/painel/test_transacao.py`, aplicada na origem: é
+    aqui que a decisão de abrir duas transações curtas em volta do `fetch`
+    fica travada contra um refactor futuro.
+    """
+    from sqlalchemy import event
+
+    estado = {"emprestadas": 0}
+    event.listen(engine, "checkout", lambda *a: estado.__setitem__("emprestadas", estado["emprestadas"] + 1))
+    event.listen(engine, "checkin", lambda *a: estado.__setitem__("emprestadas", estado["emprestadas"] - 1))
+
+    class _Observa(_PaginasFalsas):
+        def item_page(self, hash_name, usd_to_brl):
+            self.durante = estado["emprestadas"]
+            return super().item_page(hash_name, usd_to_brl)
+
+    paginas = _Observa()
+    mod.Retratos(paginas, relogio=_Relogio()).obter(engine, NOME, 1.0, AGORA)
+    assert paginas.durante == 0
 
 
 def test_sem_retrato_e_com_falha_a_leitura_vem_vazia(engine):
     ruins = _PaginasFalsas(erro=RuntimeError("status 429"))
     retratos = mod.Retratos(ruins, relogio=_Relogio())
-    with engine.begin() as conn:
-        leitura = retratos.obter(conn, NOME, 1.0, AGORA)
+    leitura = retratos.obter(engine, NOME, 1.0, AGORA)
     assert leitura.pagina is None
     assert leitura.limitando is True

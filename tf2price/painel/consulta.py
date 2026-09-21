@@ -1,20 +1,22 @@
-"""A consulta de Unusual: contexto, cache de página e rotas.
+"""A consulta de Unusual: contexto e rotas.
 
-O que decide número continua em `lookup/analysis.py`, que não sabe que existe
-usuário. Aqui só há transporte e apresentação.
+O retrato compartilhado da página da Steam mora em `preco/retrato.py`; aqui
+só há transporte e apresentação. O que decide número continua em
+`lookup/analysis.py`, que não sabe que existe usuário.
 """
 
 from __future__ import annotations
 
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 
+from tf2price import db
 from tf2price.contas.modelo import Usuario
 from tf2price.domain.identity import is_unusual_name
 from tf2price.domain.money import Brl
@@ -22,17 +24,12 @@ from tf2price.efeitos import arte as arte_dos_efeitos
 from tf2price.lookup.analysis import analyse, effects_available
 from tf2price.painel import sessao as ses
 from tf2price.painel.templates import TEMPLATES
+from tf2price.preco.retrato import Retratos
 from tf2price.sources.backpacktf import BackpackTfClient, PriceIndex
 from tf2price.sources.ratelimit import RateLimiter
 from tf2price.sources.steam import SteamClient
-from tf2price.sources.steam_page import (
-    ItemPage,
-    PageStructureError,
-    SteamPageClient,
-    url_da_imagem,
-)
+from tf2price.sources.steam_page import PageStructureError, SteamPageClient, url_da_imagem
 
-CACHE_TTL_S = 300.0
 BUSCA_MAX = 25
 INTERVALO_S = 1.0
 
@@ -159,34 +156,9 @@ class CotacaoSobDemanda:
         return self._cotacao
 
 
-class PageCache:
-    """Guarda a ItemPage por hash_name com TTL curto.
-
-    O spec promete duas requisições por consulta. Sem isto, escolher o efeito
-    e depois ver a análise buscariam a mesma página duas vezes.
-    """
-
-    def __init__(
-        self,
-        ttl_s: float = CACHE_TTL_S,
-        clock: Callable[[], float] = time.monotonic,
-    ) -> None:
-        self._ttl = ttl_s
-        self._clock = clock
-        self._itens: dict[str, tuple[float, ItemPage]] = {}
-
-    def get(self, chave: str) -> ItemPage | None:
-        registro = self._itens.get(chave)
-        if registro is None:
-            return None
-        quando, pagina = registro
-        if self._clock() - quando > self._ttl:
-            del self._itens[chave]
-            return None
-        return pagina
-
-    def put(self, chave: str, pagina: ItemPage) -> None:
-        self._itens[chave] = (self._clock(), pagina)
+SEM_RETRATO = (
+    "não consegui ler os dados da Steam, e não há retrato guardado deste item"
+)
 
 
 @dataclass
@@ -199,14 +171,14 @@ class Contexto:
     # requisições, então o que vier em dólar precisa desta taxa para virar
     # real.
     #
-    # O cache de páginas guarda ItemPage já convertida e é chaveado só pelo
-    # nome do item — e isso basta: a taxa é uma foto por processo
+    # O retrato compartilhado guarda a página já convertida e é chaveado só
+    # pelo nome do item — e isso basta: a taxa é uma foto por processo
     # (`_usd_to_brl_rate` calcula uma vez por instância de SteamClient e
-    # guarda), então ela não muda enquanto alguma entrada do cache vive.
+    # guarda), então ela não muda enquanto o retrato guardado vale.
     # Se um dia a taxa passar a ser reavaliada em tempo de execução, a
-    # chave do cache precisa incluí-la.
+    # chave do retrato precisa incluí-la.
     cotacao: CotacaoSobDemanda
-    cache: PageCache = field(default_factory=PageCache)
+    retratos: Retratos
 
 
 def _erro(request: Request, mensagem: str) -> HTMLResponse:
@@ -217,15 +189,6 @@ def _erro(request: Request, mensagem: str) -> HTMLResponse:
 
 def _contexto(request: Request) -> Contexto:
     return request.app.state.contexto
-
-
-def _pagina_do_item(contexto: Contexto, nome: str, usd_to_brl: float) -> ItemPage:
-    guardada = contexto.cache.get(nome)
-    if guardada is not None:
-        return guardada
-    pagina = contexto.paginas.item_page(nome, usd_to_brl)
-    contexto.cache.put(nome, pagina)
-    return pagina
 
 
 @ROTEADOR.get("/", response_class=HTMLResponse)
@@ -266,13 +229,17 @@ def efeitos(request: Request, nome: str):
     if cotacao is None:
         return _erro(request, SEM_COTACAO)
     try:
-        pagina = _pagina_do_item(contexto, nome, cotacao.usd_to_brl)
+        leitura = contexto.retratos.obter(
+            request.app.state.engine, nome, cotacao.usd_to_brl, db.agora()
+        )
     except (RuntimeError, PageStructureError) as erro:
         return _erro(request, str(erro))
+    if leitura.pagina is None:
+        return _erro(request, SEM_RETRATO)
     return TEMPLATES.TemplateResponse(
         request=request,
         name="_efeitos.html",
-        context={"nome": nome, "efeitos": effects_available(pagina)},
+        context={"nome": nome, "efeitos": effects_available(leitura.pagina)},
     )
 
 
@@ -283,9 +250,14 @@ def rota_analise(request: Request, nome: str, efeito: str):
     if cotacao is None:
         return _erro(request, SEM_COTACAO)
     try:
-        pagina = _pagina_do_item(contexto, nome, cotacao.usd_to_brl)
+        leitura = contexto.retratos.obter(
+            request.app.state.engine, nome, cotacao.usd_to_brl, db.agora()
+        )
     except (RuntimeError, PageStructureError) as erro:
         return _erro(request, str(erro))
+    if leitura.pagina is None:
+        return _erro(request, SEM_RETRATO)
+    pagina = leitura.pagina
     try:
         resultado = analyse(pagina, efeito, contexto.indice.obter(), cotacao.key_brl)
     except ValueError as erro:
@@ -318,9 +290,11 @@ def construir_contexto() -> Contexto:
 
     limitador = RateLimiter(min_interval_s=INTERVALO_S)
     steam = SteamClient(limitador)
+    paginas = SteamPageClient(limitador)
     return Contexto(
         steam=steam,
-        paginas=SteamPageClient(limitador),
+        paginas=paginas,
         indice=IndiceSobDemanda(bptf),
         cotacao=CotacaoSobDemanda(steam),
+        retratos=Retratos(paginas),
     )

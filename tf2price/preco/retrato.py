@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
-from sqlalchemy.engine import Connection
+from sqlalchemy.engine import Engine
 
 from tf2price.preco import repositorio as repo
 from tf2price.preco import serial
@@ -53,13 +53,21 @@ class Retratos:
 
     def obter(
         self,
-        conn: Connection,
+        engine: Engine,
         hash_name: str,
         usd_to_brl: float,
         quando: datetime,
         forcar: bool = False,
     ) -> Leitura:
-        guardado = repo.ler(conn, hash_name)
+        """Recebe o `engine`, e não uma conexão, de propósito.
+
+        A busca na Steam leva segundos. Duas transações curtas — uma para ler,
+        outra para gravar — com a busca **entre** elas é o que mantém zero
+        conexões emprestadas durante a rede, que é o que o Postgres do Railway
+        exige e o que `test_transacao.py` mede.
+        """
+        with engine.begin() as conn:
+            guardado = repo.ler(conn, hash_name)
         pagina, buscado_em = None, None
         if guardado is not None:
             dados, buscado_em = guardado
@@ -84,7 +92,8 @@ class Retratos:
             raise
 
         self._ultima_busca[hash_name] = self._relogio()
-        repo.guardar(conn, hash_name, json.dumps(serial.para_dict(nova)), quando)
+        with engine.begin() as conn:
+            repo.guardar(conn, hash_name, json.dumps(serial.para_dict(nova)), quando)
         return Leitura(nova, quando, False)
 
     def _em_calma(self) -> bool:

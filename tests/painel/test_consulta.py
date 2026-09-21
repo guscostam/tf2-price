@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tf2price.painel.app import criar_app
-from tf2price.painel.consulta import Contexto, Cotacao, PageCache
+from tf2price.painel.consulta import Contexto, Cotacao
 from tf2price.sources.backpacktf import PriceIndex
 from tf2price.sources.steam_page import PageStructureError
 
@@ -66,27 +66,6 @@ def test_analise_de_efeito_sem_listagem_avisa(cliente):
     r = cliente.get("/analise", params={"nome": NOME, "efeito": "Burning Flames"})
     assert r.status_code == 200
     assert "Burning Flames" in r.text
-
-
-# --- cache ---------------------------------------------------------------
-
-
-def test_efeitos_e_analise_do_mesmo_item_buscam_a_pagina_uma_vez(cliente):
-    cliente.get("/efeitos", params={"nome": NOME})
-    cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
-    assert cliente.ctx.paginas.chamadas == 1
-
-
-def test_cache_expira_pelo_relogio_injetado():
-    agora = {"t": 0.0}
-    cache = PageCache(ttl_s=10.0, clock=lambda: agora["t"])
-    cache.put(NOME, _pagina())
-
-    agora["t"] = 9.0
-    assert cache.get(NOME) is not None
-
-    agora["t"] = 11.0
-    assert cache.get(NOME) is None
 
 
 # --- falha de estrutura --------------------------------------------------

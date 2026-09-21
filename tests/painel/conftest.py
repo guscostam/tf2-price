@@ -8,7 +8,8 @@ from tf2price import db
 from tf2price.contas import servico
 from tf2price.domain.money import Brl
 from tf2price.painel.app import criar_app
-from tf2price.painel.consulta import Contexto, Cotacao, PageCache
+from tf2price.painel.consulta import Contexto, Cotacao
+from tf2price.preco.retrato import Leitura
 from tf2price.sources.backpacktf import PriceIndex
 from tf2price.sources.steam import SearchPage, SearchResult
 from tf2price.sources.steam_page import parse_item_page
@@ -72,16 +73,39 @@ class _PaginasFalsas:
         return self._pagina
 
 
+class _RetratosFalsos:
+    """Duplo do retrato: busca direto na página falsa, sem validade nem calma.
+
+    Essas regras (validade, piso, calma) já têm teste próprio em
+    `tests/preco/test_retrato.py`; aqui só interessa que a rota saiba usar o
+    resultado — inclusive deixar passar o erro que `paginas` levantar.
+
+    Recebe uma função que devolve o `paginas` atual, não o objeto direto:
+    `test_transacao.py` troca `ctx.paginas` depois de montar o contexto, e a
+    busca tem que enxergar a troca, não a página falsa de quando o duplo foi
+    criado.
+    """
+
+    def __init__(self, obter_paginas):
+        self._obter_paginas = obter_paginas
+
+    def obter(self, engine, hash_name, usd_to_brl, quando, forcar=False):
+        pagina = self._obter_paginas().item_page(hash_name, usd_to_brl)
+        return Leitura(pagina, db.agora(), False)
+
+
 def _contexto(steam=None, paginas=None, indice=None, usd_to_brl=1.0):
-    return Contexto(
+    ctx = Contexto(
         steam=steam or _SteamFalso(),
         paginas=paginas or _PaginasFalsas(_pagina()),
         indice=_IndiceFalso(indice or PriceIndex.from_payload(
             {"response": {"items": {}}}, key_in_refined=64.11
         )),
         cotacao=_CotacaoFalsa(Cotacao(CHAVE, usd_to_brl)),
-        cache=PageCache(),
+        retratos=None,
     )
+    ctx.retratos = _RetratosFalsos(lambda: ctx.paginas)
+    return ctx
 
 
 def cliente_logado(engine, ctx):
