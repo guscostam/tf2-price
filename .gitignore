@@ -10,3 +10,4 @@ painel-local.db
 build/
 dist/
 out/
+.worktrees/
