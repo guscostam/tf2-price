@@ -92,7 +92,7 @@
       background: transparent; color: var(--tinta);
       font-family: var(--corpo); font-size: clamp(1.1rem, 3.5vw, 1.4rem);
     }
-    #q::placeholder { color: rgba(34, 30, 25, .35); }
+    #q::placeholder { color: rgba(228, 231, 236, .35); }
     #q:focus { outline: 0; border-bottom-color: var(--carimbo); }
 
     /* --- opções selecionáveis ---------------------------------------- */
@@ -110,7 +110,7 @@
       content: ""; flex: none; width: .62rem; height: .62rem;
       border: 1px solid var(--tinta);
     }
-    .opcoes button:hover { background: rgba(34, 30, 25, .05); border-color: var(--tinta); }
+    .opcoes button:hover { background: rgba(228, 231, 236, .07); border-color: var(--tinta); }
     .opcoes button[data-escolhido] { background: var(--tinta); color: var(--slip); }
     .opcoes button[data-escolhido]::before { background: var(--slip); border-color: var(--slip); }
 
@@ -132,7 +132,7 @@
     .tag-efeito { background: var(--tinta); color: var(--slip); }
     .tag-item {
       border: 1px solid var(--tinta); color: var(--tinta);
-      background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(34, 30, 25, .09) 3px 6px);
+      background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(228, 231, 236, .12) 3px 6px);
     }
     .cruz { font-family: var(--mono); font-size: .7rem; color: var(--tinta-2); }
 
@@ -318,6 +318,16 @@
       20%  { opacity: .95; }
       100% { transform: translate(-50%, -74%) scale(1.18); opacity: 0; }
     }
+    /* Sem arte, a placa deixa de ser palco de sobreposição e vira
+       empilhamento: o item em cima, o nome do efeito embaixo. Sobrepor os
+       dois cortava o texto pela metade — visto no navegador, não suposto. */
+    .palco-sem-arte {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: .9rem;
+    }
+    .palco-sem-arte .chapeu { position: static; transform: none; width: 96px; }
+    .palco-sem-arte .sem-arte { position: static; inset: auto; }
+
     /* Efeito sem arte não ganha aura inventada: ganha o próprio nome. */
     .sem-arte {
       position: absolute; inset: 0; display: flex; flex-direction: column;

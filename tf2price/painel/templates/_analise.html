@@ -3,7 +3,7 @@
    inteiro, e o spec proíbe cruzar sem rótulo. #}
 <article class="avaliacao">
   <div class="placa">
-    <div class="palco">
+    <div class="palco{% if not arte %} palco-sem-arte{% endif %}">
       {% if arte %}
       <img class="aura" src="{{ arte }}" alt="">
       <img class="aura" src="{{ arte }}" alt="">
