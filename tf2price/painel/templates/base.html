@@ -7,7 +7,16 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Spectral:wght@300;400;600&display=swap" rel="stylesheet">
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <!-- Caminho completo e `integrity`: sem o hash, um unpkg comprometido
+       entrega JS arbitrário num painel com login, e o repositório é
+       público. `crossorigin` não é enfeite — sem ele o navegador não
+       consegue conferir o hash de um script de outra origem, e recusa o
+       arquivo. Trocar a versão obriga a trocar o hash junto; o de baixo é
+       o que o htmx publica para 1.9.12, conferido contra os bytes servidos
+       pelo unpkg e pelo cdnjs, que são idênticos. -->
+  <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js"
+          integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2"
+          crossorigin="anonymous"></script>
   <style>
     /* A guia de avaliação: papel manilha, tinta industrial, carimbo de
        borracha. O carimbo é o único elemento alto da página, e o que ele
