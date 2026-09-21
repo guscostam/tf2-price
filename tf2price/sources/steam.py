@@ -9,7 +9,11 @@ from typing import Any, Callable
 import httpx
 
 from tf2price.domain.money import Brl
-from tf2price.sources.ratelimit import RateLimiter, backoff_delays
+from tf2price.sources.ratelimit import (
+    RateLimiter,
+    SteamLimitando,
+    backoff_delays,
+)
 
 APPID = 440
 CURRENCY_BRL = 7
@@ -212,15 +216,31 @@ def parse_listings(payload: dict[str, Any]) -> list[Listing]:
     return listings
 
 
+# Depois de desistir com 429, o cliente para de pedir por este tempo.
+#
+# É o mesmo remédio que `Retratos` aplica à página da Steam, aqui no cliente
+# da API — que não tem um objeto dono por cima para guardar a calma. A
+# diferença de duração é de propósito: a do retrato são 5 minutos porque
+# protege a renovação de um dado compartilhado, e esta é 1 minuto porque o
+# caminho aqui é interativo — é alguem digitando uma busca, e um limite
+# passageiro não deve custar cinco minutos de "não dá para consultar".
+CALMA_APOS_429_S = 60.0
+
+
 class SteamClient:
     def __init__(
         self,
         limiter: RateLimiter,
         client: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        relogio: Callable[[], float] = time.monotonic,
     ) -> None:
         self._limiter = limiter
         self._sleep = sleep
+        self._relogio = relogio
+        # De processo, não de banco, igual à do retrato: a spec assume uma
+        # réplica só, e duas partiriam este freio ao meio.
+        self._calma_ate = 0.0
         # Caches de instância: nunca compartilhados entre dois SteamClient.
         #
         # O cache do priceoverview é POR MOEDA. Um cache de payload único
@@ -239,7 +259,18 @@ class SteamClient:
         return self._get_response(url, params).json()
 
     def _get_response(self, url: str, params: dict[str, Any]) -> httpx.Response:
+        # Em calma, nem tenta. Sem isto, cada busca paga a escada inteira
+        # contra um IP que já disse não: medido no Railway em 21/09/2026,
+        # `GET /buscar 499 3648ms` — a pessoa desistiu no meio do primeiro
+        # degrau, e a escada ia até 31-62s.
+        if self._relogio() < self._calma_ate:
+            raise SteamLimitando(
+                "a Steam está limitando este servidor; "
+                "tente de novo em alguns minutos"
+            )
+
         last_reason = "sem tentativas"
+        houve_429 = False
 
         for delay in [0.0, *backoff_delays(5)]:
             if delay:
@@ -259,6 +290,7 @@ class SteamClient:
             if response.status_code == 429:
                 self._limiter.record_throttle()
                 last_reason = "status 429"
+                houve_429 = True
                 continue
 
             if response.status_code >= 500:
@@ -274,6 +306,19 @@ class SteamClient:
             response.raise_for_status()
             return response
 
+        # A calma liga ao DESISTIR com 429, não a cada 429: uma sequência
+        # 429, 429, 200 termina bem, e deixar a calma ligada aí puniria a
+        # chamada seguinte por um estrangulamento que já passou.
+        #
+        # Qualquer 429 no laço conta, mesmo que a última tentativa tenha sido
+        # outra coisa: `last_reason` guarda só a última falha, `houve_429` viu
+        # o laço inteiro. Mesmo raciocínio de `steam_page.py`.
+        if houve_429:
+            self._calma_ate = self._relogio() + CALMA_APOS_429_S
+            raise SteamLimitando(
+                "a Steam está limitando este servidor; tente de novo em alguns "
+                f"minutos (último: {last_reason})"
+            )
         raise RuntimeError(f"Steam não respondeu após backoff (último: {last_reason})")
 
     def search_page(self, start: int, count: int = 100, query: str | None = None) -> SearchPage:

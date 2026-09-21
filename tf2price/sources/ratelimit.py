@@ -6,6 +6,22 @@ import time
 from dataclasses import dataclass, field
 
 
+class SteamLimitando(RuntimeError):
+    """A Steam respondeu 429: este IP passou do limite dela.
+
+    Mora aqui, e não num dos clientes, porque os dois precisam dele — o da
+    API (`steam.py`) e o da página (`steam_page.py`) — e `ratelimit` é o
+    módulo do estrangulamento, que não importa nenhum deles. `steam_page`
+    reexporta o nome, para quem já o importava de lá seguir funcionando.
+
+    Herda de `RuntimeError` de propósito: quem já captura `RuntimeError` (as
+    rotas do painel) continua funcionando sem mudar nada. O motivo de existir
+    é distinguir esta causa por TIPO, e não por farejar "429" na mensagem
+    final — que carrega só a ÚLTIMA tentativa do laço, e um 429 seguido de
+    timeout perde o 429 na mensagem sem perder o motivo real.
+    """
+
+
 @dataclass
 class RateLimiter:
     """Espaça requisições e registra o que aconteceu.

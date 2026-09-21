@@ -11,7 +11,15 @@ import httpx
 
 from tf2price.domain.money import Brl
 from tf2price.saneamento import mensagem_saneada
-from tf2price.sources.ratelimit import RateLimiter, backoff_delays
+from tf2price.sources.ratelimit import (
+    RateLimiter,
+    SteamLimitando,
+    backoff_delays,
+)
+
+# Reexportado: a definição mora em `ratelimit` porque o cliente da API
+# também a levanta, e quem importava daqui continua importando daqui.
+__all__ = ["SteamLimitando"]
 from tf2price.sources.steam import APPID, CURRENCY_BRL, CURRENCY_USD
 
 BASE = "https://steamcommunity.com"
@@ -51,18 +59,6 @@ class PageStructureError(RuntimeError):
     Levantada com o caminho esperado na mensagem para que uma mudança na
     Valve apareça como diagnóstico, e não como KeyError cru no meio de uma
     requisição do usuário.
-    """
-
-
-class SteamLimitando(RuntimeError):
-    """O backoff de `item_page` viu pelo menos um 429 antes de desistir.
-
-    Herda de `RuntimeError` de propósito: quem já captura `RuntimeError` (as
-    três rotas do painel) continua funcionando sem mudar nada. O motivo de
-    existir é distinguir esta causa de qualquer outra por TIPO, não por
-    farejar "429" na mensagem final — que carrega só a ÚLTIMA tentativa do
-    laço, e um 429 seguido de timeout perde o 429 nessa mensagem sem perder
-    o motivo real de a Steam não ter respondido.
     """
 
 

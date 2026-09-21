@@ -321,3 +321,22 @@ def test_cotacao_exige_a_idade_no_construtor():
     um valor sem `buscado_em` viraria "idade desconhecida" na tela."""
     with pytest.raises(TypeError):
         Cotacao(key_brl=Brl.from_cents(1000), usd_to_brl=5.0)
+
+
+def test_a_cotacao_e_a_busca_dividem_o_mesmo_cliente_da_steam(monkeypatch):
+    """A canaário, e é de propósito: a calma que o `renovar` do fundo liga ao
+    levar 429 protege também as buscas de quem está na tela, porque a calma
+    vive no `SteamClient` e o `SteamClient` é um só.
+
+    Na prática é quase sempre o fundo quem descobre o limite primeiro (ele
+    renova de minuto em minuto), e aí a primeira busca da pessoa já falha na
+    hora em vez de subir a escada de 31-62s.
+    """
+    from tf2price.painel.consulta import construir_contexto
+
+    # `load_dotenv` não sobrescreve o que já está no ambiente, então isto
+    # vale mesmo com um `.env` de verdade ao lado.
+    monkeypatch.setenv("BPTF_API_KEY", "chave-de-teste")
+    contexto = construir_contexto()
+
+    assert contexto.cotacao._steam is contexto.steam

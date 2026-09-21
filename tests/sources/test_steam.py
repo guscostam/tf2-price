@@ -7,8 +7,9 @@ import httpx
 import pytest
 
 from tf2price.domain.money import Brl
-from tf2price.sources.ratelimit import RateLimiter
+from tf2price.sources.ratelimit import RateLimiter, SteamLimitando
 from tf2price.sources.steam import (
+    CALMA_APOS_429_S,
     CURRENCY_USD,
     SteamClient,
     parse_listings,
@@ -350,7 +351,9 @@ def test_429_e_repetido_com_backoff_e_registrado():
     assert limiter.first_429_after == 1
 
 
-def test_erro_persistente_levanta():
+def test_429_persistente_levanta_steam_limitando():
+    """Desistir com 429 tem tipo próprio, para a calma e a tela poderem
+    distinguir "o IP passou do limite" de "a Steam não respondeu"."""
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(429, text="")
 
@@ -360,8 +363,92 @@ def test_erro_persistente_levanta():
         sleep=lambda _: None,
     )
 
-    with pytest.raises(RuntimeError, match="não respondeu"):
+    with pytest.raises(SteamLimitando, match="limitando"):
         client.search_page(start=0)
+
+
+def test_5xx_persistente_nao_e_steam_limitando():
+    """A distinção que o tipo existe para fazer: a Steam falhando não é o IP
+    barrado, e chamar os dois de limitação ligaria a calma à toa."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="")
+
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(RuntimeError, match="não respondeu") as capturado:
+        client.search_page(start=0)
+    assert not isinstance(capturado.value, SteamLimitando)
+
+
+class _RelogioFalso:
+    def __init__(self) -> None:
+        self.agora = 0.0
+
+    def __call__(self) -> float:
+        return self.agora
+
+
+def test_depois_de_desistir_com_429_a_calma_recusa_sem_ir_a_rede():
+    """O conserto do `/buscar 499 3648ms` medido no Railway: com o IP
+    limitado, cada busca pagava a própria escada de 31-62s. Agora a primeira
+    paga, liga a calma, e as seguintes falham na hora — sem uma requisição."""
+    pedidos = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        pedidos["n"] += 1
+        return httpx.Response(429, text="")
+
+    relogio = _RelogioFalso()
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+        relogio=relogio,
+    )
+
+    with pytest.raises(SteamLimitando):
+        client.search_page(start=0)
+    gastos = pedidos["n"]
+    assert gastos > 1, "a escada nem subiu; o teste não está medindo o que diz"
+
+    with pytest.raises(SteamLimitando, match="alguns minutos"):
+        client.search_page(start=0)
+    assert pedidos["n"] == gastos, "a calma deixou passar requisição"
+
+    # Passada a calma, volta a tentar.
+    relogio.agora += CALMA_APOS_429_S
+    with pytest.raises(SteamLimitando):
+        client.search_page(start=0)
+    assert pedidos["n"] > gastos
+
+
+def test_429_que_termina_em_sucesso_nao_liga_a_calma():
+    """Uma sequência 429, 429, 200 acabou bem: ligar a calma aí puniria a
+    chamada seguinte por um estrangulamento que já passou."""
+    respostas = [429, 429, 200, 200]
+    payload = _fixture("steam_search_page.json")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if _e_priceoverview(request):
+            return _priceoverview_response(request)
+        status = respostas.pop(0)
+        if status == 429:
+            return httpx.Response(429, text="")
+        return httpx.Response(200, json=payload)
+
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    assert client.search_page(start=0).total_count == 21543
+    # A segunda chamada passa: se a calma tivesse ligado, isto levantaria.
+    assert client.search_page(start=0).total_count == 21543
 
 
 def test_5xx_e_repetido_e_nao_conta_como_throttle():
