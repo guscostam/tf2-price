@@ -15,6 +15,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     MetaData,
@@ -89,6 +90,20 @@ retrato = Table(
     # mesmo chapéu custam uma requisição à Steam, não duas.
     Column("hash_name", String(300), primary_key=True),
     Column("json", Text, nullable=False),
+    Column("buscado_em", DateTime, nullable=False),
+)
+
+cotacao = Table(
+    "cotacao",
+    METADATA,
+    # Uma linha só, sempre com id 1: a cotação é global — nem por item nem
+    # por pessoa. A chave fixa é o que garante isso no banco, em vez de na
+    # confiança de quem escreve.
+    Column("id", Integer, primary_key=True),
+    # Em centavos, inteiro, como `Brl` guarda por dentro: dinheiro não entra
+    # em float. A taxa dólar->real é razão, não dinheiro, e por isso é float.
+    Column("key_brl_cents", Integer, nullable=False),
+    Column("usd_to_brl", Float, nullable=False),
     Column("buscado_em", DateTime, nullable=False),
 )
 

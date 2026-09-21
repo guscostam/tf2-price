@@ -1,4 +1,4 @@
-"""SQL do retrato compartilhado."""
+"""SQL do retrato compartilhado e da cotação da chave."""
 
 from __future__ import annotations
 
@@ -52,3 +52,63 @@ def ler(conn: Connection, hash_name: str) -> tuple[str, datetime] | None:
         )
     ).first()
     return (linha.json, linha.buscado_em) if linha else None
+
+
+# --- cotação da chave ------------------------------------------------------
+#
+# Uma linha só, id fixo. Ela existe para o processo novo não nascer sem
+# cotação: a Steam limita por IP, o Railway sai todo pelo mesmo IP, e medido
+# em 21/09/2026 um deploy real levou 429 na primeira requisição e ficou 5
+# minutos sem preço de chave nenhum. Guardada, a última cotação conhecida
+# atravessa o deploy — velha por alguns minutos, e a tela diz a idade.
+LINHA_DA_COTACAO = 1
+
+
+def _atualizar_cotacao(
+    conn: Connection, key_brl_cents: int, usd_to_brl: float, quando: datetime
+):
+    return conn.execute(
+        update(db.cotacao)
+        .where(db.cotacao.c.id == LINHA_DA_COTACAO)
+        .values(
+            key_brl_cents=key_brl_cents, usd_to_brl=usd_to_brl, buscado_em=quando
+        )
+    )
+
+
+def guardar_cotacao(
+    conn: Connection, key_brl_cents: int, usd_to_brl: float, quando: datetime
+) -> None:
+    """Grava ou substitui a cotação. Mesmo update-depois-insert de `guardar`,
+    e pelo mesmo motivo: `ON CONFLICT` se escreve diferente em cada dialeto, e
+    dois processos subindo juntos (um deploy sobrepõe o antigo e o novo)
+    disputam esta linha de verdade — o savepoint deixa capturar só o
+    conflito de chave e refazer o update em cima do que o outro gravou."""
+    resultado = _atualizar_cotacao(conn, key_brl_cents, usd_to_brl, quando)
+    if resultado.rowcount == 0:
+        try:
+            with conn.begin_nested():
+                conn.execute(
+                    insert(db.cotacao).values(
+                        id=LINHA_DA_COTACAO,
+                        key_brl_cents=key_brl_cents,
+                        usd_to_brl=usd_to_brl,
+                        buscado_em=quando,
+                    )
+                )
+        except IntegrityError:
+            _atualizar_cotacao(conn, key_brl_cents, usd_to_brl, quando)
+
+
+def ler_cotacao(conn: Connection) -> tuple[int, float, datetime] | None:
+    """Centavos da chave, taxa dólar->real e quando foi buscada."""
+    linha = conn.execute(
+        select(
+            db.cotacao.c.key_brl_cents,
+            db.cotacao.c.usd_to_brl,
+            db.cotacao.c.buscado_em,
+        ).where(db.cotacao.c.id == LINHA_DA_COTACAO)
+    ).first()
+    if linha is None:
+        return None
+    return (int(linha.key_brl_cents), float(linha.usd_to_brl), linha.buscado_em)
