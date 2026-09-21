@@ -51,7 +51,15 @@ def test_raiz_serve_overview(cliente):
 def test_novo_caso_serve_o_formulario(cliente):
     r = cliente.get("/cases/new")
     assert r.status_code == 200
-    assert "form" in r.text.lower()
+    assert '<label for="q">Steam Market name</label>' in r.text
+    campo = re.search(r'<input\b[^>]*\bid="q"[^>]*>', r.text)[0]
+    for atributo in (
+        'name="q"', 'hx-get="/buscar"', 'hx-target="#items"',
+        'hx-trigger="keyup changed delay:400ms"',
+        'hx-sync="#case-workflow:replace"', 'data-case-request="search"',
+    ):
+        assert atributo in campo
+    assert 'id="items"' in r.text
 
 
 def test_new_case_define_um_unico_grupo_de_sincronizacao(cliente):

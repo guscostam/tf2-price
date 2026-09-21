@@ -74,6 +74,60 @@ const script = readFileSync(
 );
 vm.runInThisContext(script, { filename: "briefcase.js" });
 
+function navigationContext({ hidden = false } = {}) {
+  const handlers = new Map();
+  const toggleHandlers = new Map();
+  const navHandlers = new Map();
+  const toggle = new FakeButton();
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.addEventListener = (name, handler) => toggleHandlers.set(name, handler);
+  toggle.focus = () => { document.activeElement = toggle; };
+  const nav = {
+    addEventListener: (name, handler) => navHandlers.set(name, handler),
+  };
+  const media = { matches: true };
+  const document = {
+    body: { classList: new FakeClassList() }, hidden, activeElement: null,
+    querySelector: (selector) => selector === "[data-nav-toggle]" ? toggle : nav,
+    querySelectorAll: () => [],
+    addEventListener: (name, handler) => handlers.set(name, handler),
+  };
+  vm.runInNewContext(script, { document, window: { matchMedia: () => media } });
+  return { document, toggle, handlers, toggleHandlers, navHandlers, media };
+}
+
+test("mobile menu Escape closes it and restores focus", () => {
+  const context = navigationContext();
+  context.toggleHandlers.get("click")();
+  assert.equal(context.toggle.getAttribute("aria-expanded"), "true");
+  context.handlers.get("keydown")({ key: "Escape" });
+  assert.equal(context.toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(context.document.activeElement, context.toggle);
+});
+
+test("mobile navigation closes after following a link without stealing focus", () => {
+  const context = navigationContext();
+  context.toggleHandlers.get("click")();
+  context.navHandlers.get("click")?.({ target: { closest: () => ({ href: "/cases" }) } });
+  assert.equal(context.toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(context.document.activeElement, null);
+  context.media.matches = false;
+  context.toggleHandlers.get("click")();
+  context.navHandlers.get("click")?.({ target: { closest: () => ({ href: "/cases" }) } });
+  assert.equal(context.toggle.getAttribute("aria-expanded"), "true");
+});
+
+test("visibility state pauses existing and subsequently inserted animations", () => {
+  const context = navigationContext({ hidden: true });
+  assert.equal(context.document.body.classList.contains("page-hidden"), true);
+  context.document.hidden = false;
+  context.handlers.get("visibilitychange")();
+  assert.equal(context.document.body.classList.contains("page-hidden"), false);
+  context.document.hidden = true;
+  context.handlers.get("visibilitychange")();
+  assert.equal(context.document.body.classList.contains("page-hidden"), true);
+});
+
 test("effect request clears the previous analysis immediately", () => {
   const analysis = { innerHTML: "<p>R$ 180,44</p>" };
   elements.set("analysis", analysis);

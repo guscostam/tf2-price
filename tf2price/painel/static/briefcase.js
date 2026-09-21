@@ -8,17 +8,22 @@
   const nav = document.querySelector("[data-app-nav]");
   if (toggle && nav) {
     document.body.classList.add("nav-ready");
-    const setOpen = (open) => {
+    const setOpen = (open, restoreFocus = false) => {
       toggle.setAttribute("aria-expanded", String(open));
       document.body.classList.toggle("nav-open", open);
+      if (!open && restoreFocus) toggle.focus();
     };
     toggle.addEventListener("click", () => {
       setOpen(toggle.getAttribute("aria-expanded") !== "true");
     });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && toggle.getAttribute("aria-expanded") === "true") {
+        setOpen(false, true);
+      }
+    });
+    nav.addEventListener("click", (event) => {
+      if (event.target.closest("a") && window.matchMedia("(max-width: 48rem)").matches) {
         setOpen(false);
-        toggle.focus();
       }
     });
   }
@@ -55,9 +60,9 @@
     if (isEffect) choice.setAttribute("aria-pressed", "true");
   });
 
-  document.addEventListener("visibilitychange", () => {
-    document.querySelectorAll(".effect-layer, .aura").forEach((layer) => {
-      layer.style.animationPlayState = document.hidden ? "paused" : "running";
-    });
-  });
+  const syncVisibility = () => {
+    document.body.classList.toggle("page-hidden", document.hidden);
+  };
+  document.addEventListener("visibilitychange", syncVisibility);
+  syncVisibility();
 })();

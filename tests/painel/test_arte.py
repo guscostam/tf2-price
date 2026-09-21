@@ -20,6 +20,7 @@ def test_serve_a_arte_existente(cliente):
     r = cliente.get("/arte/13.webp")
     assert r.status_code == 200
     assert r.content == b"RIFF-fingindo-ser-webp"
+    assert r.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
 def test_arte_inexistente_e_404(cliente):
