@@ -439,6 +439,21 @@ def test_a_cotacao_da_chave_aparece_no_timbre(cliente):
     assert str(CHAVE) in cliente.get("/").text
 
 
+def test_o_timbre_diz_a_idade_da_cotacao(engine):
+    """Desde que a cotação atravessa o deploy no banco, o número do timbre
+    pode ser de horas atrás. Omitir a idade seria a única mentira da tela —
+    e a idade é a regra que governa este projeto."""
+    ctx = _contexto()
+    ctx.cotacao = _CotacaoFalsa(
+        Cotacao(CHAVE, 1.0, db.agora() - timedelta(hours=3))
+    )
+    cliente = cliente_logado(engine, ctx)
+
+    texto = cliente.get("/").text
+
+    assert "lida <b>3 h</b>" in texto
+
+
 def test_o_painel_traz_a_coluna_de_acompanhados(engine):
     cliente = cliente_logado(engine, _contexto())
     texto = cliente.get("/").text

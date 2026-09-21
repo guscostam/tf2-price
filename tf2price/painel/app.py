@@ -70,7 +70,7 @@ def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
     return app
 
 
-def aquecer(contexto: "Contexto") -> None:
+def aquecer(contexto: "Contexto", engine: Engine) -> None:
     """Puxa cotação e índice para a memória do processo, fora da requisição.
 
     As duas nascem vazias e se preenchem na primeira necessidade. Quem pagava
@@ -89,29 +89,39 @@ def aquecer(contexto: "Contexto") -> None:
     Sequencial, num thread só: as duas requisições da cotação compartilham o
     espaçamento do `RateLimiter`, e buscar em paralelo não as faria chegar
     mais rápido.
+
+    A cotação recebe `engine` e `quando` porque hoje ela passa pelo banco
+    antes de pensar em rede — num processo recém-subido com cotação guardada
+    recente, este aquecimento nem fala com a Steam.
     """
-    for nome, fonte in (("cotação", contexto.cotacao), ("índice", contexto.indice)):
-        inicio = time.monotonic()
-        try:
-            veio = fonte.obter() is not None
-        except Exception as erro:  # pragma: no cover - `obter` já captura
-            print(f"[aquecimento] {nome}: {type(erro).__name__}: {erro}", flush=True)
-            continue
-        estado = "ok" if veio else "falhou; a tela pede de novo sob demanda"
-        print(
-            f"[aquecimento] {nome}: {estado} em {time.monotonic() - inicio:.1f}s",
-            flush=True,
-        )
+    _aquece("cotação", lambda: contexto.cotacao.obter(engine, db.agora()))
+    _aquece("índice", contexto.indice.obter)
 
 
-def aquecer_em_segundo_plano(contexto: "Contexto") -> threading.Thread:
+def _aquece(nome: str, buscar) -> None:
+    inicio = time.monotonic()
+    try:
+        veio = buscar() is not None
+    except Exception as erro:  # pragma: no cover - `obter` já captura
+        print(f"[aquecimento] {nome}: {type(erro).__name__}: {erro}", flush=True)
+        return
+    estado = "ok" if veio else "falhou; a tela pede de novo sob demanda"
+    print(
+        f"[aquecimento] {nome}: {estado} em {time.monotonic() - inicio:.1f}s",
+        flush=True,
+    )
+
+
+def aquecer_em_segundo_plano(
+    contexto: "Contexto", engine: Engine
+) -> threading.Thread:
     """Aquece sem segurar a subida.
 
     `daemon=True` de propósito: o backoff da Steam pode levar um minuto, e
     um encerramento não deve ficar esperando por ele.
     """
     thread = threading.Thread(
-        target=aquecer, args=(contexto,), name="aquecimento", daemon=True
+        target=aquecer, args=(contexto, engine), name="aquecimento", daemon=True
     )
     thread.start()
     return thread
@@ -138,7 +148,7 @@ def servir() -> None:
         print(f"[partida] nenhum usuário ainda. Convite de administrador: /convite/{token}")
 
     contexto = construir_contexto()
-    aquecer_em_segundo_plano(contexto)
+    aquecer_em_segundo_plano(contexto, engine)
     uvicorn.run(criar_app(engine, contexto), host="127.0.0.1", port=8000)
 
 
@@ -172,7 +182,7 @@ def construir_aplicacao() -> FastAPI:
     # Em segundo plano, e antes de a primeira pessoa chegar: é a diferença
     # entre o processo esperar pelos terceiros e alguém esperar olhando uma
     # página em branco.
-    aquecer_em_segundo_plano(contexto)
+    aquecer_em_segundo_plano(contexto, engine)
     return criar_app(engine, contexto)
 
 

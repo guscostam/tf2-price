@@ -51,10 +51,14 @@ class _IndiceFalso:
 
 
 class _CotacaoFalsa:
+    """Dublê de `CotacaoSobDemanda`. Aceita `engine` e `quando` e os ignora:
+    a passagem pelo banco tem teste próprio em `test_cotacao.py`, e aqui o
+    que importa é a rota saber usar o que voltou."""
+
     def __init__(self, cotacao):
         self.cotacao = cotacao
 
-    def obter(self):
+    def obter(self, engine=None, quando=None):
         return self.cotacao
 
 
@@ -101,7 +105,7 @@ def _contexto(steam=None, paginas=None, indice=None, usd_to_brl=1.0):
         indice=_IndiceFalso(indice or PriceIndex.from_payload(
             {"response": {"items": {}}}, key_in_refined=64.11
         )),
-        cotacao=_CotacaoFalsa(Cotacao(CHAVE, usd_to_brl)),
+        cotacao=_CotacaoFalsa(Cotacao(CHAVE, usd_to_brl, db.agora())),
         retratos=None,
     )
     ctx.retratos = _RetratosFalsos(lambda: ctx.paginas)

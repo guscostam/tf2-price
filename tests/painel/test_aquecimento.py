@@ -23,7 +23,9 @@ class _Fonte:
         self._erro = erro
         self.chamadas = 0
 
-    def obter(self):
+    def obter(self, *args):
+        # `*args`: a cotação recebe (engine, quando) e o índice nada — o
+        # aquecimento chama cada uma do jeito dela.
         self.chamadas += 1
         if self._demora:
             time.sleep(self._demora)
@@ -38,10 +40,10 @@ class _ContextoFalso:
         self.indice = indice
 
 
-def test_aquecer_busca_as_duas_e_diz_no_log(capsys):
+def test_aquecer_busca_as_duas_e_diz_no_log(engine, capsys):
     ctx = _ContextoFalso(_Fonte(), _Fonte())
 
-    aquecer(ctx)
+    aquecer(ctx, engine)
 
     assert ctx.cotacao.chamadas == 1
     assert ctx.indice.chamadas == 1
@@ -50,13 +52,13 @@ def test_aquecer_busca_as_duas_e_diz_no_log(capsys):
     assert "[aquecimento] índice: ok" in saida
 
 
-def test_fonte_que_devolve_none_aparece_como_falha_no_log(capsys):
+def test_fonte_que_devolve_none_aparece_como_falha_no_log(engine, capsys):
     """`obter` devolvendo None é como as duas classes dizem "o terceiro não
     respondeu" — elas engolem a exceção por dentro. O log não pode chamar
     isso de ok, senão o aquecimento esconde justamente o que interessa."""
     ctx = _ContextoFalso(_Fonte(valor=None), _Fonte())
 
-    aquecer(ctx)
+    aquecer(ctx, engine)
 
     saida = capsys.readouterr().out
     assert "[aquecimento] cotação: falhou" in saida
@@ -66,19 +68,19 @@ def test_fonte_que_devolve_none_aparece_como_falha_no_log(capsys):
     assert "[aquecimento] índice: ok" in saida
 
 
-def test_excecao_inesperada_nao_derruba_o_aquecimento(capsys):
+def test_excecao_inesperada_nao_derruba_o_aquecimento(engine, capsys):
     """`obter` não deveria levantar — mas se um erro nascer fora do `try`
     dela, o aquecimento registra e segue para a outra fonte."""
     ctx = _ContextoFalso(_Fonte(erro=RuntimeError("estourou fora do try")), _Fonte())
 
-    aquecer(ctx)
+    aquecer(ctx, engine)
 
     saida = capsys.readouterr().out
     assert "RuntimeError" in saida
     assert ctx.indice.chamadas == 1
 
 
-def test_aquecimento_nao_segura_a_subida():
+def test_aquecimento_nao_segura_a_subida(engine):
     """O ponto todo: a subida devolve na hora e o trabalho corre atrás.
 
     Sem o thread, `construir_aplicacao` só devolveria a aplicação depois de
@@ -87,7 +89,7 @@ def test_aquecimento_nao_segura_a_subida():
     ctx = _ContextoFalso(_Fonte(demora_s=0.3), _Fonte())
 
     inicio = time.monotonic()
-    thread = aquecer_em_segundo_plano(ctx)
+    thread = aquecer_em_segundo_plano(ctx, engine)
     decorrido = time.monotonic() - inicio
 
     assert decorrido < 0.1, "a subida esperou o aquecimento"

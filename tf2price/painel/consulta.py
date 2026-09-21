@@ -12,12 +12,13 @@ import os
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
+from sqlalchemy.engine import Engine
 
 from tf2price import db
 from tf2price.acompanhamento import repositorio as acompanhamento
@@ -114,13 +115,27 @@ SEM_COTACAO = (
     "a cotação da chave ainda não carregou; tente de novo em alguns minutos"
 )
 
+# Mesma validade do retrato, pelo mesmo raciocínio: 15 minutos é o que separa
+# "recente" de "vale pedir de novo" neste projeto. Uma cotação mais velha que
+# isso manda buscar — mas, se a busca falhar, a velha continua servindo, com
+# a idade à vista.
+VALIDADE_COTACAO = timedelta(minutes=15)
+
 
 @dataclass(frozen=True)
 class Cotacao:
-    """Preço da chave e taxa do dólar, que a tela inteira usa para converter."""
+    """Preço da chave, taxa do dólar e quando isso foi lido da Steam.
+
+    `buscado_em` não é enfeite nem é opcional: desde que a cotação passou a
+    atravessar o deploy no banco, um número na tela pode ser de minutos ou de
+    horas atrás, e a regra deste projeto é que todo número diga de quando é.
+    Exigir o campo no construtor é o que impede uma cotação anônima de
+    aparecer no timbre sem idade.
+    """
 
     key_brl: Brl
     usd_to_brl: float
+    buscado_em: datetime
 
     @property
     def usd_brl_formatado(self) -> Brl:
@@ -128,10 +143,21 @@ class Cotacao:
 
 
 class CotacaoSobDemanda:
-    """Busca a cotação na primeira necessidade, não na subida.
+    """A cotação da chave: memória, banco e, só em último caso, a Steam.
 
-    As duas vêm juntas porque as duas saem do mesmo cliente da Steam e são
-    inúteis separadas: preço em chaves sem taxa de conversão não vira tela.
+    O preço e a taxa vêm juntos porque saem do mesmo cliente e são inúteis
+    separados: preço em chaves sem taxa de conversão não vira tela.
+
+    Guardar no banco existe por uma medição, não por gosto: em 21/09/2026 um
+    deploy real levou 429 da Steam na primeira requisição do processo — o IP
+    do Railway já estava limitado antes de a gente pedir —, gastou 44,8s de
+    backoff e o painel ficou 5 minutos sem preço de chave nenhum. Com a
+    última cotação conhecida no banco, o processo novo já nasce com um número
+    utilizável e não precisa falar com a Steam para abrir a tela.
+
+    A ordem é de fora para dentro: memória, banco, rede. E a degradação é
+    para o lado honesto — quando a busca falha, a cotação velha continua
+    servindo com `buscado_em` intacto, e quem mostra diz a idade.
     """
 
     def __init__(
@@ -147,26 +173,66 @@ class CotacaoSobDemanda:
         self._proxima_tentativa = 0.0
         self._trava = threading.Lock()
 
-    def obter(self) -> Cotacao | None:
-        # Mesma forma de `IndiceSobDemanda.obter`, e pela mesma razão — aqui
-        # a busca duplicada custa duas requisições à Steam, que é quem limita
-        # por IP e cobra o 429 de todo mundo junto.
-        if self._cotacao is not None:
-            return self._cotacao
+    def obter(self, engine: Engine, quando: datetime) -> Cotacao | None:
+        """Recebe o `engine`, e não uma conexão, pelo mesmo motivo de
+        `Retratos.obter`: a busca na Steam leva segundos, e transações curtas
+        com a rede **entre** elas é o que mantém zero conexões emprestadas
+        durante esse tempo — o que `test_transacao.py` mede."""
+        # Atalho sem trava para o caso comum: cotação recente em memória.
+        em_memoria = self._cotacao
+        if em_memoria is not None and self._recente(em_memoria, quando):
+            return em_memoria
+
         with self._trava:
-            if self._cotacao is not None:
+            if self._cotacao is not None and self._recente(self._cotacao, quando):
                 return self._cotacao
+
+            # Memória vazia é processo novo: o banco tem a última que este
+            # serviço conheceu, e ler isso custa um SELECT em vez de duas
+            # requisições a um IP que a Steam pode estar limitando.
+            if self._cotacao is None:
+                self._cotacao = self._do_banco(engine)
+                if self._cotacao is not None and self._recente(self._cotacao, quando):
+                    return self._cotacao
+
+            # Daqui para baixo, o que houver em memória está velho ou não
+            # existe. `guardada` é o que sobra se a rede não ajudar.
+            guardada = self._cotacao
             if self._relogio() < self._proxima_tentativa:
-                return None
+                return guardada
             try:
-                self._cotacao = Cotacao(
-                    key_brl=self._steam.key_price(), usd_to_brl=self._steam.usd_to_brl()
+                nova = Cotacao(
+                    key_brl=self._steam.key_price(),
+                    usd_to_brl=self._steam.usd_to_brl(),
+                    buscado_em=quando,
                 )
             except Exception as erro:
                 _registra_falha_sob_demanda("CotacaoSobDemanda", erro, self._espera)
                 self._proxima_tentativa = self._relogio() + self._espera
-                return None
-            return self._cotacao
+                # A velha, e não None: uma cotação de 20 minutos atrás com a
+                # idade escrita na tela é mais útil que "indisponível", e a
+                # chave não anda tanto nesse tempo.
+                return guardada
+
+            self._cotacao = nova
+            with engine.begin() as conn:
+                preco_repo.guardar_cotacao(
+                    conn, nova.key_brl.cents, nova.usd_to_brl, quando
+                )
+            return nova
+
+    def _recente(self, cotacao: Cotacao, quando: datetime) -> bool:
+        return quando - cotacao.buscado_em <= VALIDADE_COTACAO
+
+    def _do_banco(self, engine: Engine) -> Cotacao | None:
+        with engine.begin() as conn:
+            guardada = preco_repo.ler_cotacao(conn)
+        if guardada is None:
+            return None
+        centavos, taxa, buscado_em = guardada
+        return Cotacao(
+            key_brl=Brl.from_cents(centavos), usd_to_brl=taxa, buscado_em=buscado_em
+        )
 
 
 SEM_RETRATO = (
@@ -187,13 +253,18 @@ class Contexto:
     # O retrato compartilhado guarda a página já convertida e é chaveado só
     # pelo nome do item, sem a taxa. Isso já foi seguro quando o cache vivia
     # só na memória do processo (a taxa era uma foto por processo, e o cache
-    # morria junto com ela) — mas o retrato agora persiste no banco e
-    # sobrevive ao processo: a cada deploy, o processo novo calcula outra
-    # `usd_to_brl`, e por até `VALIDADE` (15 min) ele serve o retrato antigo,
-    # convertido pela taxa velha, ao lado de uma cotação já nova. O erro
-    # numérico é desprezível (o real não anda tanto em 15 min), mas é real —
-    # e é por isso que este comentário existe: para quem for mexer aqui não
-    # presumir, pelo nome da chave, que ela já inclui a taxa.
+    # morria junto com ela). Depois o retrato passou a persistir e o
+    # descasamento virou real: o processo novo de cada deploy calculava outra
+    # `usd_to_brl` e, por até `VALIDADE` (15 min), servia o retrato antigo
+    # convertido pela taxa velha ao lado de uma cotação nova.
+    #
+    # Desde que a cotação também persiste, o deploy deixou de ser o gatilho:
+    # o processo novo herda a MESMA taxa, e as duas coisas agora têm a mesma
+    # validade de 15 min. Sobrou a janela de quando a cotação é renovada e um
+    # retrato de antes dela ainda vale. O erro numérico é desprezível (o real
+    # não anda tanto em 15 min), mas é real — e é por isso que este
+    # comentário existe: para quem for mexer aqui não presumir, pelo nome da
+    # chave do retrato, que ela já inclui a taxa.
     cotacao: CotacaoSobDemanda
     retratos: Retratos
 
@@ -220,18 +291,29 @@ def painel(request: Request, usuario: Usuario = Depends(ses.usuario_obrigatorio)
     # A cotação pode não ter carregado ainda; o painel abre assim mesmo e o
     # timbre diz isso, em vez de a aplicação não subir.
     contexto = _contexto(request)
-    cotacao = contexto.cotacao.obter()
+    agora = db.agora()
+    cotacao = contexto.cotacao.obter(request.app.state.engine, agora)
     # Índice e cotação resolvidos antes de abrir a conexão, pelo mesmo motivo
     # de `_coluna`: os dois podem ir à rede na primeira chamada, e a
     # transação da lista de acompanhados tem de ser curta.
     indice = contexto.indice.obter()
-    agora = db.agora()
     with request.app.state.engine.begin() as conn:
         linhas = linhas_acompanhadas(conn, cotacao, indice, usuario.id, agora)
     return TEMPLATES.TemplateResponse(
         request=request,
         name="painel.html",
-        context={"usuario": usuario, "cotacao": cotacao, "linhas": linhas},
+        context={
+            "usuario": usuario,
+            "cotacao": cotacao,
+            # A idade da cotação no timbre. Antes de ela atravessar o deploy
+            # no banco, era sempre "agora" por construção e não havia o que
+            # dizer; agora ela pode ser de horas atrás, e aí omitir a idade
+            # seria a única mentira da tela.
+            "cotacao_idade": (
+                _idade_por_extenso(cotacao.buscado_em, agora) if cotacao else None
+            ),
+            "linhas": linhas,
+        },
     )
 
 
@@ -291,10 +373,10 @@ def efeitos(request: Request, nome: str, efeito: str = "",
     # emprestadas durante esse instante. `usuario` é de graça — o FastAPI
     # reaproveita o resultado já calculado pela dependência do roteador.
     contexto = _contexto(request)
-    cotacao = contexto.cotacao.obter()
+    agora = db.agora()
+    cotacao = contexto.cotacao.obter(request.app.state.engine, agora)
     if cotacao is None:
         return _erro(request, SEM_COTACAO, limpar_analise=True)
-    agora = db.agora()
     try:
         leitura = contexto.retratos.obter(
             request.app.state.engine, nome, cotacao.usd_to_brl, agora
@@ -359,10 +441,10 @@ def rota_analise(request: Request, nome: str, efeito: str,
     # o resultado já calculado pela dependência do roteador) — precisa dele
     # só agora, para marcar a linha aberta em `#acompanhados`.
     contexto = _contexto(request)
-    cotacao = contexto.cotacao.obter()
+    agora = db.agora()
+    cotacao = contexto.cotacao.obter(request.app.state.engine, agora)
     if cotacao is None:
         return _erro(request, SEM_COTACAO)
-    agora = db.agora()
     try:
         leitura = contexto.retratos.obter(
             request.app.state.engine, nome, cotacao.usd_to_brl, agora
@@ -523,9 +605,9 @@ def linhas_acompanhadas(
 def _coluna(request: Request, usuario_id: int) -> HTMLResponse:
     """Monta a coluna esquerda, resolvendo a rede antes de tocar no banco."""
     contexto = _contexto(request)
-    cotacao = contexto.cotacao.obter()
-    indice = contexto.indice.obter()
     agora = db.agora()
+    cotacao = contexto.cotacao.obter(request.app.state.engine, agora)
+    indice = contexto.indice.obter()
     with request.app.state.engine.begin() as conn:
         linhas = linhas_acompanhadas(conn, cotacao, indice, usuario_id, agora)
     return TEMPLATES.TemplateResponse(
@@ -560,12 +642,13 @@ def parar_de_acompanhar(request: Request, ident: int,
 def atualizar(request: Request, hash_name: str,
               usuario: Usuario = Depends(ses.usuario_obrigatorio)):
     contexto = _contexto(request)
-    cotacao = contexto.cotacao.obter()
+    agora = db.agora()
+    cotacao = contexto.cotacao.obter(request.app.state.engine, agora)
     if cotacao is not None:
         try:
             contexto.retratos.obter(
                 request.app.state.engine, hash_name, cotacao.usd_to_brl,
-                db.agora(), forcar=True,
+                agora, forcar=True,
             )
         except (RuntimeError, PageStructureError) as erro:
             # O botão ↻ é o que a pessoa aperta bem quando a linha diz "sem

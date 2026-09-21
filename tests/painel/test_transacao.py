@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy import event
 
+from tf2price.domain.money import Brl
+from tf2price.painel.consulta import CotacaoSobDemanda
 from tf2price.preco.retrato import Retratos
 
 from tests.painel.conftest import NOME, _contexto, _pagina, cliente_logado
@@ -61,6 +63,44 @@ def test_nenhuma_conexao_fica_emprestada_durante_o_io(engine):
 
     assert resposta.status_code == 200
     assert paginas.emprestadas_durante_o_io == 0
+
+
+class _SteamQueObservaOPool:
+    """Dublê do `SteamClient` que anota o pool durante a própria busca."""
+
+    def __init__(self, contador):
+        self.contador = contador
+        self.emprestadas_durante_o_io = None
+
+    def key_price(self) -> Brl:
+        self.emprestadas_durante_o_io = self.contador["emprestadas"]
+        return Brl.from_float(11.73)
+
+    def usd_to_brl(self) -> float:
+        return 5.0
+
+
+def test_a_cotacao_nao_prende_conexao_durante_o_io(engine):
+    """A mesma garantia, agora para a cotação — que passou a ler e gravar
+    no banco em volta de uma busca na Steam.
+
+    Pelo motivo que o teste de cima já explica, isto precisa de uma
+    `CotacaoSobDemanda` de verdade: o `_CotacaoFalsa` do `_contexto` não
+    toca o banco, então mediria zero de qualquer jeito. Com a de verdade, o
+    teste reprovaria a forma óbvia e errada de escrever isso: uma transação
+    aberta em volta da busca, para ler o guardado e gravar o novo sem abrir
+    duas.
+    """
+    contador = _contar_conexoes(engine)
+    steam = _SteamQueObservaOPool(contador)
+    ctx = _contexto()
+    ctx.cotacao = CotacaoSobDemanda(steam)
+    cliente = cliente_logado(engine, ctx)
+
+    resposta = cliente.get("/")
+
+    assert resposta.status_code == 200
+    assert steam.emprestadas_durante_o_io == 0
 
 
 def test_rota_de_escrita_continua_funcionando(engine):
