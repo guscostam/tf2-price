@@ -3,12 +3,15 @@
 {% block page_eyebrow %}Evidence provenance{% endblock %}
 {% block page_title %}Sources{% endblock %}
 {% block content %}
+{% set snapshots = linhas|selectattr("idade")|list %}
 <div data-page="sources" class="sources-grid">
   <section class="source-card">
     <p class="scope-label">THIS EFFECT + ALL EFFECTS</p>
     <h2>Steam Market</h2>
     <p>Steam supplies the item image and listings for the selected effect. Its order book and sales history cover all effects for the item.</p>
-    <span class="status-badge">Known through stored case snapshots</span>
+    <span class="status-badge {{ 'status-badge--ready' if snapshots else 'status-badge--waiting' }}">
+      {{ "Known through stored case snapshots" if snapshots else "No stored case snapshots yet" }}
+    </span>
     {% if linhas %}
     <ul class="source-evidence-list">
       {% for case in linhas %}

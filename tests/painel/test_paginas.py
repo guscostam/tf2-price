@@ -1,3 +1,4 @@
+import json
 import threading
 
 from fastapi.testclient import TestClient
@@ -5,8 +6,10 @@ from fastapi.testclient import TestClient
 from tf2price import db
 from tf2price.painel.app import criar_app
 from tf2price.painel.consulta import CotacaoSobDemanda, IndiceSobDemanda
+from tf2price.preco import repositorio as preco_repo
+from tf2price.preco import serial
 
-from .conftest import CHAVE, NOME, _contexto, cliente_logado
+from .conftest import CHAVE, NOME, _contexto, _pagina, cliente_logado
 
 
 class _IndiceSemRede:
@@ -98,6 +101,40 @@ def test_sources_nao_afirma_online_sem_evidencia(engine):
     assert "Online" not in texto
     assert "Awaiting background load" in texto
     assert not contexto.indice.obter_chamado
+
+
+def test_sources_steam_aguarda_quando_nao_ha_snapshot_salvo(engine):
+    cliente = cliente_logado(engine, _contexto())
+
+    texto_sem_casos = cliente.get("/sources").text
+    assert "No stored case snapshots yet" in texto_sem_casos
+    assert "Known through stored case snapshots" not in texto_sem_casos
+
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+    texto_sem_snapshot = cliente.get("/sources").text
+    assert NOME in texto_sem_snapshot
+    assert "No stored case snapshots yet" in texto_sem_snapshot
+    assert "Known through stored case snapshots" not in texto_sem_snapshot
+
+
+def test_sources_steam_confirma_snapshot_real_salvo(engine):
+    cliente = cliente_logado(engine, _contexto())
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+    with engine.begin() as conn:
+        preco_repo.guardar(
+            conn,
+            NOME,
+            json.dumps(serial.para_dict(_pagina())),
+            db.agora(),
+        )
+
+    texto = cliente.get("/sources").text
+    inicio_steam = texto.index("<h2>Steam Market</h2>")
+    trecho_steam = texto[inicio_steam : texto.index("</section>", inicio_steam)]
+
+    assert 'class="status-badge status-badge--ready"' in trecho_steam
+    assert "Known through stored case snapshots" in trecho_steam
+    assert "No stored case snapshots yet" not in trecho_steam
 
 
 def test_new_case_preserva_indicador_e_destinos_htmx(engine):
