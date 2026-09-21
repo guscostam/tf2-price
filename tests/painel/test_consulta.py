@@ -247,6 +247,13 @@ def test_a_cotacao_da_chave_aparece_no_timbre(cliente):
     assert str(CHAVE) in cliente.get("/").text
 
 
+def test_o_painel_traz_a_coluna_de_acompanhados(engine):
+    cliente = cliente_logado(engine, _contexto())
+    texto = cliente.get("/").text
+    assert 'id="acompanhados"' in texto
+    assert "nada acompanhado ainda" in texto
+
+
 def test_analise_sem_indice_nao_mente_sobre_a_bptf(engine):
     ctx = _contexto()
     ctx.indice = _IndiceFalso(None)
