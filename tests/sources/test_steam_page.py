@@ -266,6 +266,51 @@ def test_429_seguido_de_timeout_na_ultima_tentativa_ainda_liga_a_calma():
     assert tentativas["n"] == 6  # 1 inicial + 5 do backoff
 
 
+def test_429_seguido_de_4xx_tambem_liga_a_calma():
+    """Estrangular e depois bloquear o reincidente é o padrão de um limitador.
+
+    O 4xx sai do laço na hora — e é isso que queremos, um 403 não melhora
+    com retentativa. Mas sair como `RuntimeError` puro deixaria a calma
+    desligada contra um IP que a Steam já marcou, e o clique seguinte
+    recomeçaria tudo. Quem viu 429 manda, mesmo que o último seja outro.
+    """
+    tentativas = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        tentativas["n"] += 1
+        if tentativas["n"] <= 2:
+            return httpx.Response(429, text="")
+        return httpx.Response(403, text="")
+
+    cliente = SteamPageClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(SteamLimitando):
+        cliente.item_page(NOME, 1.0)
+
+    # O fail-fast do 4xx continua valendo: o 403 não é retentado.
+    assert tentativas["n"] == 3
+
+
+def test_4xx_sozinho_nao_liga_a_calma():
+    """Sem 429 nenhum, um 403 é só recusa — travar cinco minutos seria errado."""
+    cliente = SteamPageClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda r: httpx.Response(403, text=""))
+        ),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        cliente.item_page(NOME, 1.0)
+
+    assert not isinstance(excinfo.value, SteamLimitando)
+
+
 def test_timeout_esporadico_e_absorvido_pelo_backoff():
     """Um timeout isolado não pode estourar a busca: é a mesma resiliência
     que 429 e 5xx já têm, só que para erro de transporte."""

@@ -325,7 +325,13 @@ class SteamPageClient:
                 # um 404 (item deslistado). Falha na hora, saneada porque a
                 # mensagem de um HTTPStatusError carrega a URL do pedido; as
                 # três rotas que chamam esta função capturam RuntimeError.
-                raise RuntimeError(f"Steam recusou: {mensagem_saneada(erro)}") from erro
+                #
+                # Mas se já houve 429 antes deste 4xx, quem manda é o 429:
+                # estrangular e depois bloquear o reincidente é o padrão de
+                # um limitador, e sair daqui como RuntimeError puro deixaria
+                # a calma desligada justamente contra um IP já marcado.
+                classe = SteamLimitando if houve_429 else RuntimeError
+                raise classe(f"Steam recusou: {mensagem_saneada(erro)}") from erro
             except httpx.RequestError as erro:
                 # Erro de transporte (timeout, conexão) — este sim é
                 # retentável: sem este `except`, um `httpx.ReadTimeout` subia
