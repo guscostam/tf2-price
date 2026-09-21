@@ -37,12 +37,13 @@ SQLAlchemy Core e pytest. No PowerShell, a preparação padrão é:
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-Copy-Item .env.example .env
+if (-not (Test-Path -LiteralPath .env)) { Copy-Item .env.example .env }
 ```
 
-O arquivo `.env` local precisa das variáveis descritas em `.env.example`; não
-inclua seus valores em commits, testes, logs ou documentação. Com o ambiente
-preparado, use:
+Se `.env` já existir, preserve o arquivo e as credenciais locais: não o
+sobrescreva com o exemplo. O `.env` local precisa das variáveis descritas em
+`.env.example`; não inclua seus valores em commits, testes, logs ou
+documentação. Com o ambiente preparado, use:
 
 ```powershell
 # aplicação local
@@ -168,9 +169,15 @@ proteções em caminhos forçados. A trava do limitador serializa chamadas entre
 threads, e as travas dos caches evitam renovação duplicada.
 
 `CotacaoSobDemanda.obter` consulta apenas memória e banco: não acessa a rede. A
-rede pertence a `CotacaoSobDemanda.renovar`, executado pelo trabalho de fundo.
-O mesmo princípio vale para rotas: responder com dado antigo ou estado ainda
-indisponível é preferível a bloquear a requisição.
+renovação da cotação pertence a `CotacaoSobDemanda.renovar` e é executada
+exclusivamente pelo trabalho de fundo; rotas respondem com a cotação antiga ou
+com o estado ainda indisponível em vez de renová-la.
+
+Essa regra de renovação em segundo plano é específica da cotação. Outras buscas
+remotas existentes, especialmente retratos via `Retratos.obter`, podem ocorrer
+sincronicamente em uma rota. Mesmo nesses caminhos, conclua a leitura do banco e
+devolva a conexão ao pool antes do I/O externo; abra outra transação curta apenas
+depois da resposta, se for necessário persistir o resultado.
 
 Mantenha uma única réplica de produção enquanto rate limiters, travas e períodos
 de calma viverem somente na memória local do processo. Escalar réplicas exige
