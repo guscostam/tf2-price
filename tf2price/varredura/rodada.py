@@ -71,13 +71,14 @@ class _Freio:
     """Espera, calma, pausa e cancelamento de uma rodada, num lugar só."""
 
     def __init__(
-        self, engine: Engine, rodada_id: int, retratos: Any,
+        self, engine: Engine, rodada_id: int, retratos: Any, steam: Any,
         esperar: Callable[[float], bool], agora: Callable[[], datetime],
         espaco_extra_s: float,
     ) -> None:
         self._engine = engine
         self._rodada_id = rodada_id
         self._retratos = retratos
+        self._steam = steam
         self._esperar_fn = esperar
         self._agora = agora
         self._espaco_extra_s = espaco_extra_s
@@ -87,10 +88,18 @@ class _Freio:
         if segundos > 0 and self._esperar_fn(segundos):
             raise _Cancelada
 
+    def _calma_restante_s(self) -> float:
+        # Duas calmas: a da página (`Retratos`, 5 min) e a do `SteamClient`
+        # (1 min), que a renovação da cotação e a busca de usuário também
+        # ligam. Com a do cliente ligada, ele recusa SEM requisição; tratar
+        # essa recusa como 429 queimaria uma pausa e esticaria a calma da
+        # página para os usuários.
+        return max(self._retratos.calma_restante_s(), self._steam.calma_restante_s())
+
     def _esperar_calma(self) -> None:
         # Calma ligada por outro (um usuário bateu no 429): espera o que falta,
         # sem contar como pausa, porque a rodada não fez requisição nenhuma.
-        while (resta := self._retratos.calma_restante_s()) > 0:
+        while (resta := self._calma_restante_s()) > 0:
             self._esperar(resta)
 
     def antes_de_requisitar(self) -> None:
@@ -164,7 +173,7 @@ def executar_rodada(
         repo.iniciar_andamento(conn, rodada_id, inicio)
 
     resumo = Resumo()
-    freio = _Freio(engine, rodada_id, retratos, esperar, agora, espaco_extra_s)
+    freio = _Freio(engine, rodada_id, retratos, steam, esperar, agora, espaco_extra_s)
     try:
         resumo.motivo = _rodar(
             engine, rodada_id, resumo, config, freio,

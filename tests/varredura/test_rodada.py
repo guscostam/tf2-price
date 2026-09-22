@@ -73,10 +73,15 @@ class _Steam:
 
     `limitar_busca={start: n}` responde 429 nas n primeiras tentativas
     daquele `start`; `usd_limitado=n` faz o mesmo com a cotação do dólar.
+
+    `calma_ate` é a calma do próprio `SteamClient` (60 s depois de um 429,
+    ligada também pela renovação da cotação ou por uma busca de usuário):
+    ligada, o cliente recusa sem requisição, e `recusas` conta isso.
+    `calma_apos_usd=s` liga essa calma logo depois de a cotação dar certo.
     """
 
     def __init__(self, resultados, limitar_busca=None, erro_no_start=None, erro=None,
-                 usd_limitado=0, contador=None, ao_buscar=None):
+                 usd_limitado=0, contador=None, ao_buscar=None, calma_apos_usd=0.0):
         self.resultados = list(resultados)
         self.limitar_busca = dict(limitar_busca or {})
         self.erro_no_start = erro_no_start
@@ -84,20 +89,39 @@ class _Steam:
         self.usd_limitado = usd_limitado
         self.contador = contador
         self.ao_buscar = ao_buscar
+        self.calma_apos_usd = calma_apos_usd
+        self.tempo = None  # o `_rodar` do teste liga o relógio simulado
+        self.calma_ate = 0.0
+        self.recusas = 0
         self.chamadas = []
         self.usd_chamadas = 0
         self.emprestadas = []
 
+    def _s(self):
+        return self.tempo.s if self.tempo is not None else 0.0
+
+    def calma_restante_s(self):
+        return max(0.0, self.calma_ate - self._s())
+
+    def _recusar_em_calma(self):
+        if self._s() < self.calma_ate:
+            self.recusas += 1
+            raise SteamLimitando("em calma, sem requisição")
+
     def usd_to_brl(self):
+        self._recusar_em_calma()
         self.usd_chamadas += 1
         if self.contador is not None:
             self.emprestadas.append(self.contador["emprestadas"])
         if self.usd_limitado > 0:
             self.usd_limitado -= 1
             raise SteamLimitando("429")
+        if self.calma_apos_usd:
+            self.calma_ate = self._s() + self.calma_apos_usd
         return 5.0
 
     def search_page(self, start=0, count=100, query=None):
+        self._recusar_em_calma()
         self.chamadas.append((start, query))
         if self.contador is not None:
             self.emprestadas.append(self.contador["emprestadas"])
@@ -171,6 +195,7 @@ def _cotacao(valor=SimpleNamespace(usd_to_brl=5.0)):
 def _rodar(engine, steam, retratos, quando=T0, cotacao=None, tempo=None):
     tempo = tempo or _Tempo(quando)
     retratos.tempo = tempo
+    steam.tempo = tempo
     return executar_rodada(
         engine, steam=steam, retratos=retratos, cotacao=cotacao or _cotacao(),
         agora=tempo.agora, esperar=tempo.esperar, aceitar=_aceitar,
@@ -549,6 +574,78 @@ def test_calma_ligada_durante_o_espaco_extra_e_esperada_antes_de_requisitar(engi
     assert steam.usd_chamadas == 1
 
 
+CALMA_CLIENTE_S = 60.0
+
+
+def test_calma_do_cliente_ja_ligada_e_esperada_sem_contar_como_pausa(engine, capsys):
+    """A renovação da cotação ou uma busca de usuário bateu no 429 e ligou a
+    calma do `SteamClient`: com ela, o cliente recusa SEM requisição. Isso não
+    é um 429 da rodada; tratá-lo como um queimaria uma pausa e esticaria a
+    calma da página de 1 para 5 minutos."""
+    tempo = _Tempo()
+    retratos = _Retratos(PAGINAS)
+    steam = _Steam([_r("Unusual A")])
+    steam.calma_ate = CALMA_CLIENTE_S
+
+    resumo = _rodar(engine, steam, retratos, tempo=tempo)
+
+    assert resumo.motivo == "ok"
+    assert tempo.esperas[0] == CALMA_CLIENTE_S
+    assert tempo.pausas() == [CALMA_CLIENTE_S]
+    assert steam.recusas == 0
+    assert (steam.usd_chamadas, steam.chamadas) == (1, [(0, QUERY)])
+    assert retratos.calma_ate == 0.0
+    assert "pausa" not in capsys.readouterr().out
+
+
+def test_calma_do_cliente_ligada_entre_passos_e_esperada_na_busca(engine, capsys):
+    tempo = _Tempo()
+    retratos = _Retratos(PAGINAS)
+    steam = _Steam([_r("Unusual A")], calma_apos_usd=CALMA_CLIENTE_S)
+
+    resumo = _rodar(engine, steam, retratos, tempo=tempo)
+
+    assert resumo.motivo == "ok"
+    assert steam.recusas == 0
+    assert steam.chamadas == [(0, QUERY)]
+    assert retratos.calma_ate == 0.0
+    assert "pausa" not in capsys.readouterr().out
+
+
+def test_calma_do_cliente_ligada_durante_o_espaco_extra_e_esperada_antes_de_requisitar(engine):
+    steam = _Steam([_r("Unusual A")])
+    ligou = []
+
+    def ao_esperar(segundos):
+        if not ligou:
+            ligou.append(True)
+            steam.calma_ate = tempo.s + CALMA_CLIENTE_S
+
+    tempo = _Tempo(ao_esperar=ao_esperar)
+    retratos = _Retratos(PAGINAS)
+
+    resumo = _rodar(engine, steam, retratos, tempo=tempo)
+
+    assert resumo.motivo == "ok"
+    assert tempo.esperas[:2] == [ESPACO_EXTRA_S, CALMA_CLIENTE_S - ESPACO_EXTRA_S]
+    assert (steam.recusas, steam.usd_chamadas) == (0, 1)
+    assert retratos.calma_ate == 0.0
+
+
+def test_429_persistente_na_cotacao_do_dolar_desiste_depois_de_quatro_pausas(engine):
+    tempo = _Tempo()
+    retratos = _Retratos(PAGINAS)
+    steam = _Steam([_r("Unusual A")], usd_limitado=99)
+
+    resumo = _rodar(engine, steam, retratos, tempo=tempo)
+
+    assert resumo.motivo == "429"
+    assert steam.usd_chamadas == MAX_PAUSAS_SEGUIDAS + 1
+    assert tempo.pausas() == [300, 600, 1200, 1800]
+    assert steam.chamadas == []
+    assert retratos.pedidos == []
+
+
 def test_log_diz_onde_veio_cada_429(engine, capsys):
     steam = _Steam([_r("Unusual A")], limitar_busca={0: 1}, usd_limitado=1)
     retratos = _Retratos(PAGINAS, limitar={"Unusual A": 1})
@@ -585,6 +682,20 @@ def test_stop_no_espaco_extra_para_sem_requisicao(engine):
 
     assert resumo.motivo == "cancelada"
     assert (steam.usd_chamadas, steam.chamadas) == (0, [])
+
+
+def test_stop_durante_a_espera_da_calma_para_sem_requisicao(engine):
+    tempo = _Tempo(cancelar_se=lambda s: s == CALMA_CLIENTE_S)
+    retratos = _Retratos(PAGINAS)
+    steam = _Steam([_r("Unusual A")])
+    steam.calma_ate = CALMA_CLIENTE_S
+
+    resumo = _rodar(engine, steam, retratos, tempo=tempo)
+
+    assert resumo.motivo == "cancelada"
+    assert tempo.esperas == [CALMA_CLIENTE_S]
+    assert (steam.recusas, steam.usd_chamadas, steam.chamadas) == (0, 0, [])
+    assert retratos.pedidos == []
 
 
 def test_rodada_cancelada_nao_apaga_nomes_sumidos(engine):

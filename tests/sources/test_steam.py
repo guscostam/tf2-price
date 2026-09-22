@@ -446,6 +446,29 @@ def test_depois_de_desistir_com_429_a_calma_recusa_sem_ir_a_rede():
     assert pedidos["n"] > gastos
 
 
+def test_calma_restante_diz_quanto_falta_da_calma_do_cliente():
+    """A varredura espera esta calma sem contá-la como pausa: com ela ligada,
+    o cliente recusa sem requisição, e isso não é um 429 da rodada."""
+    relogio = _RelogioFalso()
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(429, text=""))),
+        sleep=lambda _: None,
+        relogio=relogio,
+    )
+    assert client.calma_restante_s() == 0.0
+
+    with pytest.raises(SteamLimitando):
+        client.search_page(start=0)
+    assert client.calma_restante_s() == CALMA_APOS_429_S
+
+    relogio.agora += 20
+    assert client.calma_restante_s() == CALMA_APOS_429_S - 20
+
+    relogio.agora += CALMA_APOS_429_S
+    assert client.calma_restante_s() == 0.0
+
+
 def test_429_que_termina_em_sucesso_nao_liga_a_calma():
     """Uma sequência 429, 429, 200 acabou bem: ligar a calma aí puniria a
     chamada seguinte por um estrangulamento que já passou."""

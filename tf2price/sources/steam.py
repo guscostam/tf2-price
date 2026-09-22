@@ -266,6 +266,12 @@ class SteamClient:
             follow_redirects=True,
         )
 
+    def calma_restante_s(self) -> float:
+        """Quanto falta da calma do cliente, em segundos. A varredura espera
+        isto antes de requisitar: em calma o cliente recusa sem ir à rede, e
+        essa recusa não é um 429 da rodada."""
+        return max(0.0, self._calma_ate - self._relogio())
+
     def _get(self, url: str, params: dict[str, Any]) -> dict[str, Any]:
         return self._get_response(url, params).json()
 
