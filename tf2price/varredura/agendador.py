@@ -50,7 +50,12 @@ class Agendador:
             return False
         if ultima is None:
             return True
-        return self._agora() - ultima.inicio >= timedelta(minutes=config.intervalo_min)
+        # Conta do FIM da última rodada: a primeira lê ~1000 páginas e dura
+        # mais que o intervalo; contado do início, a seguinte sairia logo em
+        # seguida e o piso que protege a consulta do 429 não valeria nada.
+        # Rodada ainda aberta (sem fim) já é barrada pela trava.
+        referencia = ultima.fim or ultima.inicio
+        return self._agora() - referencia >= timedelta(minutes=config.intervalo_min)
 
     def tentar_rodar(self) -> bool:
         """Roda no thread de quem chamou. Falso se já havia rodada em curso."""

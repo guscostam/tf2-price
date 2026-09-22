@@ -142,7 +142,10 @@ faz a requisição e abre outra transação curta para gravar.
 
 - **Agendador.** Um thread daemon nasce na subida, ao lado do aquecimento, e
   a cada 60 s lê `varredura_config`. Começa uma rodada quando `ligada` é
-  verdadeiro e a última rodada começou há mais de `intervalo_min`.
+  verdadeiro e a última rodada **terminou** há mais de `intervalo_min` (conta
+  do `fim`; do `inicio` só se ela ainda não tiver `fim`, caso que a trava já
+  barra). Contar do início anularia o mínimo de 60 min quando uma rodada dura
+  mais que o intervalo, como a primeira, que lê ~1000 páginas a ~5 s cada.
 - **Uma rodada por vez.** Uma trava (`threading.Lock`, adquirida sem
   bloquear) serve ao agendador e ao botão "run now". Se já há rodada em
   curso, o botão diz isso e não faz nada.

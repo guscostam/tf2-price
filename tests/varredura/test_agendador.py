@@ -15,10 +15,10 @@ def _ligar(engine, intervalo_min=60):
         repo.gravar_config(conn, repo.Config(True, intervalo_min, 24), T0)
 
 
-def _rodada_em(engine, quando):
+def _rodada_em(engine, quando, fim=None):
     with engine.begin() as conn:
         rid = repo.abrir_rodada(conn, quando)
-        repo.fechar_rodada(conn, rid, quando, nomes_lidos=0, fundas_feitas=0,
+        repo.fechar_rodada(conn, rid, fim or quando, nomes_lidos=0, fundas_feitas=0,
                            falhas=0, motivo=repo.MOTIVO_OK)
 
 
@@ -38,6 +38,21 @@ def test_vence_so_depois_do_intervalo(engine):
     depois = Agendador(engine, rodar=lambda: None, agora=lambda: T0 + timedelta(minutes=60))
     assert not antes.vencida()
     assert depois.vencida()
+
+
+def test_intervalo_conta_do_fim_da_ultima_rodada(engine):
+    # A primeira rodada lê ~1000 páginas a ~5 s: dura mais que o intervalo.
+    # Contado do início, a próxima sairia logo em seguida e o piso de 60 min
+    # que protege a consulta do 429 não valeria nada.
+    _ligar(engine, intervalo_min=60)
+    _rodada_em(engine, T0 - timedelta(hours=3), fim=T0 - timedelta(minutes=30))
+    assert not Agendador(engine, rodar=lambda: None, agora=lambda: T0).vencida()
+
+
+def test_rodada_longa_vence_depois_do_intervalo_contado_do_fim(engine):
+    _ligar(engine, intervalo_min=60)
+    _rodada_em(engine, T0 - timedelta(hours=3), fim=T0 - timedelta(minutes=61))
+    assert Agendador(engine, rodar=lambda: None, agora=lambda: T0).vencida()
 
 
 def test_nunca_duas_rodadas_ao_mesmo_tempo(engine):
