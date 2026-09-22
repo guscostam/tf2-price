@@ -3,11 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from tf2price import db
 from tf2price.contas import repositorio_pedidos as repo
 from tf2price.painel.app import criar_app
 from tf2price.painel.limite import LimitePorChave
+from tf2price.painel.publico import chave_do_cliente
 
 from .conftest import _contexto, cliente_logado
 
@@ -23,6 +25,42 @@ VALIDO = {
     "observacao": "",
     "website": "",
 }
+
+
+def _request(headers=None, client=("10.0.0.1", 123)):
+    scope = {
+        "type": "http",
+        "headers": [
+            (nome.lower().encode(), valor.encode())
+            for nome, valor in (headers or {}).items()
+        ],
+        "client": client,
+    }
+    return Request(scope)
+
+
+def test_chave_do_cliente_sem_cabecalho_usa_o_client_host():
+    assert chave_do_cliente(_request()) == "10.0.0.1"
+
+
+def test_chave_do_cliente_usa_o_ultimo_item_do_xff():
+    r = _request(headers={"X-Forwarded-For": "1.2.3.4, 9.9.9.9"})
+    assert chave_do_cliente(r) == "9.9.9.9"
+
+
+def test_chave_do_cliente_ignora_espacos_e_item_vazio_no_fim():
+    r = _request(headers={"X-Forwarded-For": "1.2.3.4, 9.9.9.9, "})
+    assert chave_do_cliente(r) == "9.9.9.9"
+
+
+def test_chave_do_cliente_agrupa_ipv6_pela_rede_64():
+    r = _request(headers={"X-Forwarded-For": "2001:db8:1:2:aaaa::1"})
+    assert chave_do_cliente(r) == "2001:db8:1:2::/64"
+
+
+def test_chave_do_cliente_lixo_cai_para_o_client_host():
+    r = _request(headers={"X-Forwarded-For": "nao-e-ip"})
+    assert chave_do_cliente(r) == "10.0.0.1"
 
 
 def _pendentes(engine):
@@ -183,6 +221,43 @@ def test_pedido_de_outra_origem_e_recusado(engine):
     )
     assert r.status_code == 403
     assert _pendentes(engine) == []
+
+
+def test_forjar_o_comeco_do_xff_nao_abre_balde_novo(engine):
+    cliente = _anonimo(engine, contexto=None)
+    for n in range(3):
+        dados = {**VALIDO, "perfil_steam": f"steamcommunity.com/id/p{n}x"}
+        r = cliente.post(
+            "/access-request",
+            data=dados,
+            headers={"X-Forwarded-For": f"6.6.6.{n}, 203.0.113.7"},
+        )
+        assert r.status_code == 303
+    r = cliente.post(
+        "/access-request",
+        data={**VALIDO, "perfil_steam": "steamcommunity.com/id/p9x"},
+        headers={"X-Forwarded-For": "6.6.6.99, 203.0.113.7"},
+    )
+    assert r.status_code == 429
+
+
+def test_dois_clientes_com_ultimo_item_diferente_nao_dividem_a_cota(engine):
+    cliente = _anonimo(engine, contexto=None)
+    for n in range(3):
+        dados = {**VALIDO, "perfil_steam": f"steamcommunity.com/id/q{n}x"}
+        r = cliente.post(
+            "/access-request",
+            data=dados,
+            headers={"X-Forwarded-For": f"1.1.1.{n}, 203.0.113.8"},
+        )
+        assert r.status_code == 303
+    # outro cliente (último item diferente): seu 1º envio não é bloqueado
+    r = cliente.post(
+        "/access-request",
+        data={**VALIDO, "perfil_steam": "steamcommunity.com/id/r1x"},
+        headers={"X-Forwarded-For": "1.1.1.1, 203.0.113.9"},
+    )
+    assert r.status_code == 303
 
 
 def test_limite_padrao_do_app_e_tres_por_hora(engine):

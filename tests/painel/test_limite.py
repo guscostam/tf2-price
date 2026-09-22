@@ -58,6 +58,21 @@ def test_chaves_vencidas_saem_da_memoria():
     assert limite.chaves_ativas() == 1
 
 
+def test_teto_de_chaves_recusa_chave_nova_mas_aceita_existente():
+    relogio = _Relogio()
+    limite = LimitePorChave(maximo=5, janela_s=3600, maximo_de_chaves=2, relogio=relogio)
+    assert limite.permitir("a")
+    assert limite.permitir("b")
+    # teto cheio: chave nova é recusada e não passa a existir
+    assert not limite.permitir("c")
+    assert limite.chaves_ativas() == 2
+    # chave já presente segue a regra normal mesmo com o teto cheio
+    assert limite.permitir("a")
+    # depois que a janela vence, chave nova volta a entrar
+    relogio.agora += 3600
+    assert limite.permitir("c")
+
+
 def test_concorrencia_nao_deixa_passar_alem_do_maximo():
     limite = LimitePorChave(maximo=5, janela_s=3600, relogio=_Relogio())
     barreira = threading.Barrier(20)

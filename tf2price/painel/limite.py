@@ -18,16 +18,24 @@ class LimitePorChave:
         self,
         maximo: int,
         janela_s: float,
+        maximo_de_chaves: int = 10_000,
         relogio: Callable[[], float] = time.monotonic,
     ) -> None:
         self._maximo = maximo
         self._janela_s = janela_s
+        self._maximo_de_chaves = maximo_de_chaves
         self._relogio = relogio
         self._trava = threading.Lock()
         self._eventos: dict[str, deque[float]] = {}
 
     def permitir(self, chave: str) -> bool:
-        """Registra e devolve True se a chave ainda tem cota; senão, False."""
+        """Registra e devolve True se a chave ainda tem cota; senão, False.
+
+        Sem `maximo_de_chaves`, um atacante que forja uma chave nova a cada
+        envio (por exemplo variando o `X-Forwarded-For`) faria a memória
+        crescer sem limite; por isso uma chave nova é recusada quando o teto
+        já está cheio, enquanto chaves já presentes seguem a cota normal.
+        """
         agora = self._relogio()
         vencido = agora - self._janela_s
         with self._trava:
@@ -37,6 +45,8 @@ class LimitePorChave:
                     fila.popleft()
                 if not fila:
                     del self._eventos[outra]
+            if chave not in self._eventos and len(self._eventos) >= self._maximo_de_chaves:
+                return False
             fila = self._eventos.setdefault(chave, deque())
             if len(fila) >= self._maximo:
                 return False

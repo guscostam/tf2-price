@@ -121,7 +121,10 @@ receive an invite link through the contact you gave."*
 
 - **Limite por IP em memória:** no máximo 3 envios por IP por hora corrida
   (contam todos os envios que passam da validação de origem, gravados ou
-  não) (`request.client.host`, que o `--proxy-headers` já corrige). Ao
+  não). A chave é o último item do `X-Forwarded-For` — o que o Railway, único
+  proxy na frente do app, acrescenta — ou o endereço da conexão quando não há
+  esse cabeçalho; um IPv6 é agrupado pela rede `/64` que o contém. Um teto de
+  10 000 chaves na memória impede que chaves forjadas cresçam sem limite. Ao
   exceder, `429` com a landing mostrando *"Too many requests from this
   connection. Try again later."* no lugar do formulário. O limitador recebe
   o relógio por injeção, protege seu estado com trava e descarta entradas
