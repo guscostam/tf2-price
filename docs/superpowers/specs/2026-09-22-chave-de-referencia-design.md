@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-22
 
-**Status:** aprovado, não implementado
+**Status:** implementado
 
 **Base funcional:** `master` em `a8e345b`
 
