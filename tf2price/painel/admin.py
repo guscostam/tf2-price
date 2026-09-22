@@ -229,10 +229,12 @@ def andamento_da_varredura(
         context=contexto,
     )
     # A rodada acabou enquanto o fragmento se atualizava: o "Run now" e a
-    # tabela de rodadas estão fora dele e ficariam velhos. Recarrega a
-    # página uma vez; ociosa, ela não tem `hx-trigger`, então não entra em laço.
+    # tabela de rodadas estão fora dele e ficariam velhos. A página inteira (não
+    # apenas o fragmento) pode ser resultado de um POST: um reload pediria para
+    # resubmeter. Assim, redireciona para /admin via GET; ociosa, ela não tem
+    # `hx-trigger`, então não entra em laço.
     if request.headers.get("HX-Request") and not contexto["rodando"]:
-        resposta.headers["HX-Refresh"] = "true"
+        resposta.headers["HX-Redirect"] = "/admin"
     return resposta
 
 
