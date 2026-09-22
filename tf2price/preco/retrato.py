@@ -109,6 +109,11 @@ class Retratos:
         viesse logo depois bateria no mesmo limite."""
         self._calma_ate = self._relogio() + CALMA_APOS_429.total_seconds()
 
+    def calma_restante_s(self) -> float:
+        """Quanto falta da calma, em segundos. A varredura espera isto antes
+        de requisitar quando a calma foi ligada por outro (um usuário)."""
+        return max(0.0, self._calma_ate - self._relogio())
+
     def _vale_buscar(
         self,
         hash_name: str,

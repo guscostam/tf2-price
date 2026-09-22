@@ -195,3 +195,18 @@ def test_acalmar_por_fora_liga_a_mesma_calma_do_429(engine):
     assert leitura.limitando
     relogio.avancar(mod.CALMA_APOS_429.total_seconds() + 1)
     assert not retratos.em_calma()
+
+
+def test_calma_restante_conta_para_baixo(engine):
+    relogio = _Relogio()
+    retratos = mod.Retratos(_PaginasFalsas(), relogio=relogio)
+    assert retratos.calma_restante_s() == 0.0
+
+    retratos.acalmar()
+    assert retratos.calma_restante_s() == mod.CALMA_APOS_429.total_seconds()
+
+    relogio.avancar(100)
+    assert retratos.calma_restante_s() == mod.CALMA_APOS_429.total_seconds() - 100
+
+    relogio.avancar(10_000)
+    assert retratos.calma_restante_s() == 0.0

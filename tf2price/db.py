@@ -185,6 +185,25 @@ varredura_rodada = Table(
     Column("motivo_parada", String(20), nullable=True),
 )
 
+varredura_andamento = Table(
+    "varredura_andamento",
+    METADATA,
+    # Uma linha só (id 1): o andamento da rodada em curso, que o admin lê a
+    # cada 5 s. Tabela própria, e não colunas em `varredura_rodada`, porque
+    # `create_all` não acrescenta colunas a uma tabela que já existe.
+    Column("id", Integer, primary_key=True),
+    Column("rodada_id", Integer, nullable=False),
+    Column("fase", String(20), nullable=False),
+    Column("paginas_busca_lidas", Integer, nullable=False),
+    Column("paginas_busca_total", Integer, nullable=True),
+    Column("itens_lidos", Integer, nullable=False),
+    Column("itens_total", Integer, nullable=True),
+    # Não nulo = pausada depois de um 429, até este instante (UTC).
+    Column("pausado_ate", DateTime, nullable=True),
+    Column("pausas_seguidas", Integer, nullable=False),
+    Column("atualizado_em", DateTime, nullable=False),
+)
+
 
 def url_do_ambiente() -> str:
     """URL do banco, com o dialeto normalizado.

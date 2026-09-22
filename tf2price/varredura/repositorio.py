@@ -23,6 +23,7 @@ MOTIVO_OK = "ok"
 MOTIVO_429 = "429"
 MOTIVO_ERRO = "erro"
 MOTIVO_INTERROMPIDA = "interrompida"
+MOTIVO_CANCELADA = "cancelada"
 
 INTERVALO_MINIMO_MIN = 60
 IDADE_MINIMA_FUNDA_H = 1
@@ -228,11 +229,14 @@ def fechar_rodada(
 
 
 def fechar_abertas(conn: Connection, quando: datetime) -> int:
-    """Na subida: rodada sem fim é de um processo que morreu no meio dela."""
+    """Na subida: rodada sem fim é de um processo que morreu no meio dela, e o
+    andamento dela não descreve mais nada que esteja acontecendo."""
     t = db.varredura_rodada
-    return conn.execute(
+    fechadas = conn.execute(
         update(t).where(t.c.fim.is_(None)).values(fim=quando, motivo_parada=MOTIVO_INTERROMPIDA)
     ).rowcount
+    limpar_andamento(conn)
+    return fechadas
 
 
 def ultimas_rodadas(conn: Connection, n: int = 10) -> list[Rodada]:
@@ -254,6 +258,30 @@ def ultima_completa(conn: Connection) -> Rodada | None:
         .order_by(t.c.inicio.desc(), t.c.id.desc()).limit(1)
     ).first()
     return _rodada(linha) if linha else None
+
+
+MANTER_RODADAS = 20
+
+
+def podar_rodadas(conn: Connection, manter: int = MANTER_RODADAS) -> int:
+    """Apaga rodadas terminadas antigas. Ficam as `manter` mais recentes e a
+    última completa, mesmo antiga: é o início dela que decide quais nomes
+    sumiram do mercado (`executar_rodada`). Rodada aberta nunca sai.
+
+    Os ids a guardar são lidos antes, em Python, para o DELETE não depender
+    de LIMIT dentro de subconsulta, que cada dialeto trata de um jeito.
+    """
+    t = db.varredura_rodada
+    guardar = {i for (i,) in conn.execute(
+        select(t.c.id).order_by(t.c.inicio.desc(), t.c.id.desc()).limit(manter)
+    )}
+    completa = ultima_completa(conn)
+    if completa is not None:
+        guardar.add(completa.id)
+    consulta = delete(t).where(t.c.fim.is_not(None))
+    if guardar:
+        consulta = consulta.where(t.c.id.not_in(guardar))
+    return conn.execute(consulta).rowcount
 
 
 # --- leitura para a página --------------------------------------------------
@@ -323,3 +351,71 @@ def cobertura(conn: Connection) -> Cobertura:
     nomes = conn.execute(select(func.count(func.distinct(l.c.hash_name)))).scalar_one()
     listagens = conn.execute(select(func.count()).select_from(db.listagem_varrida)).scalar_one()
     return Cobertura(nomes=int(nomes), listagens=int(listagens))
+
+
+# --- andamento da rodada em curso ------------------------------------------
+
+FASE_COTACAO = "cotacao"
+FASE_BUSCA = "busca"
+FASE_PAGINAS = "paginas"
+LINHA_DO_ANDAMENTO = 1
+
+_CAMPOS_DO_ANDAMENTO = frozenset({
+    "fase", "paginas_busca_lidas", "paginas_busca_total", "itens_lidos",
+    "itens_total", "pausado_ate", "pausas_seguidas",
+})
+
+
+@dataclass(frozen=True)
+class Andamento:
+    rodada_id: int
+    fase: str
+    paginas_busca_lidas: int
+    paginas_busca_total: int | None
+    itens_lidos: int
+    itens_total: int | None
+    pausado_ate: datetime | None
+    pausas_seguidas: int
+    atualizado_em: datetime
+
+
+def iniciar_andamento(conn: Connection, rodada_id: int, quando: datetime) -> None:
+    t = db.varredura_andamento
+    conn.execute(delete(t))
+    conn.execute(insert(t).values(
+        id=LINHA_DO_ANDAMENTO, rodada_id=rodada_id, fase=FASE_COTACAO,
+        paginas_busca_lidas=0, paginas_busca_total=None, itens_lidos=0,
+        itens_total=None, pausado_ate=None, pausas_seguidas=0, atualizado_em=quando,
+    ))
+
+
+def atualizar_andamento(conn: Connection, quando: datetime, **campos) -> None:
+    desconhecidos = set(campos) - _CAMPOS_DO_ANDAMENTO
+    if desconhecidos:
+        raise TypeError(f"campos de andamento desconhecidos: {sorted(desconhecidos)}")
+    t = db.varredura_andamento
+    conn.execute(
+        update(t).where(t.c.id == LINHA_DO_ANDAMENTO).values(**campos, atualizado_em=quando)
+    )
+
+
+def ler_andamento(conn: Connection) -> Andamento | None:
+    t = db.varredura_andamento
+    linha = conn.execute(select(t).where(t.c.id == LINHA_DO_ANDAMENTO)).first()
+    if linha is None:
+        return None
+    return Andamento(
+        rodada_id=int(linha.rodada_id),
+        fase=linha.fase,
+        paginas_busca_lidas=int(linha.paginas_busca_lidas),
+        paginas_busca_total=linha.paginas_busca_total,
+        itens_lidos=int(linha.itens_lidos),
+        itens_total=linha.itens_total,
+        pausado_ate=linha.pausado_ate,
+        pausas_seguidas=int(linha.pausas_seguidas),
+        atualizado_em=linha.atualizado_em,
+    )
+
+
+def limpar_andamento(conn: Connection) -> None:
+    conn.execute(delete(db.varredura_andamento))
