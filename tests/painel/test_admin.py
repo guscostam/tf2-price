@@ -284,17 +284,47 @@ def test_superadmin_promove_e_rebaixa(dono, engine):
     assert "Make admin" in r.text
 
 
-def test_promover_e_rebaixar_valem_na_requisicao_seguinte(dono, engine):
-    """Sem derrubar a sessão: `admin` é relido do banco a cada requisição."""
+def test_promover_derruba_a_sessao_e_rebaixar_nao_na_requisicao_seguinte(dono, engine):
+    """Promover derruba a sessão antiga; rebaixar não precisa, porque
+    `admin` é relido do banco a cada requisição."""
     amiga = _entra(engine, "amiga", admin=False)
     alvo = _id(engine, "amiga")
     assert amiga.get("/admin").status_code == 403
 
     dono.post(f"/admin/papel/{alvo}", data={"admin": "1"})
+    amiga.follow_redirects = False
+    assert amiga.get("/admin").status_code == 303  # sessão antiga morta
+
+    amiga.post("/entrar", data={"nome": "amiga", "senha": SENHA})
+    amiga.follow_redirects = True
     assert amiga.get("/admin").status_code == 200
 
     dono.post(f"/admin/papel/{alvo}", data={"admin": "0"})
-    assert amiga.get("/admin").status_code == 403
+    amiga.follow_redirects = False
+    assert amiga.get("/admin").status_code == 403  # não derrubou a sessão nova
+
+
+def test_promover_apaga_as_sessoes_do_promovido(dono, engine):
+    amiga = _entra(engine, "amiga", admin=False)
+    token = amiga.cookies.get(NOME_COOKIE)
+    alvo = _id(engine, "amiga")
+
+    dono.post(f"/admin/papel/{alvo}", data={"admin": "1"})
+
+    with engine.begin() as conn:
+        assert repo.sessao_por_hash(conn, tokens.hash_de(token)) is None
+    assert dono.get("/admin").status_code == 200  # a sessão do ator não caiu
+
+
+def test_rebaixar_nao_apaga_a_sessao(dono, engine):
+    colega = _colega(engine)
+    token = colega.cookies.get(NOME_COOKIE)
+    alvo = _id(engine, "colega")
+
+    dono.post(f"/admin/papel/{alvo}", data={"admin": "0"})
+
+    with engine.begin() as conn:
+        assert repo.sessao_por_hash(conn, tokens.hash_de(token)) is not None
 
 
 def test_admin_comum_nao_muda_papel_de_ninguem(dono, engine):

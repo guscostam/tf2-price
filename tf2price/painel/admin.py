@@ -175,9 +175,17 @@ def mudar_papel(
         return HTMLResponse("User not found.", status_code=404)
     if not permissoes.pode_mudar_admin(usuario, alvo, request.app.state.superadmin):
         return _proibido()
-    # Rebaixar não derruba a sessão: `usuario_da_sessao` relê `admin` do
-    # banco a cada requisição, e o efeito já vale na próxima.
-    repo.definir_admin(conn, usuario_id, admin == "1")
+    promovendo = admin == "1"
+    repo.definir_admin(conn, usuario_id, promovendo)
+    if promovendo:
+        # Promover derruba as sessões abertas do promovido: uma delas pode
+        # ter sido aberta por quem resgatou um link de reset daquela conta
+        # quando ela ainda era membro, e essa sessão antiga viraria sessão
+        # de admin. Rebaixar não precisa: `usuario_da_sessao` relê `admin`
+        # do banco a cada requisição, e o efeito já vale na próxima. (O
+        # próprio superadmin nunca é o alvo aqui — `pode_mudar_admin`
+        # recusa a si mesmo —, então a sessão dele não cai.)
+        repo.apagar_sessoes_do_usuario(conn, usuario_id)
     return _tela_admin(request, conn, usuario)
 
 

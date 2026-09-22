@@ -34,6 +34,7 @@ ações que já existem também mudam.
 | Superadmin sobre si | pode resetar a própria senha; não se rebaixa nem se desativa |
 | Admin comum sobre si | pode resetar a própria senha; não se desativa nem se rebaixa |
 | Link de reset | revalidado no uso: vale só se quem o gerou ainda poderia gerá-lo para aquele alvo |
+| Promover | derruba as sessões abertas do promovido (uma delas pode ter sido aberta por quem resgatou um link de reset quando a conta era membro) |
 | Rebaixar | não derruba a sessão; `admin` é relido do banco a cada requisição |
 | Rótulo na tela | "Owner" na linha do superadmin |
 | Convite que já nasce admin | fora do escopo; promove-se depois de a conta existir |
@@ -120,7 +121,8 @@ caminho de erro).
 
 - Nova rota `POST /admin/papel/{usuario_id}`, campo `admin=1|0`, com
   `mesma_origem`. 404 se o alvo não existe; 403 se
-  `not pode_mudar_admin(...)`. Senão `definir_admin` e a tela do admin.
+  `not pode_mudar_admin(...)`. Senão `definir_admin` e a tela do admin; ao
+  promover, também apaga as sessões do promovido.
 - `POST /admin/redefinir/{id}`: 403 se `not pode_gerir(...)`.
 - `POST /admin/ativo/{id}`: mantém a recusa de desativar a si mesmo e o 404;
   403 se `not pode_gerir(...)`; ator não superadmin grava com
@@ -182,7 +184,8 @@ nome que bate com um admin desativado; ator admin desativado.
 - `/admin/papel/*` exige mesma origem e dá 404 para alvo inexistente;
 - botões aparecem e somem conforme a tabela, visto pelo superadmin e por um
   admin comum; selo "Owner" na linha certa;
-- rebaixado perde `/admin` na requisição seguinte, sem sair.
+- promovido precisa entrar de novo (sessões apagadas); rebaixado perde
+  `/admin` na requisição seguinte, sem sair.
 
 **Revalidação do link (`tests/contas/test_servico.py` e rota do convite)**:
 
