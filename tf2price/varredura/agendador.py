@@ -40,6 +40,10 @@ class Agendador:
         # Um evento por rodada: `parar_rodada` o liga, e a rodada o usa como
         # espera (`Event.wait` devolve verdadeiro quando foi ligado).
         self._cancelar = threading.Event()
+        # Guarda a troca do evento em `_comecar` e o `set` em `parar_rodada`.
+        # Sem ela, um Stop entre o `acquire` e a troca veria `rodando` e
+        # ligaria o evento da rodada anterior, e a nova não pararia.
+        self._trava_evento = threading.Lock()
 
     @property
     def rodando(self) -> bool:
@@ -61,12 +65,13 @@ class Agendador:
         return self._agora() - referencia >= timedelta(minutes=config.intervalo_min)
 
     def _comecar(self) -> bool:
-        if not self._trava.acquire(blocking=False):
-            return False
-        # Criado ANTES de soltar o thread: um Stop que chegue antes de a
-        # rodada começar ainda cai no evento dela, e não no da anterior.
-        self._cancelar = threading.Event()
-        return True
+        with self._trava_evento:
+            if not self._trava.acquire(blocking=False):
+                return False
+            # Criado ANTES de soltar o thread: um Stop que chegue antes de a
+            # rodada começar ainda cai no evento dela, e não no da anterior.
+            self._cancelar = threading.Event()
+            return True
 
     def tentar_rodar(self) -> bool:
         """Roda no thread de quem chamou. Falso se já havia rodada em curso."""
@@ -86,11 +91,13 @@ class Agendador:
 
     def parar_rodada(self) -> bool:
         """Para o "Stop scan". Falso se não havia rodada. A rodada atende na
-        próxima espera: no máximo uma requisição depois, ou no meio da pausa."""
-        if not self.rodando:
-            return False
-        self._cancelar.set()
-        return True
+        próxima espera (espaço extra, calma ou pausa): uma requisição já em
+        curso termina antes, com a retentativa e o backoff do cliente."""
+        with self._trava_evento:
+            if not self.rodando:
+                return False
+            self._cancelar.set()
+            return True
 
     def _executar_segurando(self) -> None:
         try:

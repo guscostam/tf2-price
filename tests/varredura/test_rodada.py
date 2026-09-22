@@ -753,6 +753,31 @@ def test_andamento_registra_a_pausa_e_a_limpa_ao_retomar(engine):
     assert na_retomada == [None]
 
 
+def test_calma_que_sobra_depois_da_pausa_adia_o_aviso_de_retomada(engine):
+    """Se a calma passa do fim da pausa, o admin não pode ver "retoma às"
+    com uma hora que já passou: o aviso anda para o novo fim esperado."""
+    sobra_s = 120.0
+    na_sobra = []
+
+    def ao_esperar(segundos):
+        if segundos == 300:
+            # Um usuário bateu no 429 no meio da pausa.
+            retratos.calma_ate = tempo.s + 300 + sobra_s
+        elif segundos == sobra_s:
+            with engine.begin() as conn:
+                a = repo.ler_andamento(conn)
+            na_sobra.append(a.pausado_ate - tempo.agora())
+
+    tempo = _Tempo(ao_esperar=ao_esperar)
+    retratos = _Retratos(PAGINAS, limitar={"Unusual A": 1})
+
+    resumo = _rodar(engine, _Steam([_r("Unusual A")]), retratos, tempo=tempo)
+
+    assert resumo.motivo == "ok"
+    assert tempo.pausas() == [300, sobra_s]
+    assert na_sobra == [timedelta(seconds=sobra_s)]
+
+
 def test_rodada_poda_o_historico_ao_fechar(engine):
     with engine.begin() as conn:
         for i in range(25):

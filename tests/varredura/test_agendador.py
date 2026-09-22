@@ -135,6 +135,40 @@ def test_cada_rodada_recebe_um_evento_novo(engine):
     assert not eventos[1].is_set()
 
 
+def test_stop_entre_a_trava_e_o_evento_novo_cai_na_rodada_nova(engine, monkeypatch):
+    """Sem uma trava em volta da troca, um Stop que chegasse entre `acquire`
+    e a criação do evento novo veria `rodando` e ligaria o evento da rodada
+    ANTERIOR: a rodada nova seguiria como se ninguém tivesse apertado Stop.
+    Aqui o Stop sai de outro thread exatamente nesse vão."""
+    from types import SimpleNamespace
+
+    from tf2price.varredura import agendador as agendador_mod
+
+    agendador = Agendador(engine, rodar=lambda cancelar: None)
+    antigo = agendador._cancelar
+    evento_real = threading.Event
+    parou = []
+    stops = []
+
+    def evento_com_stop_no_vao():
+        stop = threading.Thread(target=lambda: parou.append(agendador.parar_rodada()))
+        stop.start()
+        stop.join(0.2)  # sem a trava, o Stop termina aqui, no evento antigo
+        stops.append(stop)
+        return evento_real()
+
+    monkeypatch.setattr(agendador_mod, "threading", SimpleNamespace(
+        Event=evento_com_stop_no_vao, Lock=threading.Lock, Thread=threading.Thread))
+
+    assert agendador._comecar()
+    stops[0].join(5)
+
+    assert parou == [True]
+    assert agendador._cancelar.is_set()
+    assert not antigo.is_set()
+    agendador._trava.release()
+
+
 def test_construir_agendador_passa_o_cancelamento_como_espera(engine, monkeypatch):
     from types import SimpleNamespace
 

@@ -127,7 +127,11 @@ class _Freio:
               f"{self.pausas_seguidas} de {MAX_PAUSAS_SEGUIDAS}, até {ate:%H:%M} UTC", flush=True)
         self.gravar(pausado_ate=ate, pausas_seguidas=self.pausas_seguidas)
         self._esperar(minutos * 60)
-        # A pausa nunca é menor que a calma ainda em curso.
+        # A pausa nunca é menor que a calma ainda em curso. Se sobrou calma,
+        # o aviso anda para o novo fim esperado: o admin nunca vê "retoma às"
+        # com uma hora que já passou.
+        if (resta := self._calma_restante_s()) > 0:
+            self.gravar(pausado_ate=self._agora() + timedelta(seconds=resta))
         self._esperar_calma()
         self.gravar(pausado_ate=None)
 
