@@ -26,6 +26,7 @@ ABAS = ("todas", "lucro")
 ORDENS = ("resultado", "percentual", "preco", "idade_bptf")
 SEM_COTACAO = "the key exchange rate has not loaded yet"
 EFEITO_DESCONHECIDO = "Steam did not report the effect of this listing"
+PRECO_MAXIMO = Decimal("10000000")  # Limita preco da query para sempre poder formatar de volta
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,8 @@ def _brl(texto: str) -> Brl | None:
     except InvalidOperation:
         return None
     if not valor.is_finite() or valor < 0:
+        return None
+    if valor > PRECO_MAXIMO:
         return None
     return Brl(int((valor * 100).to_integral_value()))
 

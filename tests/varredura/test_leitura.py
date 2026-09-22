@@ -137,3 +137,14 @@ def test_query_preserva_filtros_e_troca_so_o_pedido():
     q = f.query(pagina=3)
     assert "q=team" in q and "preco_min=10.50" in q and "so_com_preco=1" in q
     assert "pagina=3" in q
+
+
+@pytest.mark.parametrize("texto", ["9" * 5000, "1e5000", "10000000.01"])
+def test_preco_absurdo_vira_padrao_e_a_query_nao_quebra(texto):
+    f = leitura.filtros_da_query(preco_min=texto, preco_max=texto)
+    assert (f.preco_min, f.preco_max) == (None, None)
+    assert "preco_min=&" in f.query()
+
+
+def test_preco_no_teto_e_aceito():
+    assert leitura.filtros_da_query(preco_min="10000000").preco_min == Brl(1_000_000_000)
