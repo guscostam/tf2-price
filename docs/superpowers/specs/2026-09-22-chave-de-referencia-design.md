@@ -146,10 +146,17 @@ Segunda de manhã aparece "PTAX de sexta", e isso é o correto.
 `_priceoverview_cache` e `_usd_to_brl` do `SteamClient`, caches sem validade.
 A renovação a cada 15 min regrava `buscado_em` com o mesmo número.
 
-`SteamClient` ganha `esquecer_cotacao()`, que zera os dois caches, e `renovar`
-o chama antes de buscar. `Cotacao.key_brl` continua gravado (é o numerador da
-taxa implícita, e a tabela já o tem), mas deixa de ser exibido e de entrar em
-qualquer conta de chaves.
+`SteamClient` ganha `renovar_cotacao() -> tuple[Brl, float]`: busca os dois
+`priceoverview` (BRL e USD) sem olhar o cache, calcula a taxa e, **só se tudo
+deu certo**, substitui os dois caches e devolve `(chave_brl, taxa)`. Zerar o
+cache antes de buscar seria pior: com um 429 no meio, a busca da tela
+(`search_page`, que usa a mesma taxa) ficaria sem taxa nenhuma até a próxima
+renovação boa. `CotacaoSobDemanda.renovar` passa a chamar só este método.
+
+`Cotacao.key_brl` continua gravado (é o numerador da taxa implícita, e a tabela
+já o tem), mas deixa de ser exibido e de entrar em qualquer conta de chaves. A
+taxa implícita continua na página Sources, com a idade da busca, porque é ela
+que converte as listagens em dólar.
 
 ### 4.4 A referência montada
 
@@ -167,27 +174,37 @@ class ChaveReferencia:
 
 `montar_referencia(indice, ptax) -> ChaveReferencia | None` devolve `None` se
 faltar o índice, a PTAX ou o `key_in_usd()`. `brl` arredonda uma vez só:
-`Brl.from_cents(round(usd × 100 × ptax))`.
+`Brl.from_cents(round(usd × 100 × ptax))`, e um resultado de zero centavos
+também vira `None` (seria divisão por zero em "N chaves").
+`motivo_sem_referencia(indice, ptax) -> str | None` diz qual parte falta, na
+ordem índice, PTAX, dólar da bp.tf, para o timbre não ser genérico.
 
 As rotas montam a referência a cada requisição, a partir do índice em memória e
 da PTAX de `obter`. Nada de rede no caminho da requisição.
 
 ### 4.5 Quando a referência falta
 
-- `analyse` e `patient_exit` recebem `ChaveReferencia | None` no lugar de
-  `key_brl`. Com `None`, a saída pela troca fica indisponível com motivo
-  próprio: "the key reference price is unavailable (backpack.tf dollar value
-  or PTAX missing)". A ordem de checagem mantém os motivos atuais primeiro
-  (efeito desconhecido, índice não carregado).
+- `analyse` e `patient_exit` continuam recebendo um `Brl`, agora
+  `Brl | None`: quem chama passa `referencia.brl`. A análise segue pura e não
+  conhece `ChaveReferencia`. Com `None`, a saída pela troca fica indisponível
+  com motivo próprio (`RAZAO_SEM_REFERENCIA`): "the reference key price is
+  unavailable (backpack.tf dollar value or PTAX missing)". A ordem de checagem
+  mantém os motivos atuais primeiro (efeito desconhecido, índice não
+  carregado).
 - `Analysis.price_in_keys` vira `float | None`; o template mostra "—" e a
   coluna de chaves das listagens some.
 - A saída imediata, as listagens, o livro e o histórico continuam funcionando:
   dependem só da Steam.
-- A varredura trata `None` como já trata a falta de `key_brl` hoje.
+- A varredura trata `None` como já trata a falta de `key_brl` hoje, com o
+  motivo `RAZAO_SEM_REFERENCIA` no lugar do antigo `SEM_COTACAO`. A página
+  `/scan` deixa de depender da cotação da Steam: só a referência entra nela.
 - O timbre diz qual parte falta (índice ou PTAX), em vez do genérico.
 
 A Steam ainda é exigida para abrir a consulta (`SEM_COTACAO`), porque sem a
 taxa implícita as listagens em dólar não viram real. Isso não muda.
+
+A coluna de acompanhados deixa de exigir a cotação da Steam: o preço guardado
+já está em reais, e sem referência a linha só perde o prêmio.
 
 ## 5. Testes
 
@@ -198,8 +215,9 @@ taxa implícita as listagens em dólar não viram real. Isso não muda.
 - `PtaxSobDemanda`: `obter` não vai à rede; `renovar` dentro da validade não
   busca; falha mantém a guardada com a data original; processo novo lê do
   banco.
-- `CotacaoSobDemanda`: duas renovações separadas pela validade fazem duas
-  buscas ao `priceoverview` (o teste do congelamento).
+- `SteamClient.renovar_cotacao`: duas chamadas fazem duas buscas (o teste
+  do congelamento); com falha na segunda, a taxa antiga continua servindo à
+  busca.
 - `montar_referencia`: conta e arredondamento; `None` para cada falta.
 - `analyse`: valor sugerido e "N chaves" pela referência; saída imediata
   inalterada; sem referência, motivo próprio e `price_in_keys` nulo.
