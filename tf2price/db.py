@@ -107,6 +107,21 @@ cotacao = Table(
     Column("buscado_em", DateTime, nullable=False),
 )
 
+ptax = Table(
+    "ptax",
+    METADATA,
+    # Uma linha só (id 1), como a cotação. Tabela própria, e não colunas em
+    # `cotacao`, porque `create_all` não acrescenta colunas a uma tabela que
+    # já existe e o projeto não tem migração.
+    Column("id", Integer, primary_key=True),
+    # Reais por dólar: razão, não dinheiro, por isso float.
+    Column("valor", Float, nullable=False),
+    # Quando o BC fechou a cotação: é esta a data que a tela mostra.
+    Column("data_cotacao", DateTime, nullable=False),
+    # Quando nós a buscamos: é esta que decide a validade de 1 hora.
+    Column("buscado_em", DateTime, nullable=False),
+)
+
 acompanhado = Table(
     "acompanhado",
     METADATA,

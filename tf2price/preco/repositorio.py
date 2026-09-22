@@ -112,3 +112,51 @@ def ler_cotacao(conn: Connection) -> tuple[int, float, datetime] | None:
     if linha is None:
         return None
     return (int(linha.key_brl_cents), float(linha.usd_to_brl), linha.buscado_em)
+
+
+# --- PTAX ------------------------------------------------------------------
+#
+# Mesma linha única e mesmo update-depois-insert da cotação, pelo mesmo
+# motivo: o processo novo de cada deploy herda a última PTAX conhecida em vez
+# de nascer sem referência.
+LINHA_DA_PTAX = 1
+
+
+def _atualizar_ptax(
+    conn: Connection, valor: float, data_cotacao: datetime, quando: datetime
+):
+    return conn.execute(
+        update(db.ptax)
+        .where(db.ptax.c.id == LINHA_DA_PTAX)
+        .values(valor=valor, data_cotacao=data_cotacao, buscado_em=quando)
+    )
+
+
+def guardar_ptax(
+    conn: Connection, valor: float, data_cotacao: datetime, quando: datetime
+) -> None:
+    resultado = _atualizar_ptax(conn, valor, data_cotacao, quando)
+    if resultado.rowcount == 0:
+        try:
+            with conn.begin_nested():
+                conn.execute(
+                    insert(db.ptax).values(
+                        id=LINHA_DA_PTAX,
+                        valor=valor,
+                        data_cotacao=data_cotacao,
+                        buscado_em=quando,
+                    )
+                )
+        except IntegrityError:
+            _atualizar_ptax(conn, valor, data_cotacao, quando)
+
+
+def ler_ptax(conn: Connection) -> tuple[float, datetime, datetime] | None:
+    """Valor, data da cotação no BC e quando foi buscada."""
+    linha = conn.execute(
+        select(db.ptax.c.valor, db.ptax.c.data_cotacao, db.ptax.c.buscado_em)
+        .where(db.ptax.c.id == LINHA_DA_PTAX)
+    ).first()
+    if linha is None:
+        return None
+    return (float(linha.valor), linha.data_cotacao, linha.buscado_em)

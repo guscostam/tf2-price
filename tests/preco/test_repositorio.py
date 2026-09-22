@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import event, insert
 from sqlalchemy.sql.dml import Update
@@ -87,3 +87,28 @@ def test_guardar_sob_insert_concorrente_nao_quebra(engine):
     # O que importa aqui não é quem venceu a corrida — é que nenhuma
     # IntegrityError escapou de `guardar` e o retrato ficou gravado.
     assert dados == '{"de": "esta-thread"}'
+
+
+# --- PTAX ------------------------------------------------------------------
+
+
+def test_ptax_guardada_e_lida(engine):
+    data = datetime(2026, 9, 21, 13, 6, 51)
+    quando = datetime(2026, 9, 22, 10, 0)
+    with engine.begin() as conn:
+        repo.guardar_ptax(conn, 5.1117, data, quando)
+    with engine.begin() as conn:
+        assert repo.ler_ptax(conn) == (5.1117, data, quando)
+
+
+def test_ptax_nova_substitui_a_velha(engine):
+    with engine.begin() as conn:
+        repo.guardar_ptax(conn, 5.0, datetime(2026, 9, 18), datetime(2026, 9, 19))
+        repo.guardar_ptax(conn, 5.1, datetime(2026, 9, 21), datetime(2026, 9, 22))
+    with engine.begin() as conn:
+        assert repo.ler_ptax(conn)[0] == 5.1
+
+
+def test_sem_ptax_guardada_le_none(engine):
+    with engine.begin() as conn:
+        assert repo.ler_ptax(conn) is None
