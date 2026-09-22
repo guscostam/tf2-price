@@ -311,7 +311,9 @@ def test_redefinir_troca_a_senha_e_derruba_as_sessoes(engine):
         token = servico.convidar(
             conn, criado_por=dono, quando=AGORA, tipo="redefinicao", alvo=alvo
         )
-        servico.redefinir(conn, token, senha="senha novinha", quando=AGORA)
+        servico.redefinir(
+            conn, token, senha="senha novinha", quando=AGORA, nome_super=None
+        )
 
         assert servico.usuario_da_sessao(conn, antiga, AGORA) is None
         assert servico.entrar(conn, nome="amiga", senha="senha novinha", quando=AGORA)
@@ -325,3 +327,80 @@ def test_entrar_direto_abre_sessao_sem_senha(engine):
         )
         sessao = servico.entrar_direto(conn, usuario, quando=AGORA)
         assert servico.usuario_da_sessao(conn, sessao, AGORA).nome == "amiga"
+
+
+def _admins_e_membro(conn):
+    """dono (superadmin "dono"), colega (admin comum) e amiga (membro)."""
+    dono = _dono(conn)
+    _com_conta(conn, nome="colega", criado_por=dono)
+    colega = repo.usuario_por_nome(conn, "colega").id
+    repo.definir_admin(conn, colega, True)
+    _com_conta(conn, nome="amiga", criado_por=dono)
+    amiga = repo.usuario_por_nome(conn, "amiga").id
+    return dono, colega, amiga
+
+
+def _reset(conn, criado_por, alvo) -> str:
+    return servico.convidar(
+        conn, criado_por=criado_por, quando=AGORA,
+        tipo=servico.TIPO_REDEFINICAO, alvo=alvo,
+    )
+
+
+def test_link_de_admin_comum_para_quem_virou_admin_e_recusado_sem_queimar(engine):
+    """Sem a revalidação, o admin comum guardaria o link de um membro,
+    esperaria a promoção e tomaria a conta de um admin."""
+    with engine.begin() as conn:
+        _, colega, amiga = _admins_e_membro(conn)
+        token = _reset(conn, colega, amiga)
+        repo.definir_admin(conn, amiga, True)
+
+        with pytest.raises(servico.ConviteInvalido):
+            servico.redefinir(
+                conn, token, senha="senha novinha", quando=AGORA, nome_super="dono"
+            )
+
+        assert repo.convite_por_hash(conn, tokens.hash_de(token)).usado_em is None
+        assert servico.entrar(conn, nome="amiga", senha=SENHA, quando=AGORA)
+
+
+def test_link_de_quem_foi_rebaixado_e_recusado(engine):
+    with engine.begin() as conn:
+        _, colega, amiga = _admins_e_membro(conn)
+        token = _reset(conn, colega, amiga)
+        repo.definir_admin(conn, colega, False)
+
+        with pytest.raises(servico.ConviteInvalido):
+            servico.redefinir(
+                conn, token, senha="senha novinha", quando=AGORA, nome_super="dono"
+            )
+
+
+def test_superadmin_redefine_a_senha_de_um_admin(engine):
+    with engine.begin() as conn:
+        dono, colega, _ = _admins_e_membro(conn)
+        token = _reset(conn, dono, colega)
+        servico.redefinir(
+            conn, token, senha="senha novinha", quando=AGORA, nome_super="dono"
+        )
+        assert servico.entrar(conn, nome="colega", senha="senha novinha", quando=AGORA)
+
+
+def test_sem_a_variavel_o_link_do_dono_para_um_admin_nao_vale(engine):
+    with engine.begin() as conn:
+        dono, colega, _ = _admins_e_membro(conn)
+        token = _reset(conn, dono, colega)
+        with pytest.raises(servico.ConviteInvalido):
+            servico.redefinir(
+                conn, token, senha="senha novinha", quando=AGORA, nome_super=None
+            )
+
+
+def test_admin_comum_redefine_a_propria_senha(engine):
+    with engine.begin() as conn:
+        _, colega, _ = _admins_e_membro(conn)
+        token = _reset(conn, colega, colega)
+        servico.redefinir(
+            conn, token, senha="senha novinha", quando=AGORA, nome_super="dono"
+        )
+        assert servico.entrar(conn, nome="colega", senha="senha novinha", quando=AGORA)

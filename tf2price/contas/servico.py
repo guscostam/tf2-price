@@ -11,9 +11,9 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.engine import Connection
 
+from tf2price.contas import permissoes, senhas, tokens
 from tf2price.contas import repositorio as repo
-from tf2price.contas import senhas, tokens
-from tf2price.contas.modelo import Usuario
+from tf2price.contas.modelo import Convite, Usuario
 
 VALIDADE_CONVITE = timedelta(days=7)
 VALIDADE_CONVITE_DE_PARTIDA = timedelta(hours=24)
@@ -144,11 +144,39 @@ def aceitar_convite(
     return repo.usuario_por_id(conn, ident)
 
 
+def redefinicao_autorizada(
+    conn: Connection, convite: Convite, nome_super: str | None
+) -> bool:
+    """O link de redefinição ainda vale para aquele alvo?
+
+    Revalida no uso, e não só na geração, quem pode resetar a senha de quem:
+    o link vale enquanto quem o gerou ainda poderia gerá-lo. Uma regra só
+    cobre o link gerado para um membro que depois virou admin (senão o admin
+    comum guardaria o link e tomaria a conta de um admin), a corrida entre
+    gerar e promover, e o link de quem depois foi rebaixado ou desativado.
+    """
+    if convite.alvo is None or convite.criado_por is None:
+        return False
+    criador = repo.usuario_por_id(conn, convite.criado_por)
+    alvo = repo.usuario_por_id(conn, convite.alvo)
+    if criador is None or alvo is None:
+        return False
+    return permissoes.pode_gerir(criador, alvo, nome_super)
+
+
 def redefinir(
-    conn: Connection, token: str, *, senha: str, quando: datetime
+    conn: Connection,
+    token: str,
+    *,
+    senha: str,
+    quando: datetime,
+    nome_super: str | None,
 ) -> Usuario:
     convite = _convite_utilizavel(conn, token, TIPO_REDEFINICAO, quando)
-    if convite.alvo is None:
+    # Antes do hash e do consumo, como toda recusa aqui: a transação da
+    # requisição fecha com commit mesmo no caminho de erro, e recusar depois
+    # de consumir queimaria o link.
+    if not redefinicao_autorizada(conn, convite, nome_super):
         raise ConviteInvalido("convite inválido")
 
     # Mesma ordem de `aceitar_convite`, pela mesma razão: hash antes (pode

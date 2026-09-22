@@ -38,7 +38,10 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 def criar_app(
-    engine: Engine, contexto: "Contexto | None" = None, agendador: Agendador | None = None
+    engine: Engine,
+    contexto: "Contexto | None" = None,
+    agendador: Agendador | None = None,
+    superadmin: str | None = None,
 ) -> FastAPI:
     app = FastAPI(title="briefcase.tf")
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -47,6 +50,9 @@ def criar_app(
     # None nos testes e em qualquer app sem contexto: a página e o admin
     # dizem que a varredura não roda neste processo.
     app.state.agendador = agendador
+    # Nome da conta dona do painel (`SUPERADMIN`). None: ninguém promove nem
+    # rebaixa admins, e nenhum admin fica exposto — ver `contas/permissoes`.
+    app.state.superadmin = superadmin
     app.state.limite_pedidos = LimitePorChave(
         maximo=publico.PEDIDOS_POR_IP, janela_s=publico.JANELA_DOS_PEDIDOS_S
     )

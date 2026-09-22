@@ -73,12 +73,19 @@ def fazer_sair(
     return resposta
 
 
-def _convite_aberto(conn: Connection, token: str):
+def _convite_aberto(conn: Connection, token: str, nome_super: str | None):
     """Convite utilizável, ou None. Não diz por que não serve."""
     convite = repo.convite_por_hash(conn, tokens.hash_de(token))
     if convite is None or convite.usado_em is not None:
         return None
     if convite.expira_em <= db.agora():
+        return None
+    # Link de reset que perdeu a autorização (o alvo virou admin, quem gerou
+    # foi rebaixado) é só mais um link inválido. Sem isto a tela mostraria o
+    # formulário de um link que `servico.redefinir` vai recusar.
+    if convite.tipo == servico.TIPO_REDEFINICAO and not servico.redefinicao_autorizada(
+        conn, convite, nome_super
+    ):
         return None
     return convite
 
@@ -87,7 +94,7 @@ def _convite_aberto(conn: Connection, token: str):
 def tela_convite(
     request: Request, token: str, conn: Connection = Depends(ses.conexao)
 ):
-    convite = _convite_aberto(conn, token)
+    convite = _convite_aberto(conn, token, request.app.state.superadmin)
     if convite is None:
         # Inexistente, expirado e usado dão a mesma resposta: distinguir
         # entrega informação a quem está adivinhando token.
@@ -111,14 +118,17 @@ def usar_convite(
     senha: str = Form(...),
     conn: Connection = Depends(ses.conexao),
 ) -> Response:
-    convite = _convite_aberto(conn, token)
+    convite = _convite_aberto(conn, token, request.app.state.superadmin)
     if convite is None:
         return HTMLResponse("This invitation is no longer valid.", status_code=404)
 
     redefinicao = convite.tipo == servico.TIPO_REDEFINICAO
     try:
         if redefinicao:
-            usuario = servico.redefinir(conn, token, senha=senha, quando=db.agora())
+            usuario = servico.redefinir(
+                conn, token, senha=senha, quando=db.agora(),
+                nome_super=request.app.state.superadmin,
+            )
         else:
             usuario = servico.aceitar_convite(
                 conn, token, nome=nome, senha=senha, quando=db.agora()

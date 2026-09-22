@@ -118,3 +118,31 @@ def test_convite_de_redefinicao_troca_a_senha(cliente, engine):
 
     entrou = cliente.post("/entrar", data={"nome": "amiga", "senha": "senha novinha"})
     assert entrou.status_code == 303
+
+
+def test_link_de_reset_que_perdeu_a_autorizacao_da_404_e_nao_queima(engine):
+    with engine.begin() as conn:
+        repo.criar_usuario(conn, nome="dono", senha_hash="hash", admin=True, quando=db.agora())
+        colega = repo.criar_usuario(
+            conn, nome="colega", senha_hash="hash", admin=True, quando=db.agora()
+        )
+        amiga = repo.criar_usuario(
+            conn, nome="amiga", senha_hash="hash", admin=False, quando=db.agora()
+        )
+        token = servico.convidar(
+            conn, criado_por=colega, quando=db.agora(),
+            tipo=servico.TIPO_REDEFINICAO, alvo=amiga,
+        )
+        repo.definir_admin(conn, amiga, True)
+
+    cliente = TestClient(criar_app(engine, superadmin="dono"), follow_redirects=False)
+    tela = cliente.get(f"/convite/{token}")
+    assert tela.status_code == 404
+    assert tela.text == "This invitation is no longer valid."
+
+    envio = cliente.post(f"/convite/{token}", data={"senha": "senha novinha"})
+    assert envio.status_code == 404
+    assert envio.text == "This invitation is no longer valid."
+
+    with engine.begin() as conn:
+        assert repo.convite_por_hash(conn, tokens.hash_de(token)).usado_em is None
