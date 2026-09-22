@@ -235,6 +235,18 @@ def parse_listings(payload: dict[str, Any]) -> list[Listing]:
 CALMA_APOS_429_S = 60.0
 
 
+def _taxa_da_chave(brl_payload: dict[str, Any], usd_payload: dict[str, Any]) -> float:
+    """preço_da_chave_em_BRL_centavos / preço_da_chave_em_USD_centavos."""
+    brl_cents = parse_price_text(brl_payload["lowest_price"]).cents
+    usd_cents = parse_usd_price_text(usd_payload["lowest_price"])
+    if usd_cents <= 0:
+        raise RuntimeError(
+            "priceoverview devolveu preço de chave em USD não positivo; "
+            "sem denominador não há como converter a busca para reais"
+        )
+    return brl_cents / usd_cents
+
+
 class SteamClient:
     def __init__(
         self,
@@ -442,16 +454,19 @@ class SteamClient:
         """
         cached = self._priceoverview_cache.get(currency)
         if cached is None:
-            cached = self._get(
-                f"{BASE}/market/priceoverview/",
-                {
-                    "appid": APPID,
-                    "currency": currency,
-                    "market_hash_name": KEY_HASH_NAME,
-                },
-            )
+            cached = self._buscar_priceoverview(currency)
             self._priceoverview_cache[currency] = cached
         return cached
+
+    def _buscar_priceoverview(self, currency: int) -> dict[str, Any]:
+        return self._get(
+            f"{BASE}/market/priceoverview/",
+            {
+                "appid": APPID,
+                "currency": currency,
+                "market_hash_name": KEY_HASH_NAME,
+            },
+        )
 
     def _usd_to_brl_rate(self) -> float:
         """Taxa dólar->real tirada da própria economia da Steam.
@@ -464,17 +479,13 @@ class SteamClient:
         chave é a taxa CERTA aqui, e não um remendo: a conta do spike é
         valor em chaves, e a moeda se cancela.
 
-        Calculada uma vez por instância e guardada.
+        Calculada uma vez por instância e guardada; `renovar_cotacao` é quem a
+        troca.
         """
         if self._usd_to_brl is None:
-            brl_cents = parse_price_text(self._priceoverview(CURRENCY_BRL)["lowest_price"]).cents
-            usd_cents = parse_usd_price_text(self._priceoverview(CURRENCY_USD)["lowest_price"])
-            if usd_cents <= 0:
-                raise RuntimeError(
-                    "priceoverview devolveu preço de chave em USD não positivo; "
-                    "sem denominador não há como converter a busca para reais"
-                )
-            self._usd_to_brl = brl_cents / usd_cents
+            self._usd_to_brl = _taxa_da_chave(
+                self._priceoverview(CURRENCY_BRL), self._priceoverview(CURRENCY_USD)
+            )
         return self._usd_to_brl
 
     def usd_to_brl(self) -> float:
@@ -486,6 +497,25 @@ class SteamClient:
         cache por instância de `_usd_to_brl_rate`.
         """
         return self._usd_to_brl_rate()
+
+    def renovar_cotacao(self) -> tuple[Brl, float]:
+        """Busca a chave de novo, sem olhar o cache, e devolve (chave, taxa).
+
+        Existe porque o cache do priceoverview não tem validade: sem isto, a
+        cotação renovada de 15 em 15 min era o mesmo número da subida com
+        `buscado_em` novo, e a tela dizia "agora" para um preço de dias.
+
+        Os caches só são trocados depois que as duas buscas e a conta deram
+        certo. Zerá-los antes deixaria `search_page`, que usa a mesma taxa,
+        sem taxa nenhuma durante um 429.
+        """
+        brl = self._buscar_priceoverview(CURRENCY_BRL)
+        usd = self._buscar_priceoverview(CURRENCY_USD)
+        taxa = _taxa_da_chave(brl, usd)
+        chave = parse_price_text(brl["lowest_price"])
+        self._priceoverview_cache = {CURRENCY_BRL: brl, CURRENCY_USD: usd}
+        self._usd_to_brl = taxa
+        return chave, taxa
 
     def key_price(self) -> Brl:
         """Taxa de câmbio do spike: a listagem mais barata de chave.

@@ -55,18 +55,15 @@ class _SteamClienteFalso:
         self._demora = demora_s
         self._chave = chave
 
-    def key_price(self) -> Brl:
-        # Primeira chamada dentro de `Cotacao(...)`: contar aqui basta para
-        # saber se o cliente foi ao ar.
+    def renovar_cotacao(self) -> tuple[Brl, float]:
+        # A única porta de rede da cotação: contar aqui basta para saber se
+        # o cliente foi ao ar.
         self.chamadas += 1
         if self._demora:
             time.sleep(self._demora)
         if self.falhar:
             raise RuntimeError("Steam fora do ar")
-        return Brl.from_float(self._chave)
-
-    def usd_to_brl(self) -> float:
-        return 5.0
+        return Brl.from_float(self._chave), 5.0
 
 
 def _guardar(engine, *, chave_cents: int, quando) -> None:

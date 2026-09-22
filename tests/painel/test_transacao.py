@@ -76,12 +76,9 @@ class _SteamQueObservaOPool:
         self.contador = contador
         self.emprestadas_durante_o_io = None
 
-    def key_price(self) -> Brl:
+    def renovar_cotacao(self) -> tuple[Brl, float]:
         self.emprestadas_durante_o_io = self.contador["emprestadas"]
-        return Brl.from_float(11.73)
-
-    def usd_to_brl(self) -> float:
-        return 5.0
+        return Brl.from_float(11.73), 5.0
 
 
 def test_a_cotacao_nao_prende_conexao_durante_o_io(engine):

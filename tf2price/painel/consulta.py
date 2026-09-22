@@ -240,11 +240,11 @@ class CotacaoSobDemanda:
             if self._relogio() < self._proxima_tentativa:
                 return guardada
             try:
-                nova = Cotacao(
-                    key_brl=self._steam.key_price(),
-                    usd_to_brl=self._steam.usd_to_brl(),
-                    buscado_em=quando,
-                )
+                # `renovar_cotacao`, e não `key_price()`/`usd_to_brl()`: esses
+                # leem o cache do cliente, que não tem validade, e a cotação
+                # congelava na vida do processo.
+                chave, taxa = self._steam.renovar_cotacao()
+                nova = Cotacao(key_brl=chave, usd_to_brl=taxa, buscado_em=quando)
             except Exception as erro:
                 _registra_falha_sob_demanda("CotacaoSobDemanda", erro, self._espera)
                 self._proxima_tentativa = self._relogio() + self._espera

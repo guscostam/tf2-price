@@ -157,13 +157,10 @@ def test_paginas_nao_esperam_renovacao_da_cotacao(engine):
             self.entrou_na_rede = threading.Event()
             self.liberar_rede = threading.Event()
 
-        def key_price(self):
+        def renovar_cotacao(self):
             self.entrou_na_rede.set()
             assert self.liberar_rede.wait(2)
-            return CHAVE
-
-        def usd_to_brl(self):
-            return 1.0
+            return CHAVE, 1.0
 
     contexto = _contexto()
     cliente = cliente_logado(engine, contexto)

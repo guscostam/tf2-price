@@ -822,3 +822,74 @@ def test_parse_search_page_guarda_o_preco_cru_em_centavos_de_dolar():
     # da taxa: em reais, ele mudaria a cada processo novo.
     page = parse_search_page(_fixture("steam_search_page.json"), TAXA_REDONDA)
     assert [r.sell_price_usd_cents for r in page.results] == [2214, 89000, 15990]
+
+
+# --- renovação da cotação -------------------------------------------------
+
+
+def test_renovar_cotacao_busca_de_novo_a_cada_chamada():
+    """O conserto do congelamento: o cache do priceoverview não tinha
+    validade, e a renovação de 15 em 15 min regravava o mesmo número com
+    `buscado_em` novo."""
+    capturadas: list[httpx.Request] = []
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_cliente({}, capturadas),
+    )
+
+    assert client.renovar_cotacao() == (Brl.from_float(22.14), 6.0)
+    client.renovar_cotacao()
+
+    assert sum(1 for r in capturadas if _e_priceoverview(r)) == 4
+
+
+def test_renovar_cotacao_atualiza_a_taxa_da_busca():
+    usd = {"lowest_price": "$3.69"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if _e_priceoverview(request):
+            if request.url.params.get("currency") == str(CURRENCY_USD):
+                return httpx.Response(200, json={"success": True, **usd, "median_price": "$3.70"})
+            return httpx.Response(200, json=_fixture("steam_priceoverview.json"))
+        return httpx.Response(200, json=_fixture("steam_search_page.json"))
+
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    client.renovar_cotacao()
+    usd["lowest_price"] = "$3.00"
+
+    _, taxa = client.renovar_cotacao()
+
+    assert taxa == pytest.approx(2214 / 300)
+    assert client.usd_to_brl() == pytest.approx(2214 / 300)
+
+
+def test_renovar_cotacao_que_falha_mantem_a_taxa_antiga():
+    """Zerar o cache antes de buscar deixaria a busca da tela sem taxa até a
+    próxima renovação boa. Por isso a troca só acontece no sucesso."""
+    estado = {"falhar": False}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if estado["falhar"]:
+            return httpx.Response(500)
+        if _e_priceoverview(request):
+            return _priceoverview_response(request)
+        return httpx.Response(200, json=_fixture("steam_search_page.json"))
+
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _s: None,
+        max_retries=0,
+    )
+    client.renovar_cotacao()
+    estado["falhar"] = True
+
+    with pytest.raises(RuntimeError):
+        client.renovar_cotacao()
+
+    # Lida do cache, sem ir à rede (que agora só devolve 500).
+    assert client.usd_to_brl() == 6.0
+    assert client.key_price() == Brl.from_float(22.14)
