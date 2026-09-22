@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Market Scan · briefcase.tf{% endblock %}
+{% block page_eyebrow %}Steam → trade{% endblock %}
+{% block page_title %}Market Scan{% endblock %}
+{% block content %}
+<section data-page="scan" class="scan-status" aria-labelledby="scan-status-title">
+  <h2 id="scan-status-title" class="visually-hidden">Scanner status</h2>
+  {% include "_scan_estado.html" %}
+</section>
+
+<form id="scan-filtros" class="scan-filters" method="get" action="/scan"
+      hx-get="/scan" hx-target="#scan-tabela" hx-push-url="true" hx-trigger="change, submit">
+  <input type="hidden" name="aba" value="{{ filtros.aba }}">
+  <label>Item
+    <input type="search" name="q" value="{{ filtros.texto }}" maxlength="100">
+  </label>
+  <label>Effect
+    <select name="efeito">
+      <option value="">All effects</option>
+      {% for e in efeitos %}
+      <option value="{{ e }}"{% if e == filtros.efeito %} selected{% endif %}>{{ e }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Min price (R$)
+    <input type="number" name="preco_min" min="0" step="0.01"
+           value="{{ '%.2f'|format(filtros.preco_min.as_float) if filtros.preco_min else '' }}">
+  </label>
+  <label>Max price (R$)
+    <input type="number" name="preco_max" min="0" step="0.01"
+           value="{{ '%.2f'|format(filtros.preco_max.as_float) if filtros.preco_max else '' }}">
+  </label>
+  <label>Max backpack.tf age (days)
+    <input type="number" name="idade_max" min="1"
+           value="{{ filtros.idade_max_bptf_dias if filtros.idade_max_bptf_dias else '' }}">
+  </label>
+  <label class="scan-filters__check">
+    <input type="checkbox" name="so_com_preco" value="1"{% if filtros.so_com_preco %} checked{% endif %}>
+    Only with a usable backpack.tf price
+  </label>
+  <label>Sort by
+    <select name="ordem">
+      <option value="resultado"{% if filtros.ordem == 'resultado' %} selected{% endif %}>Result (R$)</option>
+      <option value="percentual"{% if filtros.ordem == 'percentual' %} selected{% endif %}>Result (%)</option>
+      <option value="preco"{% if filtros.ordem == 'preco' %} selected{% endif %}>Steam price</option>
+      <option value="idade_bptf"{% if filtros.ordem == 'idade_bptf' %} selected{% endif %}>backpack.tf price age</option>
+    </select>
+  </label>
+  <button class="button button--quiet" type="submit">Apply</button>
+</form>
+
+<div id="scan-tabela" aria-live="polite">{% include "_scan_tabela.html" %}</div>
+{% endblock %}

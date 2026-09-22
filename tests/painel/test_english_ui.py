@@ -18,7 +18,7 @@ def test_public_login_has_no_old_portuguese_copy(engine):
     assert 'data-app-nav' not in texto
 
 
-@pytest.mark.parametrize("path", ["/", "/cases/new", "/cases", "/sources", "/admin"])
+@pytest.mark.parametrize("path", ["/", "/cases/new", "/cases", "/sources", "/admin", "/scan"])
 def test_authenticated_pages_have_no_old_portuguese_copy(engine, path):
     resposta = cliente_logado(engine, _contexto()).get(path)
     assert resposta.status_code == 200

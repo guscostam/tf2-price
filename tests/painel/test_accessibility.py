@@ -11,7 +11,7 @@ def cliente(engine):
     return cliente_logado(engine, _contexto())
 
 
-@pytest.mark.parametrize("path", ["/", "/cases", "/cases/new", "/sources", "/admin"])
+@pytest.mark.parametrize("path", ["/", "/cases", "/cases/new", "/sources", "/admin", "/scan"])
 def test_pages_have_skip_link_landmark_and_current_navigation(cliente, path):
     texto = cliente.get(path).text
     assert 'href="#main-content"' in texto

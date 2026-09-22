@@ -1,0 +1,24 @@
+<dl class="scan-status__grid">
+  <div>
+    <dt class="scope-label">LAST FULL SCAN</dt>
+    <dd>{% if completa %}Finished {{ ha(completa.fim) }} · {{ completa.nomes_lidos }} items{% else %}No full scan yet{% endif %}</dd>
+  </div>
+  <div>
+    <dt class="scope-label">NOW</dt>
+    <dd>
+      {% if rodando and ultima %}Scanning for {{ idade(ultima.inicio) }} · {{ ultima.nomes_lidos }} items seen, {{ ultima.fundas_feitas }} re-read
+      {% elif not config.ligada %}Scanner is off
+      {% else %}Idle · every {{ config.intervalo_min }} min{% endif %}
+    </dd>
+  </div>
+  <div>
+    <dt class="scope-label">COVERAGE</dt>
+    <dd>{{ cobertura.nomes }} items · {{ cobertura.listagens }} listings</dd>
+  </div>
+</dl>
+{% if ultima and ultima.motivo_parada == '429' %}
+<p class="evidence-note evidence-note--stale" role="status">The last scan stopped because Steam is rate limiting this server. The listings below are from earlier reads; each row shows its own age.</p>
+{% endif %}
+{% if not cotacao %}
+<p class="evidence-note evidence-note--stale" role="status">{{ sem_cotacao }}</p>
+{% endif %}

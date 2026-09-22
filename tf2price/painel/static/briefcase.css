@@ -508,3 +508,27 @@ button:active { transform: translateY(1px); }
   .app-nav, .nav-toggle, .skip-link, .placa, #espera, .campo[data-campo="item"] .opcoes { display: none !important; }
   .app-main { max-width: none; padding: 0; }
 }
+
+/* Market Scan */
+.scan-status__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; margin: 0 0 1rem; }
+.scan-status__grid dd { margin: .35rem 0 0; font-family: var(--font-mono); font-size: .85rem; }
+.scan-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .75rem 1rem; margin: 1.5rem 0; padding: 1rem; background: var(--ink-panel); border: 1px solid var(--ink-blue); }
+.scan-filters label { display: grid; gap: .3rem; font: 600 .75rem var(--font-condensed); text-transform: uppercase; }
+.scan-filters__check { display: flex !important; align-items: center; gap: .5rem; }
+.scan-filters input, .scan-filters select { min-height: 44px; font: 500 .85rem var(--font-mono); }
+.scan-tabs { display: flex; gap: .5rem; margin-bottom: .75rem; }
+.scan-tab { padding: .5rem .9rem; border: 1px solid var(--ink-blue); color: var(--paper); text-decoration: none; font: 700 .8rem var(--font-condensed); text-transform: uppercase; }
+.scan-tab--active { border-color: var(--warning); color: var(--warning); }
+.scan-count { font-family: var(--font-mono); font-size: .75rem; color: color-mix(in srgb, var(--paper) 70%, transparent); }
+.scan-table-wrap { overflow-x: auto; border: 1px solid var(--ink-blue); }
+.scan-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.scan-table th, .scan-table td { padding: .6rem .75rem; text-align: left; vertical-align: top; border-bottom: 1px dotted var(--ink-blue); }
+.scan-table th { font: 700 .72rem var(--font-condensed); text-transform: uppercase; background: var(--ink-panel); }
+.scan-sub { display: block; margin-top: .2rem; font-family: var(--font-mono); font-size: .72rem; color: color-mix(in srgb, var(--paper) 65%, transparent); }
+.scan-art { vertical-align: middle; margin-right: .4rem; }
+.scan-result { font-family: var(--font-mono); font-weight: 700; }
+.scan-result--gain { color: var(--paper); }
+.scan-result--loss { color: var(--rust-stamp); }
+.scan-links { white-space: nowrap; }
+.scan-links a + a { margin-left: .6rem; }
+.scan-pages { display: flex; gap: 1rem; margin-top: 1rem; }

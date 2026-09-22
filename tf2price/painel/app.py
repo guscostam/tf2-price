@@ -68,10 +68,11 @@ def criar_app(
     app.include_router(publico.ROTEADOR)
 
     if contexto is not None:
-        from tf2price.painel import consulta, paginas
+        from tf2price.painel import consulta, paginas, varredura
 
         app.include_router(paginas.ROTEADOR)
         app.include_router(consulta.ROTEADOR)
+        app.include_router(varredura.ROTEADOR)
 
     @app.get("/arte/{nome}")
     def servir_arte(nome: str) -> Response:

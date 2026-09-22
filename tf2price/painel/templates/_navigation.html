@@ -4,6 +4,7 @@
     <a href="/"{% if request.url.path == "/" %} aria-current="page"{% endif %}>Overview</a>
     <a href="/cases/new"{% if request.url.path == "/cases/new" %} aria-current="page"{% endif %}>New Case</a>
     <a href="/cases"{% if request.url.path == "/cases" %} aria-current="page"{% endif %}>Case Files</a>
+    <a href="/scan"{% if request.url.path == "/scan" %} aria-current="page"{% endif %}>Market Scan</a>
     <a href="/sources"{% if request.url.path == "/sources" %} aria-current="page"{% endif %}>Sources</a>
     {% if usuario.admin %}
     <a href="/admin"{% if request.url.path == "/admin" %} aria-current="page"{% endif %}>Administration</a>
