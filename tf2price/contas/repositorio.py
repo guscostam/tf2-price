@@ -61,9 +61,26 @@ def contar_usuarios(conn: Connection) -> int:
     return int(conn.execute(select(func.count()).select_from(db.usuario)).scalar_one())
 
 
-def definir_ativo(conn: Connection, usuario_id: int, ativo: bool) -> None:
+def definir_ativo(
+    conn: Connection, usuario_id: int, ativo: bool, *, so_se_membro: bool = False
+) -> bool:
+    """Liga ou desliga a conta e diz se alguma linha mudou.
+
+    Com `so_se_membro`, o UPDATE só alcança a linha se ela não é admin. É
+    assim que um admin comum grava: conferir em Python que o alvo é membro e
+    só depois escrever deixaria uma promoção concorrente passar entre as
+    duas coisas — as rotas correm em threads de verdade. Mesmo desenho de
+    `consumir_convite`.
+    """
+    consulta = update(db.usuario).where(db.usuario.c.id == usuario_id)
+    if so_se_membro:
+        consulta = consulta.where(db.usuario.c.admin.is_(False))
+    return conn.execute(consulta.values(ativo=ativo)).rowcount == 1
+
+
+def definir_admin(conn: Connection, usuario_id: int, admin: bool) -> None:
     conn.execute(
-        update(db.usuario).where(db.usuario.c.id == usuario_id).values(ativo=ativo)
+        update(db.usuario).where(db.usuario.c.id == usuario_id).values(admin=admin)
     )
 
 

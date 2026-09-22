@@ -164,3 +164,36 @@ def test_limpar_tentativas_antigas_apaga_so_as_de_fora_da_janela(engine):
         antigo = AGORA - timedelta(minutes=15)
         assert repo.contar_tentativas(conn, "gusco", antigo) == 0
         assert repo.contar_tentativas(conn, "outro", antigo) == 1
+
+
+def test_definir_admin_promove_e_rebaixa(engine):
+    with engine.begin() as conn:
+        ident = _usuario(conn, nome="amiga", admin=False)
+        repo.definir_admin(conn, ident, True)
+        assert repo.usuario_por_id(conn, ident).admin is True
+        repo.definir_admin(conn, ident, False)
+        assert repo.usuario_por_id(conn, ident).admin is False
+
+
+def test_definir_ativo_devolve_se_mudou_a_linha(engine):
+    with engine.begin() as conn:
+        ident = _usuario(conn)
+        assert repo.definir_ativo(conn, ident, False) is True
+        assert repo.usuario_por_id(conn, ident).ativo is False
+        assert repo.definir_ativo(conn, 999999, False) is False
+
+
+def test_so_se_membro_desativa_membro(engine):
+    with engine.begin() as conn:
+        ident = _usuario(conn, nome="amiga", admin=False)
+        assert repo.definir_ativo(conn, ident, False, so_se_membro=True) is True
+        assert repo.usuario_por_id(conn, ident).ativo is False
+
+
+def test_so_se_membro_nao_toca_em_admin(engine):
+    """A conferência "o alvo é membro?" e a escrita num UPDATE só: uma
+    promoção concorrente não deixa um admin comum desativar um admin."""
+    with engine.begin() as conn:
+        ident = _usuario(conn, nome="colega", admin=True)
+        assert repo.definir_ativo(conn, ident, False, so_se_membro=True) is False
+        assert repo.usuario_por_id(conn, ident).ativo is True
