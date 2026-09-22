@@ -1,0 +1,28 @@
+<div id="varredura-andamento" class="scan-progress" aria-live="polite"
+     {% if rodando %}hx-get="/admin/varredura/andamento" hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+  <p class="scope-label">CURRENT SCAN</p>
+  {% if not disponivel %}
+  <p>The scanner is not available in this process.</p>
+  {% elif rodando %}
+    {% if ultima %}<p>Started {{ ha(ultima.inicio) }}</p>{% endif %}
+    {% if andamento and andamento.pausado_ate %}
+    <p class="evidence-note evidence-note--stale">Paused: Steam is rate limiting this server · Resuming at {{ andamento.pausado_ate.strftime('%H:%M') }} UTC (pause {{ andamento.pausas_seguidas }} of {{ max_pausas }})</p>
+    {% endif %}
+    {% if not andamento or andamento.fase == 'cotacao' %}
+    <p>Loading the exchange rate…</p>
+    {% elif andamento.fase == 'busca' %}
+    <p>Reading search pages{% if andamento.paginas_busca_total %} · {{ andamento.paginas_busca_lidas }} of {{ andamento.paginas_busca_total }}{% endif %}</p>
+    {% if andamento.paginas_busca_total %}<progress max="{{ andamento.paginas_busca_total }}" value="{{ andamento.paginas_busca_lidas }}">{{ andamento.paginas_busca_lidas }} of {{ andamento.paginas_busca_total }}</progress>{% endif %}
+    {% else %}
+    <p>Reading item pages · {{ andamento.itens_lidos }} of {{ andamento.itens_total or 0 }}</p>
+    {% if andamento.itens_total %}<progress max="{{ andamento.itens_total }}" value="{{ andamento.itens_lidos }}">{{ andamento.itens_lidos }} of {{ andamento.itens_total }}</progress>{% endif %}
+    {% endif %}
+    {% if ultima %}<p class="scan-sub">{{ ultima.nomes_lidos }} items seen · {{ ultima.fundas_feitas }} re-read · {{ ultima.falhas }} failures</p>{% endif %}
+    <form method="post" action="/admin/varredura/parar">
+      <button class="button button--danger" type="submit">Stop scan</button>
+    </form>
+  {% else %}
+  <p>No scan running.</p>
+  {% if ultima and ultima.fim %}<p class="scan-sub">Last scan: {{ rotulo_da_parada.get(ultima.motivo_parada, ultima.motivo_parada) }} · finished {{ ha(ultima.fim) }}</p>{% endif %}
+  {% endif %}
+</div>

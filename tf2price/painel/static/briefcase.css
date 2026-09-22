@@ -533,3 +533,6 @@ button:active { transform: translateY(1px); }
 .scan-links { white-space: nowrap; }
 .scan-links a + a { margin-left: .6rem; }
 .scan-pages { display: flex; gap: 1rem; margin-top: 1rem; }
+.scan-progress { display: grid; gap: .5rem; padding: 1rem; border: 1px solid var(--ink-blue); }
+.scan-progress p { margin: 0; }
+.scan-progress progress { width: 100%; max-width: 32rem; accent-color: var(--warning); }

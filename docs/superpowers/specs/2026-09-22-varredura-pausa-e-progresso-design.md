@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-22
 
-**Status:** aprovado para planejamento
+**Status:** implementado
 
 **Base funcional:** `master` em `e7a7c84` (varredura de cosméticos Unusual já em produção)
 
@@ -119,7 +119,7 @@ dá no máximo 4 requisições em ~65 minutos contra um IP limitado.
 | Coluna | Significado |
 | --- | --- |
 | `rodada_id` | a rodada a que o andamento se refere |
-| `fase` | `cotacao`, `busca`, `paginas` ou `pausada` |
+| `fase` | `cotacao`, `busca` ou `paginas` |
 | `paginas_busca_lidas`, `paginas_busca_total` | progresso da busca (total = ⌈`total_count`/10⌉, nulo até a primeira página) |
 | `itens_lidos`, `itens_total` | progresso da passada funda (total = nº de pendentes) |
 | `pausado_ate` | fim da pausa atual (UTC ingênuo), nulo fora de pausa |
@@ -130,6 +130,11 @@ A rodada escreve essa linha em transações curtas, que nunca atravessam
 requisições nem esperas: ao mudar de fase, a cada página da busca, a cada
 item e ao entrar e sair de uma pausa. Os contadores de `varredura_rodada`
 (`nomes_lidos`, `fundas_feitas`, `falhas`) continuam como estão.
+
+A pausa não é uma fase: `fase` continua sendo a do trabalho em curso
+(`cotacao`, `busca` ou `paginas`), e a pausa é marcada por `pausado_ate` não
+nulo. Assim a tela sabe de qual fase a rodada vai voltar ao terminar a
+pausa.
 
 ### 5.2 Tela
 

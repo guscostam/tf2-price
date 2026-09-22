@@ -61,6 +61,7 @@
   <form method="post" action="/admin/varredura/rodar">
     <button class="button button--quiet" type="submit"{% if rodando %} disabled{% endif %}>{{ 'Scan running…' if rodando else 'Run now' }}</button>
   </form>
+  {% include "_varredura_andamento.html" %}
   {% if rodadas %}
   <div class="scan-table-wrap">
     <table class="scan-table">

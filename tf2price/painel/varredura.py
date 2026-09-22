@@ -28,12 +28,18 @@ ROTULO_DA_PARADA: dict[str | None, str] = {
     repo.MOTIVO_429: "Stopped: Steam rate limit",
     repo.MOTIVO_ERRO: "Stopped: error",
     repo.MOTIVO_INTERROMPIDA: "Interrupted by a restart",
+    repo.MOTIVO_CANCELADA: "Stopped by admin",
 }
 
 
 def _ha(idade: str) -> str:
     """"5 min" -> "5 min ago"; "now" -> "just now" (e não "now ago")."""
     return "just now" if idade == "now" else f"{idade} ago"
+
+
+def ha_quanto_tempo(quando, agora) -> str:
+    """"5 min ago", "just now": a mesma frase do /scan, para o admin."""
+    return _ha(idade_por_extenso(quando, agora))
 
 
 @ROTEADOR.get("/scan", response_class=HTMLResponse)

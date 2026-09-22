@@ -14,10 +14,26 @@ from tf2price.contas import servico
 from tf2price.contas.modelo import Usuario
 from tf2price.painel import sessao as ses
 from tf2price.painel.templates import TEMPLATES
-from tf2price.painel.varredura import ROTULO_DA_PARADA
+from tf2price.painel.varredura import ROTULO_DA_PARADA, ha_quanto_tempo
 from tf2price.varredura import repositorio as varredura_repo
+from tf2price.varredura.rodada import MAX_PAUSAS_SEGUIDAS
 
 ROTEADOR = APIRouter()
+
+
+def _contexto_do_andamento(request: Request, conn: Connection) -> dict:
+    """O que o bloco "Current scan" precisa, na página inteira e no fragmento."""
+    agendador = request.app.state.agendador
+    agora = db.agora()
+    return {
+        "disponivel": agendador is not None,
+        "rodando": bool(agendador and agendador.rodando),
+        "andamento": varredura_repo.ler_andamento(conn),
+        "ultima": varredura_repo.ultima_rodada(conn),
+        "rotulo_da_parada": ROTULO_DA_PARADA,
+        "max_pausas": MAX_PAUSAS_SEGUIDAS,
+        "ha": lambda quando: ha_quanto_tempo(quando, agora),
+    }
 
 
 def _tela_admin(
@@ -28,11 +44,11 @@ def _tela_admin(
     erro: str | None = None,
     varredura_msg: str | None = None,
 ):
-    agendador = request.app.state.agendador
     return TEMPLATES.TemplateResponse(
         request=request,
         name="admin.html",
         context={
+            **_contexto_do_andamento(request, conn),
             "usuario": usuario,
             "usuarios": repo.listar_usuarios(conn),
             "pedidos": repo_pedidos.listar_pendentes(conn),
@@ -40,8 +56,6 @@ def _tela_admin(
             "erro": erro,
             "varredura": varredura_repo.ler_config(conn),
             "rodadas": varredura_repo.ultimas_rodadas(conn),
-            "rodando": bool(agendador and agendador.rodando),
-            "rotulo_da_parada": ROTULO_DA_PARADA,
             "intervalo_minimo": varredura_repo.INTERVALO_MINIMO_MIN,
             "varredura_msg": varredura_msg,
         },
@@ -200,3 +214,29 @@ def rodar_varredura(
     if not agendador.disparar_em_segundo_plano():
         return _tela_admin(request, conn, usuario, erro="A scan is already running.")
     return _tela_admin(request, conn, usuario, varredura_msg="Scan started.")
+
+
+@ROTEADOR.get("/admin/varredura/andamento", response_class=HTMLResponse)
+def andamento_da_varredura(
+    request: Request,
+    usuario: Usuario = Depends(ses.exigir_admin),
+    conn: Connection = Depends(ses.conexao),
+):
+    return TEMPLATES.TemplateResponse(
+        request=request,
+        name="_varredura_andamento.html",
+        context=_contexto_do_andamento(request, conn),
+    )
+
+
+@ROTEADOR.post("/admin/varredura/parar", response_class=HTMLResponse,
+                  dependencies=[Depends(ses.mesma_origem)])
+def parar_varredura(
+    request: Request,
+    usuario: Usuario = Depends(ses.exigir_admin),
+    conn: Connection = Depends(ses.conexao),
+):
+    agendador = request.app.state.agendador
+    if agendador is None or not agendador.parar_rodada():
+        return _tela_admin(request, conn, usuario, erro="No scan is running.")
+    return _tela_admin(request, conn, usuario, varredura_msg="Stopping the scan…")

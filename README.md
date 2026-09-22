@@ -70,7 +70,9 @@ A página **Market Scan** lista as listagens de cosméticos Unusual varridas em
 segundo plano. O admin liga, desliga e define o intervalo entre rodadas em
 `/admin` (mínimo de 60 min). O resultado de cada listagem é "valor da bp.tf em
 chaves × preço da chave − preço na Steam", com a idade do preço da bp.tf como
-filtro.
+filtro. O admin também vê o progresso da rodada em curso e pode interrompê-la
+com "Stop scan"; num limite da Steam (429) a rodada pausa e retoma sozinha, e
+só desiste depois de ~65 min sem nenhuma requisição dar certo.
 
 ## Implantação (Railway)
 
