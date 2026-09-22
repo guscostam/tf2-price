@@ -55,9 +55,11 @@ são cosméticos.
 - **`escopo.py`** (puro, sem I/O): `e_cosmetico_unusual(hash_name) -> bool`.
   Usa `parse_market_hash_name` de `domain/identity.py` para exigir qualidade
   Unusual **sem** segunda qualidade, e confere o nome base contra o conjunto de
-  cosméticos em `tf2price/data/cosmeticos.json`. Taunts, armas e war paints
-  caem por não serem `tf_wearable`; Strange Unusual cai pela qualidade dupla;
-  Unusualifiers pela regra de exclusão que já existe em `domain/`.
+  cosméticos em `tf2price/data/cosmeticos.json`. Taunts e armas como Gunboats
+  e Razorback são `tf_wearable`, mas caem pelo filtro de slot (só head/misc,
+  ver `SLOTS_DE_COSMETICO`) e — para taunts — pela guarda de nome base `Taunt:`; war paints caem por terem sufixo de desgaste e não serem cosméticos head/misc.
+  Strange Unusual cai pela qualidade dupla; Unusualifiers pela regra de
+  exclusão que já existe em `domain/`.
 - **`rodada.py`**: orquestra uma rodada (seção 4). Recebe `SteamClient`,
   `SteamPageClient`, engine, relógio e sono por injeção.
 - **`agendador.py`**: thread de fundo e trava de rodada única (seção 5).
@@ -67,9 +69,9 @@ são cosméticos.
 
 ### 3.2 Dado gerado: `tf2price/data/cosmeticos.json`
 
-Esta é a lista de nomes base dos itens com `item_class == "tf_wearable"`,
-extraída de `IEconItems_440/GetSchemaItems` (é paginado; segue `next` até o
-fim). Ela é gerada por `scripts/fetch_cosmeticos.py`, com `STEAM_API_KEY`, no
+Esta é a lista de nomes base dos itens com `item_class == "tf_wearable"` e
+slot em {head, misc}, extraída de `IEconItems_440/GetSchemaItems` (é paginado;
+segue `next` até o fim). Ela é gerada por `scripts/fetch_cosmeticos.py`, com `STEAM_API_KEY`, no
 mesmo molde de `scripts/fetch_effects.py`. Fica empacotada e não é editada à
 mão, e o import não acessa a rede.
 
@@ -118,8 +120,9 @@ linhas aparecem com "effect unknown" e sem resultado, e nunca herdam preço.
       rodada só regrava as listagens quando a `Leitura` é **nova**
       (`buscado_em == quando`). Um retrato antigo devolvido por calma ou pelo
       piso de `forcar` nunca substitui listagens nem atualiza `funda_em`.
-   2. Se `n_listagens` passa do que a página trouxe, busca as páginas
-      seguintes de listagens (ver seção 9, verificação 1).
+   2. A página do item já traz todas as listagens (medido em 2026-09-22);
+      não há paginação, e se `n_listagens` passar do que foi gravado, a tela
+      mostra "+N more on Steam" (`n_listagens − n_guardadas`).
    3. Numa transação curta, **apaga todas as `listagem_varrida` do nome e
       insere as atuais**, e atualiza `funda_em`. Uma listagem vendida ou
       retirada some.
