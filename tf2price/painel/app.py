@@ -6,7 +6,7 @@ import re
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -19,6 +19,12 @@ from tf2price.efeitos import arte as arte_dos_efeitos
 from tf2price.painel import acesso, admin, publico
 from tf2price.painel import sessao as ses
 from tf2price.painel.limite import LimitePorChave
+from tf2price.varredura import repositorio as varredura_repo
+from tf2price.varredura.agendador import (
+    Agendador,
+    construir_agendador,
+    iniciar_em_segundo_plano,
+)
 
 if TYPE_CHECKING:
     from tf2price.painel.consulta import Contexto
@@ -31,11 +37,16 @@ _NOME_DE_ARTE = re.compile(r"^\d{1,7}\.webp$")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
-def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
+def criar_app(
+    engine: Engine, contexto: "Contexto | None" = None, agendador: Agendador | None = None
+) -> FastAPI:
     app = FastAPI(title="briefcase.tf")
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.state.engine = engine
     app.state.contexto = contexto
+    # None nos testes e em qualquer app sem contexto: a página e o admin
+    # dizem que a varredura não roda neste processo.
+    app.state.agendador = agendador
     app.state.limite_pedidos = LimitePorChave(
         maximo=publico.PEDIDOS_POR_IP, janela_s=publico.JANELA_DOS_PEDIDOS_S
     )
@@ -169,6 +180,26 @@ def aquecer_em_segundo_plano(
     return thread
 
 
+def preparar_varredura(
+    engine: Engine,
+    contexto: "Contexto | None",
+    iniciar: Callable[[Agendador], object] = iniciar_em_segundo_plano,
+) -> Agendador:
+    """Fecha rodadas que um processo anterior deixou abertas e sobe o agendador.
+
+    Uma rodada sem fim no banco é de um processo que morreu no meio dela
+    (deploy, reinício). Não há retomada: `funda_em` por nome faz a próxima
+    rodada pular o que já foi lido.
+    """
+    with engine.begin() as conn:
+        fechadas = varredura_repo.fechar_abertas(conn, db.agora())
+    if fechadas:
+        print(f"[varredura] {fechadas} rodada(s) interrompida(s) por reinício", flush=True)
+    agendador = construir_agendador(engine, contexto)
+    iniciar(agendador)
+    return agendador
+
+
 def servir() -> None:
     """Ponto de entrada: python -m tf2price.painel.app"""
     import uvicorn
@@ -191,7 +222,8 @@ def servir() -> None:
 
     contexto = construir_contexto()
     aquecer_em_segundo_plano(contexto, engine)
-    uvicorn.run(criar_app(engine, contexto), host="127.0.0.1", port=8000)
+    agendador = preparar_varredura(engine, contexto)
+    uvicorn.run(criar_app(engine, contexto, agendador), host="127.0.0.1", port=8000)
 
 
 def construir_aplicacao() -> FastAPI:
@@ -225,7 +257,8 @@ def construir_aplicacao() -> FastAPI:
     # entre o processo esperar pelos terceiros e alguém esperar olhando uma
     # página em branco.
     aquecer_em_segundo_plano(contexto, engine)
-    return criar_app(engine, contexto)
+    agendador = preparar_varredura(engine, contexto)
+    return criar_app(engine, contexto, agendador)
 
 
 if __name__ == "__main__":

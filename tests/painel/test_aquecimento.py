@@ -143,6 +143,24 @@ def test_manter_quente_renova_a_cotacao_em_ciclo(engine):
     assert ctx.indice.chamadas == 1, "o índice entrou no ciclo sem ser convidado"
 
 
+def test_preparar_varredura_fecha_rodadas_abertas_e_inicia_o_agendador(engine):
+    from tf2price import db
+    from tf2price.painel.app import preparar_varredura
+    from tf2price.varredura import repositorio as varredura_repo
+    from tf2price.varredura.agendador import Agendador
+
+    with engine.begin() as conn:
+        varredura_repo.abrir_rodada(conn, db.agora())
+    iniciados = []
+
+    agendador = preparar_varredura(engine, contexto=None, iniciar=iniciados.append)
+
+    assert isinstance(agendador, Agendador)
+    assert iniciados == [agendador]
+    with engine.begin() as conn:
+        assert varredura_repo.ultima_rodada(conn).motivo_parada == varredura_repo.MOTIVO_INTERROMPIDA
+
+
 def test_criar_app_nao_aquece(engine):
     """O aquecimento mora nos pontos de entrada (`servir` e
     `construir_aplicacao`), nunca em `criar_app` — que é a costura dos
