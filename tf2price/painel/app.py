@@ -18,6 +18,7 @@ from tf2price.contas import servico
 from tf2price.efeitos import arte as arte_dos_efeitos
 from tf2price.painel import acesso, admin, publico
 from tf2price.painel import sessao as ses
+from tf2price.painel.limite import LimitePorChave
 
 if TYPE_CHECKING:
     from tf2price.painel.consulta import Contexto
@@ -35,6 +36,9 @@ def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.state.engine = engine
     app.state.contexto = contexto
+    app.state.limite_pedidos = LimitePorChave(
+        maximo=publico.PEDIDOS_POR_IP, janela_s=publico.JANELA_DOS_PEDIDOS_S
+    )
 
     @app.exception_handler(ses.PrecisaEntrar)
     def _sem_sessao(request: Request, _exc: ses.PrecisaEntrar) -> Response:

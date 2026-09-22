@@ -7,14 +7,20 @@ para `/` continuem levando quem está logado ao painel.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
+from tf2price import db
+from tf2price.contas import pedidos
 from tf2price.contas.modelo import Usuario
 from tf2price.painel import sessao as ses
 from tf2price.painel.templates import TEMPLATES
 
 ROTEADOR = APIRouter()
+
+PEDIDOS_POR_IP = 3
+JANELA_DOS_PEDIDOS_S = 3600
+_CONFIRMADO = "/?requested=1#access"
 
 
 def renderizar_landing(
@@ -49,3 +55,38 @@ def raiz(
     return renderizar_landing(
         request, estado="enviado" if requested == "1" else "formulario"
     )
+
+
+@ROTEADOR.post("/access-request", dependencies=[Depends(ses.mesma_origem)])
+def pedir_acesso(
+    request: Request,
+    perfil_steam: str = Form(""),
+    contato: str = Form(""),
+    observacao: str = Form(""),
+    website: str = Form(""),
+) -> Response:
+    # `--proxy-headers` já põe aqui o IP de quem pediu, não o do proxy.
+    ip = request.client.host if request.client else "desconhecido"
+    if not request.app.state.limite_pedidos.permitir(ip):
+        return renderizar_landing(request, estado="limite", status_code=429)
+    if website:
+        # Honeypot: só robô preenche. Responde como sucesso para não ensinar.
+        return RedirectResponse(_CONFIRMADO, status_code=303)
+    pedido, erros = pedidos.validar_pedido(perfil_steam, contato, observacao)
+    if pedido is None:
+        return renderizar_landing(
+            request,
+            valores={
+                "perfil_steam": perfil_steam,
+                "contato": contato,
+                "observacao": observacao,
+            },
+            erros=erros,
+            status_code=422,
+        )
+    with request.app.state.engine.begin() as conn:
+        resultado = pedidos.registrar_pedido(conn, pedido, db.agora())
+    if resultado is pedidos.Resultado.FECHADO:
+        return renderizar_landing(request, estado="fechado", status_code=503)
+    # GRAVADO e DUPLICADO respondem igual: a página não revela quem já pediu.
+    return RedirectResponse(_CONFIRMADO, status_code=303)
