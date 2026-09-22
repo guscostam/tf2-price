@@ -121,15 +121,23 @@ receive an invite link through the contact you gave."*
 
 - **Limite por IP em memória:** no máximo 3 envios por IP por hora corrida
   (contam todos os envios que passam da validação de origem, gravados ou
-  não). A chave é o último item do `X-Forwarded-For` — o que o Railway, único
-  proxy na frente do app, acrescenta — ou o endereço da conexão quando não há
-  esse cabeçalho; um IPv6 é agrupado pela rede `/64` que o contém. Um teto de
-  10 000 chaves na memória impede que chaves forjadas cresçam sem limite. Ao
-  exceder, `429` com a landing mostrando *"Too many requests from this
-  connection. Try again later."* no lugar do formulário. O limitador recebe
-  o relógio por injeção, protege seu estado com trava e descarta entradas
-  vencidas. Vive na memória do processo, coerente com a regra atual de uma
-  réplica só; um deploy o zera, o que o teto global cobre.
+  não). A chave junta todas as linhas do `X-Forwarded-For` e usa o último
+  item — o que o Railway, único proxy na frente do app, acrescenta; a porta é
+  removida, um IPv4 mapeado em IPv6 (`::ffff:1.2.3.4`) vira o IPv4 e um IPv6
+  é agrupado pela rede `/64` que o contém. Sem o cabeçalho, a chave é o
+  endereço da conexão. Com o cabeçalho presente mas o último item ilegível
+  como IP, a chave cai num balde fixo único (`"invalido"`) em vez do
+  `request.client.host` — falha fechado, porque sob
+  `--forwarded-allow-ips=*` esse campo já foi reescrito pelo primeiro item,
+  que o cliente controla. Um teto de 10 000 chaves na memória também falha
+  fechado: uma vez cheio, chaves novas são recusadas (por até uma hora, até
+  a mais antiga vencer), o que barra clientes legítimos novos mas impede que
+  chaves forjadas cresçam sem limite. Ao exceder qualquer cota, `429` com a
+  landing mostrando *"Too many requests from this connection. Try again
+  later."* no lugar do formulário. O limitador recebe o relógio por injeção,
+  protege seu estado com trava e descarta entradas vencidas. Vive na memória
+  do processo, coerente com a regra atual de uma réplica só; um deploy o
+  zera, o que o teto global cobre.
 - **Teto global:** com 200 pedidos `pendente` ou mais, novos pedidos não são
   gravados e a página mostra *"Access requests are temporarily closed."*
 - Ordem de checagem: limite por IP → honeypot → validação → teto global →

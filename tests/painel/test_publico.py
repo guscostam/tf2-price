@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 from starlette.requests import Request
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from tf2price import db
 from tf2price.contas import repositorio_pedidos as repo
@@ -19,6 +20,23 @@ def _anonimo(engine, contexto="padrao"):
     return TestClient(criar_app(engine, ctx), follow_redirects=False)
 
 
+def _atras_do_railway(engine, contexto="padrao"):
+    """Como `_anonimo`, mas com o `TestClient` batendo no app através do
+    `ProxyHeadersMiddleware(trusted_hosts="*")`, exatamente como o Procfile
+    sobe em produção (`--proxy-headers --forwarded-allow-ips=*`). É o único
+    jeito de reproduzir de verdade o bug do achado: sob esse middleware,
+    `request.client.host` vira o primeiro item do X-Forwarded-For, não o
+    último — por isso `chave_do_cliente` lê o cabeçalho ela mesma.
+    """
+    ctx = _contexto() if contexto == "padrao" else contexto
+    app = criar_app(engine, ctx)
+    cliente = TestClient(
+        ProxyHeadersMiddleware(app, trusted_hosts="*"), follow_redirects=False
+    )
+    cliente.app = app  # para os testes que precisam mexer em app.state
+    return cliente
+
+
 VALIDO = {
     "perfil_steam": "steamcommunity.com/id/Gusco",
     "contato": "gusco no Discord",
@@ -28,11 +46,13 @@ VALIDO = {
 
 
 def _request(headers=None, client=("10.0.0.1", 123)):
+    """`headers` é uma lista de pares (nome, valor), não um dict: um cabeçalho
+    como X-Forwarded-For pode aparecer em mais de uma linha na mesma
+    requisição."""
     scope = {
         "type": "http",
         "headers": [
-            (nome.lower().encode(), valor.encode())
-            for nome, valor in (headers or {}).items()
+            (nome.lower().encode(), valor.encode()) for nome, valor in (headers or [])
         ],
         "client": client,
     }
@@ -44,23 +64,56 @@ def test_chave_do_cliente_sem_cabecalho_usa_o_client_host():
 
 
 def test_chave_do_cliente_usa_o_ultimo_item_do_xff():
-    r = _request(headers={"X-Forwarded-For": "1.2.3.4, 9.9.9.9"})
+    r = _request(headers=[("X-Forwarded-For", "1.2.3.4, 9.9.9.9")])
     assert chave_do_cliente(r) == "9.9.9.9"
 
 
 def test_chave_do_cliente_ignora_espacos_e_item_vazio_no_fim():
-    r = _request(headers={"X-Forwarded-For": "1.2.3.4, 9.9.9.9, "})
+    r = _request(headers=[("X-Forwarded-For", "1.2.3.4, 9.9.9.9, ")])
     assert chave_do_cliente(r) == "9.9.9.9"
 
 
-def test_chave_do_cliente_agrupa_ipv6_pela_rede_64():
-    r = _request(headers={"X-Forwarded-For": "2001:db8:1:2:aaaa::1"})
+def test_chave_do_cliente_junta_varias_linhas_do_xff():
+    # Duas linhas separadas do cabeçalho (não uma só com vírgulas): junta
+    # tudo antes de separar por vírgula, senão o último item da PRIMEIRA
+    # linha (o do cliente) venceria o item da segunda linha (o do Railway).
+    r = _request(
+        headers=[("x-forwarded-for", "6.6.6.6"), ("x-forwarded-for", "203.0.113.7")]
+    )
+    assert chave_do_cliente(r) == "203.0.113.7"
+
+
+def test_chave_do_cliente_remove_a_porta_do_ultimo_item():
+    r = _request(headers=[("X-Forwarded-For", "1.2.3.4, 9.9.9.9:5678")])
+    assert chave_do_cliente(r) == "9.9.9.9"
+
+
+def test_chave_do_cliente_remove_a_porta_de_ipv6_com_colchetes():
+    r = _request(headers=[("X-Forwarded-For", "1.2.3.4, [2001:db8:1:2::1]:443")])
     assert chave_do_cliente(r) == "2001:db8:1:2::/64"
 
 
-def test_chave_do_cliente_lixo_cai_para_o_client_host():
-    r = _request(headers={"X-Forwarded-For": "nao-e-ip"})
-    assert chave_do_cliente(r) == "10.0.0.1"
+def test_chave_do_cliente_desembrulha_ipv4_mapeado_em_ipv6():
+    r = _request(headers=[("X-Forwarded-For", "::ffff:5.6.7.8")])
+    assert chave_do_cliente(r) == "5.6.7.8"
+
+
+def test_chave_do_cliente_agrupa_ipv6_pela_rede_64():
+    r = _request(headers=[("X-Forwarded-For", "2001:db8:1:2:aaaa::1")])
+    assert chave_do_cliente(r) == "2001:db8:1:2::/64"
+
+
+def test_chave_do_cliente_agrupa_ipv6_com_zona_pela_rede_64():
+    r = _request(headers=[("X-Forwarded-For", "fe80::1%eth0")])
+    assert chave_do_cliente(r) == "fe80::/64"
+
+
+def test_chave_do_cliente_com_cabecalho_e_lixo_nunca_usa_o_client_host():
+    # Cabeçalho presente mas o último item não é um IP válido: falha
+    # fechado num balde fixo, nunca no `request.client.host` — sob
+    # `--forwarded-allow-ips=*` ele é o item mais à esquerda, forjável.
+    r = _request(headers=[("X-Forwarded-For", "nao-e-ip")])
+    assert chave_do_cliente(r) == "invalido"
 
 
 def _pendentes(engine):
@@ -224,7 +277,7 @@ def test_pedido_de_outra_origem_e_recusado(engine):
 
 
 def test_forjar_o_comeco_do_xff_nao_abre_balde_novo(engine):
-    cliente = _anonimo(engine, contexto=None)
+    cliente = _atras_do_railway(engine, contexto=None)
     for n in range(3):
         dados = {**VALIDO, "perfil_steam": f"steamcommunity.com/id/p{n}x"}
         r = cliente.post(
@@ -242,7 +295,7 @@ def test_forjar_o_comeco_do_xff_nao_abre_balde_novo(engine):
 
 
 def test_dois_clientes_com_ultimo_item_diferente_nao_dividem_a_cota(engine):
-    cliente = _anonimo(engine, contexto=None)
+    cliente = _atras_do_railway(engine, contexto=None)
     for n in range(3):
         dados = {**VALIDO, "perfil_steam": f"steamcommunity.com/id/q{n}x"}
         r = cliente.post(

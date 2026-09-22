@@ -41,29 +41,75 @@ def renderizar_landing(
     )
 
 
+def _sem_porta(valor: str) -> str:
+    """Extrai o host de um item do X-Forwarded-For, do mesmo jeito que
+    `uvicorn.middleware.proxy_headers._parse_host_port`: IP nu,
+    `host:porta` e `[ipv6]:porta`. Qualquer formato fora desses três volta
+    sem alteração, para nunca inventar um host que não estava lá.
+    """
+    if valor.startswith("["):
+        fim = valor.find("]")
+        if fim == -1:
+            return valor
+        host = valor[1:fim]
+        resto = valor[fim + 1 :]
+        if not resto:
+            return host
+        if not resto.startswith(":"):
+            return valor
+        try:
+            int(resto[1:])
+        except ValueError:
+            return host
+        return host
+    if valor.count(":") == 1:
+        host, porta = valor.rsplit(":", 1)
+        try:
+            int(porta)
+        except ValueError:
+            return valor
+        return host
+    return valor
+
+
 def chave_do_cliente(request: Request) -> str:
     """Escolhe a chave do freio de pedidos a partir do IP do cliente.
 
-    Usa o último item do `X-Forwarded-For`, não o primeiro: o Railway é o
-    único proxy na frente do app e acrescenta o IP que ele viu como último
-    item da lista; itens anteriores vêm do próprio cliente e podem ser
-    forjados. Se um dia houver outro proxy antes do Railway, esta função
-    precisa mudar.
+    Junta todas as linhas do cabeçalho X-Forwarded-For (pode vir mais de
+    uma) e usa o último item não vazio: o Railway é o único proxy na frente
+    do app e acrescenta o IP que ele viu como último item da lista; itens
+    anteriores vêm do próprio cliente e podem ser forjados. Se um dia
+    houver outro proxy antes do Railway, esta função precisa mudar.
+
+    Sem o cabeçalho, usa `request.client.host`: o middleware de proxy do
+    uvicorn só reescreve `request.client` quando há X-Forwarded-For, então
+    sem ele o valor ainda é o endereço real da conexão. Com o cabeçalho
+    presente mas um último item que não é IP válido, a chave fixa
+    "invalido" agrupa esse tráfego num balde só — nunca cai em
+    `request.client.host` nesse caso: com `--forwarded-allow-ips=*` esse
+    campo já foi reescrito pelo *primeiro* item do cabeçalho, que é
+    controlado pelo cliente.
     """
-    xff = request.headers.get("x-forwarded-for", "")
-    itens = [item.strip() for item in xff.split(",") if item.strip()]
-    if itens:
-        texto = itens[-1]
-    else:
-        texto = request.client.host if request.client else "desconhecido"
+    linhas = request.headers.getlist("x-forwarded-for")
+    if not linhas:
+        return request.client.host if request.client else "desconhecido"
+    itens = [item.strip() for item in ",".join(linhas).split(",") if item.strip()]
+    if not itens:
+        return "invalido"
+    texto = _sem_porta(itens[-1])
     try:
         endereco = ipaddress.ip_address(texto)
     except ValueError:
-        # Não é um IP válido: nunca usa o texto forjado como chave.
-        return request.client.host if request.client else "desconhecido"
+        return "invalido"
     if endereco.version == 6:
-        # Um cliente IPv6 costuma controlar a /64 inteira, não só um endereço.
-        rede = ipaddress.ip_network(f"{texto}/64", strict=False)
+        mapeado = endereco.ipv4_mapped
+        if mapeado is not None:
+            # ::ffff:1.2.3.4 é só um IPv4 disfarçado; usa o endereço real.
+            return str(mapeado)
+        # Um cliente IPv6 costuma controlar a /64 inteira, não só um
+        # endereço; monta a rede a partir do valor já resolvido (não do
+        # texto), para que uma zona (`%eth0`) não vaze para a chave.
+        rede = ipaddress.ip_network((int(endereco), 64), strict=False)
         return str(rede)
     return str(endereco)
 
