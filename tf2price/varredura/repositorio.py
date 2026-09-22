@@ -124,6 +124,17 @@ def gravar_vista(
         ))
 
 
+def marcar_para_funda(conn: Connection, hash_name: str) -> None:
+    """Zera `funda_em` sem tocar a assinatura. Usada quando a passada rasa vê
+    a assinatura de um nome mudar: se a leitura funda não terminar nesta
+    rodada (429, página quebrada, transporte, reinício), a regra `funda_em is
+    None` de `_precisa_funda` garante que a próxima rodada tente de novo, em
+    vez de esperar `idade_max_funda_h` porque a assinatura nova já foi
+    gravada e parece recente."""
+    t = db.varredura_nome
+    conn.execute(update(t).where(t.c.hash_name == hash_name).values(funda_em=None))
+
+
 def substituir_listagens(
     conn: Connection, hash_name: str, listagens: list[PageListing], quando: datetime
 ) -> None:

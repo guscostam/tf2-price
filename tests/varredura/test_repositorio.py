@@ -50,6 +50,14 @@ def test_gravar_vista_nao_apaga_a_funda(engine):
         assert repo.ler_assinatura(conn, "X") == repo.Assinatura(200, 2, T0)
 
 
+def test_marcar_para_funda_zera_a_funda_mantendo_a_assinatura(engine):
+    with engine.begin() as conn:
+        repo.gravar_vista(conn, "X", 100, 1, T0)
+        repo.substituir_listagens(conn, "X", [_l("1", 500)], T0)
+        repo.marcar_para_funda(conn, "X")
+        assert repo.ler_assinatura(conn, "X") == repo.Assinatura(100, 1, None)
+
+
 def test_substituir_troca_todas_as_listagens_do_nome(engine):
     with engine.begin() as conn:
         repo.gravar_vista(conn, "X", 100, 2, T0)

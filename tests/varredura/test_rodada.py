@@ -12,6 +12,7 @@ from tf2price.sources.ratelimit import SteamLimitando
 from tf2price.sources.steam import SearchPage, SearchResult
 from tf2price.sources.steam_page import ItemPage, OrderBook, PageListing, PageStructureError
 from tf2price.varredura import repositorio as repo
+from tf2price.varredura import rodada as rodada_mod
 from tf2price.varredura.rodada import ESPACO_EXTRA_S, QUERY, executar_rodada
 
 T0 = db.agora()
@@ -194,6 +195,63 @@ def test_429_na_busca_liga_a_calma_do_retrato_e_para(engine):
     assert retratos.pedidos == []  # a funda não começa depois de uma rasa interrompida
 
 
+def test_assinatura_mudada_sobrevive_ao_429_na_funda_e_e_relida_depois(engine):
+    # Rodada 1: assinatura original de A e B.
+    _rodar(engine, _Steam([_r("Unusual A"), _r("Unusual B")]), _Retratos(PAGINAS))
+
+    # Rodada 2: as duas assinaturas mudam, mas o 429 na primeira leitura
+    # funda (A) para a rodada antes de B ser lido.
+    resumo2 = _rodar(
+        engine,
+        _Steam([_r("Unusual A", usd=999), _r("Unusual B", usd=999)]),
+        _Retratos(PAGINAS, limitar_em="Unusual A"),
+        quando=T0 + timedelta(hours=1),
+    )
+    assert resumo2.motivo == "429"
+
+    # Rodada 3: as MESMAS assinaturas mudadas, com um retrato limpo (sem
+    # 429). A mudança de assinatura da rodada 2 não pode ter se perdido: os
+    # dois nomes têm que ser lidos a fundo de novo.
+    retratos3 = _Retratos(PAGINAS)
+    resumo3 = _rodar(
+        engine,
+        _Steam([_r("Unusual A", usd=999), _r("Unusual B", usd=999)]),
+        retratos3,
+        quando=T0 + timedelta(hours=2),
+    )
+
+    assert retratos3.pedidos == ["Unusual A", "Unusual B"]
+    assert resumo3.fundas_feitas == 2
+
+
+def test_assinatura_mudada_sobrevive_a_falha_na_funda_e_e_relida_depois(engine):
+    # Rodada 1: assinatura original de A e B.
+    _rodar(engine, _Steam([_r("Unusual A"), _r("Unusual B")]), _Retratos(PAGINAS))
+
+    # Rodada 2: as duas assinaturas mudam, mas a leitura funda de A quebra
+    # (PageStructureError). A rodada segue e conta a falha, sem 429.
+    resumo2 = _rodar(
+        engine,
+        _Steam([_r("Unusual A", usd=999), _r("Unusual B", usd=999)]),
+        _Retratos(PAGINAS, quebrar={"Unusual A"}),
+        quando=T0 + timedelta(hours=1),
+    )
+    assert (resumo2.falhas, resumo2.motivo) == (1, "ok")
+
+    # Rodada 3: as MESMAS assinaturas mudadas. A funda que falhou em A não
+    # pode ter se perdido: só A precisa ser lido a fundo de novo (B já foi
+    # lido com sucesso na rodada 2, dentro do prazo).
+    retratos3 = _Retratos(PAGINAS)
+    _rodar(
+        engine,
+        _Steam([_r("Unusual A", usd=999), _r("Unusual B", usd=999)]),
+        retratos3,
+        quando=T0 + timedelta(hours=2),
+    )
+
+    assert retratos3.pedidos == ["Unusual A"]
+
+
 def test_nome_quebrado_conta_falha_e_a_rodada_segue(engine):
     retratos = _Retratos(PAGINAS, quebrar={"Unusual A"})
 
@@ -241,6 +299,23 @@ def test_espaco_extra_antes_de_cada_requisicao(engine):
 
     # 1 página da busca + 2 leituras fundas
     assert esperas == [ESPACO_EXTRA_S] * 3
+
+
+def test_estourar_o_teto_de_paginas_rasas_conta_como_erro(engine, monkeypatch):
+    monkeypatch.setattr(rodada_mod, "MAX_PAGINAS_RASAS", 1)
+    # 15 resultados = 2 páginas de busca; o teto de 1 impede alcançar a
+    # segunda, então a rodada nunca vê o mercado inteiro.
+    resultados = [_r(f"Unusual {i}") for i in range(15)]
+    steam = _Steam(resultados)
+    paginas = {f"Unusual {i}": _pagina(f"Unusual {i}", (f"L{i}", 500, "Burning Flames"))
+              for i in range(15)}
+    retratos = _Retratos(paginas)
+
+    resumo = _rodar(engine, steam, retratos)
+
+    assert resumo.motivo == "erro"
+    assert len(steam.chamadas) == 1
+    assert retratos.pedidos == []  # o teto para antes da passada funda
 
 
 def test_nenhuma_conexao_emprestada_durante_as_requisicoes(engine):

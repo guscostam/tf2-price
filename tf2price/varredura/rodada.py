@@ -44,14 +44,18 @@ class Resumo:
     motivo: str = repo.MOTIVO_OK
 
 
+def _assinatura_mudou(anterior: repo.Assinatura, visto: SearchResult) -> bool:
+    return (anterior.preco_usd_cents, anterior.n_listagens) != (
+        visto.sell_price_usd_cents, visto.sell_listings
+    )
+
+
 def _precisa_funda(
     anterior: repo.Assinatura | None, visto: SearchResult, quando: datetime, config: repo.Config
 ) -> bool:
     if anterior is None or anterior.funda_em is None:
         return True
-    if (anterior.preco_usd_cents, anterior.n_listagens) != (
-        visto.sell_price_usd_cents, visto.sell_listings
-    ):
+    if _assinatura_mudou(anterior, visto):
         return True
     return quando - anterior.funda_em > timedelta(hours=config.idade_max_funda_h)
 
@@ -138,6 +142,12 @@ def _rodar(
                 anterior = repo.ler_assinatura(conn, visto.hash_name)
                 repo.gravar_vista(conn, visto.hash_name, visto.sell_price_usd_cents,
                                   visto.sell_listings, quando)
+                if anterior is not None and _assinatura_mudou(anterior, visto):
+                    # A assinatura nova já foi gravada acima; se a funda não
+                    # terminar nesta rodada, `funda_em is None` faz a próxima
+                    # tentar de novo, em vez de perder a mudança por até
+                    # `idade_max_funda_h`.
+                    repo.marcar_para_funda(conn, visto.hash_name)
                 if _precisa_funda(anterior, visto, quando, config):
                     pendentes.append(visto.hash_name)
             resumo.nomes_lidos = len(vistos)
@@ -146,6 +156,13 @@ def _rodar(
         start += len(pagina.results)
         if start >= pagina.total_count:
             break
+    else:
+        # O teto estourou sem alcançar `total_count` (ou uma página vazia):
+        # a rodada não viu o mercado inteiro, então não pode contar como
+        # completa nem liberar a exclusão de nomes "não vistos".
+        print(f"[varredura] rodada {rodada_id}: teto de {MAX_PAGINAS_RASAS} páginas rasas "
+              f"estourado sem terminar a busca", flush=True)
+        return repo.MOTIVO_ERRO
 
     # --- passada funda
     for nome in pendentes:
