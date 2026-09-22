@@ -57,23 +57,28 @@ são cosméticos.
   Unusual **sem** segunda qualidade, e confere o nome base contra o conjunto de
   cosméticos em `tf2price/data/cosmeticos.json`. Taunts e armas como Gunboats
   e Razorback são `tf_wearable`, mas caem pelo filtro de slot (só head/misc,
-  ver `SLOTS_DE_COSMETICO`) e — para taunts — pela guarda de nome base `Taunt:`; war paints caem por terem sufixo de desgaste e não serem cosméticos head/misc.
-  Strange Unusual cai pela qualidade dupla; Unusualifiers pela regra de
-  exclusão que já existe em `domain/`.
-- **`rodada.py`**: orquestra uma rodada (seção 4). Recebe `SteamClient`,
-  `SteamPageClient`, engine, relógio e sono por injeção.
+  ver `SLOTS_DE_COSMETICO`) e — para taunts — pela guarda de nome base
+  `Taunt:`; war paints caem por terem sufixo de desgaste e não serem
+  cosméticos head/misc. Strange Unusual cai pela qualidade dupla;
+  Unusualifiers pela regra de exclusão que já existe em `domain/`.
+- **`rodada.py`**: orquestra uma rodada (seção 4). Recebe por injeção a
+  engine, `steam` (o `SteamClient`, para a busca), `retratos` (os `Retratos`
+  compartilhados com a consulta, que buscam a página do item e guardam a
+  calma), `cotacao` (a `CotacaoSobDemanda`, lida só da memória e do banco),
+  relógio e sono.
 - **`agendador.py`**: thread de fundo e trava de rodada única (seção 5).
 - **`repositorio.py`**: todo o SQL das tabelas novas (SQLAlchemy Core).
 - **`leitura.py`** (puro sobre dados já carregados): cruza listagens com o
-  índice da bp.tf e a cotação, e aplica filtros, ordenação e paginação (seção 6).
+  índice da bp.tf e a cotação, e aplica filtros, ordenação e paginação
+  (seção 6).
 
 ### 3.2 Dado gerado: `tf2price/data/cosmeticos.json`
 
 Esta é a lista de nomes base dos itens com `item_class == "tf_wearable"` e
 slot em {head, misc}, extraída de `IEconItems_440/GetSchemaItems` (é paginado;
-segue `next` até o fim). Ela é gerada por `scripts/fetch_cosmeticos.py`, com `STEAM_API_KEY`, no
-mesmo molde de `scripts/fetch_effects.py`. Fica empacotada e não é editada à
-mão, e o import não acessa a rede.
+segue `next` até o fim). Ela é gerada por `scripts/fetch_cosmeticos.py`, com
+`STEAM_API_KEY`, no mesmo molde de `scripts/fetch_effects.py`. Fica empacotada
+e não é editada à mão, e o import não acessa a rede.
 
 ### 3.3 Tabelas
 
@@ -113,23 +118,38 @@ linhas aparecem com "effect unknown" e sem resultado, e nunca herdam preço.
    de novo — em vez de esperar até `idade_max_funda_h` porque a assinatura
    nova já parece recente.
 3. **Passada funda**, nome a nome:
-   1. `Retratos.obter(..., forcar=True)` busca a página do item e grava o
+   1. Relê a cotação (`CotacaoSobDemanda.obter`, só memória e banco, sem
+      rede), para o retrato gravado nos `Retratos` compartilhados sair com o
+      `usd_to_brl` atual, e não com o do início de uma rodada que dura horas.
+      Se a cotação sumir no meio, a rodada para com `erro`.
+   2. `Retratos.obter(..., forcar=True)` busca a página do item e grava o
       retrato como a consulta faria. Com isso a tela de consulta fica
       instantânea para o item. O `obter` engole o `SteamLimitando` e devolve a
       `Leitura` com a calma ligada, então é esse sinal que para a rodada. A
       rodada só regrava as listagens quando a `Leitura` é **nova**
       (`buscado_em == quando`). Um retrato antigo devolvido por calma ou pelo
       piso de `forcar` nunca substitui listagens nem atualiza `funda_em`.
-   2. A página do item já traz todas as listagens (medido em 2026-09-22);
+   3. A página do item já traz todas as listagens (medido em 2026-09-22);
       não há paginação, e se `n_listagens` passar do que foi gravado, a tela
       mostra "+N more on Steam" (`n_listagens − n_guardadas`).
-   3. Numa transação curta, **apaga todas as `listagem_varrida` do nome e
+   4. Numa transação curta, **apaga todas as `listagem_varrida` do nome e
       insere as atuais**, e atualiza `funda_em`. Uma listagem vendida ou
       retirada some.
+
+   Qualquer exceção de um nome — na leitura da página (parser, transporte)
+   ou na gravação (por exemplo, o PostgreSQL recusando um `efeito` ou
+   `icone` maior que a coluna, limite que o SQLite não impõe) — conta como
+   falha daquele nome: soma em `falhas`, é registrada com a mensagem saneada,
+   o progresso é gravado e a rodada segue para o próximo. Se escapasse, a
+   rodada inteira pararia com `erro` e, como os pendentes seguem a ordem da
+   busca, o mesmo nome travaria todas as rodadas seguintes. Só o 429 (a
+   `Leitura` em calma) para a passada funda.
 4. **Nomes que sumiram da passada rasa** (sem listagem nenhuma) têm as
    listagens apagadas só depois de **duas rodadas completas** seguidas sem
-   vê-los (`motivo_parada = ok`) — ver decisão 3. Uma rodada parada por 429
-   não apaga nada, porque não viu o mercado inteiro.
+   vê-los (`motivo_parada = ok`). Uma só não basta: a busca ordena por preço
+   e leva minutos, e um item cujo preço mudou no meio pode trocar de página e
+   não ser visto uma vez sem ter saído do mercado. Uma rodada parada por 429
+   ou `erro` não apaga nada, porque não viu o mercado inteiro.
 
 Estourar o teto de páginas da passada rasa (`MAX_PAGINAS_RASAS`) termina a
 rodada como `erro`, não `ok`: sem ver o mercado inteiro, nada pode ser apagado
@@ -159,7 +179,9 @@ faz a requisição e abre outra transação curta para gravar.
   interrompidas não perdem trabalho, porque `funda_em` por nome faz a próxima
   pular o que já foi lido.
 - **Calma.** Antes de cada requisição, a rodada verifica a calma dos
-  `Retratos`. Se está em calma, a rodada para com `motivo_parada = 429`.
+  `Retratos` duas vezes: antes de dormir o espaço extra e de novo depois,
+  porque um usuário pode ter batido no 429 durante o sono. Se está em calma,
+  a rodada para com `motivo_parada = 429`, sem fazer a requisição.
 - **Reinício do processo.** Na subida, qualquer rodada com `fim` nulo é
   fechada como `interrompida`. Não há retomada explícita: `funda_em` por nome
   faz a próxima rodada pular o que já foi lido.
@@ -169,7 +191,9 @@ faz a requisição e abre outra transação curta para gravar.
 Nova aba do painel, para qualquer usuário logado, com a interface em inglês.
 
 **Cabeçalho de estado:** fim da última rodada completa, rodada em curso (com
-progresso), última parada por 429, total de nomes e listagens cobertos.
+progresso) e total de nomes e listagens cobertos (nome coberto é nome com ao
+menos uma listagem guardada). Um aviso de 429 aparece só quando a rodada mais
+recente parou por 429; uma parada antiga, seguida de outra rodada, não aparece.
 
 **Duas abas sobre a mesma tabela:** `All listings` e `Profitable` (resultado
 > 0).
@@ -191,7 +215,8 @@ consulta já mostra.
 **Preço da bp.tf mais velho que o filtro de idade:** a linha continua em
 "All listings", com o valor e a idade à mostra, mas sem resultado. O motivo
 aparece no lugar do resultado ("backpack.tf price is older than N days"), e a
-linha nunca entra em "Profitable" — ver decisão 4.
+linha nunca entra em "Profitable": um lucro medido contra um preço de anos
+atrás é o falso positivo que derrubou o spike de 2026-09-19.
 
 **Filtros** (na query string): texto no nome do item; efeito; faixa de preço na
 Steam; **idade máxima do preço da bp.tf (padrão 90 dias)**; "só com preço na
@@ -204,7 +229,14 @@ da bp.tf.
 **Paginação:** 50 por página, trocada via HTMX. O repositório traz as
 listagens já filtradas por texto, efeito e preço. `leitura.py` calcula o
 resultado em `Brl`, filtra por idade e lucro, ordena e pagina. Com milhares de
-linhas isso é barato, e o câmbio não entra em SQL.
+linhas isso é barato, e o câmbio não entra em SQL. A arte do efeito, que olha
+o disco, é buscada só para as linhas da página devolvida.
+
+A resposta HTMX traz só a tabela, exceto na restauração do histórico
+(`HX-History-Restore-Request`, quando o htmx não tem a página em cache e troca
+o `<body>` inteiro), que recebe a página toda. As duas respostas levam
+`Vary: HX-Request`, para o Voltar do navegador não servir o fragmento como
+página.
 
 ## 7. Painel admin
 
@@ -224,9 +256,10 @@ As rotas mutáveis exigem admin e validação de mesma origem, como as existente
 | Situação | Comportamento |
 | --- | --- |
 | 429 na passada funda (`Leitura` em calma) ou `SteamLimitando` na rasa | a rodada para e grava `429`; a calma dos `Retratos` vale para todos. Na passada rasa, o `SteamLimitando` também liga a calma dos `Retratos`, para a consulta não bater logo em seguida |
-| `PageStructureError` ou outro erro num nome | pula o nome, soma em `falhas` e segue; as listagens antigas ficam com a idade real à mostra |
+| Qualquer exceção num nome da passada funda, na leitura ou na gravação | pula o nome, soma em `falhas`, grava o progresso e segue; as listagens antigas ficam com a idade real à mostra |
 | Falha na passada rasa | a rodada para com `erro`; nada é apagado |
-| Índice da bp.tf ou cotação indisponível | a página mostra as listagens e o resultado como indisponível; a varredura não depende deles |
+| Índice da bp.tf indisponível | a página mostra as listagens e o resultado como indisponível; a varredura não depende dele |
+| Cotação da chave indisponível | a página mostra as listagens e o resultado como indisponível. A varredura depende dela: a página do item vem em dólar e o retrato precisa da taxa. Sem cotação no início, a rodada para com `erro` antes de qualquer requisição; se ela sumir no meio, para com `erro` antes da próxima leitura funda |
 | Processo reiniciado | a rodada aberta vira `interrompida` na subida |
 
 ## 9. Verificações antes de implementar
@@ -255,15 +288,17 @@ Sem rede, com clientes falsos, relógio e sono injetados, no SQLite em memória.
   Unusual, arma com killstreak, war paint e Unusualifier.
 - **`rodada`:** assinatura igual e dentro do prazo pula a funda; assinatura
   diferente, `funda_em` nulo ou vencido aprofundam; a funda substitui as
-  listagens do nome; o 429 para a rodada sem apagar nada; nome quebrado não
-  derruba a rodada; nomes sumidos só são apagados em rodada completa; nenhuma
-  conexão emprestada durante a requisição (contando conexões do pool).
+  listagens do nome; o 429 para a rodada sem apagar nada; nome quebrado, erro
+  qualquer do parser ou falha ao gravar não derrubam a rodada; calma ligada
+  antes ou durante o sono para sem requisição; nomes sumidos só são apagados
+  em rodada completa; nenhuma conexão emprestada durante a requisição
+  (contando conexões do pool).
 - **`agendador`:** não inicia com a varredura desligada nem antes do
-  intervalo; duas tentativas simultâneas geram uma rodada só; rodada aberta
-  vira `interrompida` na subida.
+  intervalo, contado do fim da última rodada; duas tentativas simultâneas
+  geram uma rodada só; rodada aberta vira `interrompida` na subida.
 - **`leitura`:** resultado igual ao da `patient_exit`; efeito sem preço nunca
   herda de outro; efeito nulo sem resultado; filtro de idade; aba Profitable;
   ordenação; paginação.
 - **Rotas:** a página exige login; a seção admin exige admin; intervalo abaixo
   de 60 é recusado; mesma origem exigida; resposta HTMX não mistura a página
-  anterior.
+  anterior; a restauração do histórico recebe a página inteira.
