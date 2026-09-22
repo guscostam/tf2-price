@@ -153,3 +153,22 @@ def test_aviso_de_429_so_quando_a_ultima_rodada_parou_por_429(engine):
 
     _rodada_fechada(engine, repo.MOTIVO_OK)
     assert aviso not in cliente.get("/scan").text
+
+
+def test_sem_referencia_o_scan_diz_e_esconde_o_resultado(engine):
+    from .conftest import _PtaxFalsa
+
+    _semear(engine, [("1", 80000, "Burning Flames")])
+    ctx = _contexto(indice=_indice())
+    ctx.ptax = _PtaxFalsa(None)
+    cliente = cliente_logado(engine, ctx)
+
+    texto = cliente.get("/scan").text
+
+    assert "PTAX dollar rate" in texto
+    assert "R$ 373,00" not in texto
+
+
+def test_o_cabecalho_do_scan_diz_qual_chave_usa(engine):
+    cliente = cliente_logado(engine, _contexto(indice=_indice()))
+    assert "× reference key price" in cliente.get("/scan").text

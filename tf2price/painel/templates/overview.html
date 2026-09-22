@@ -6,15 +6,9 @@
 {% block content %}
 <div data-page="overview" class="overview-grid">
   <section class="metric-card" aria-labelledby="exchange-title">
-    <p class="scope-label">STEAM REFERENCE</p>
+    <p class="scope-label">CASH REFERENCE</p>
     <h2 id="exchange-title">Exchange rate</h2>
-    {% if cotacao %}
-      <strong>{{ cotacao.key_brl }}</strong>
-      <p>Key price · captured {{ cotacao_idade }}</p>
-    {% else %}
-      <strong>Awaiting evidence</strong>
-      <p>The background worker has not loaded a usable quote yet.</p>
-    {% endif %}
+    {% include "_chave_referencia.html" %}
   </section>
   <section class="metric-card" aria-labelledby="cases-title">
     <p class="scope-label">YOUR FILES</p>

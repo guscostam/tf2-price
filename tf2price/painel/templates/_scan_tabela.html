@@ -5,7 +5,7 @@
      href="/scan?{{ filtros.query(aba='lucro', pagina=1) }}">Profitable</a>
 </nav>
 <p class="scan-count">{{ pagina.total }} listings{% if pagina.paginas > 1 %} · page {{ pagina.pagina }} of {{ pagina.paginas }}{% endif %}
-  · result = backpack.tf value in keys × Steam key price − Steam price</p>
+  · result = backpack.tf value in keys × reference key price (backpack.tf dollar × PTAX) − Steam price</p>
 
 {% if not pagina.linhas %}
 <p class="empty-state">No listings match these filters.</p>

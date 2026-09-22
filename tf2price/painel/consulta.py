@@ -32,6 +32,7 @@ from tf2price.painel.ptax import PtaxSobDemanda
 from tf2price.painel.templates import TEMPLATES
 from tf2price.preco import repositorio as preco_repo
 from tf2price.preco import serial
+from tf2price.preco.referencia import ChaveReferencia, montar_referencia
 from tf2price.preco.retrato import Retratos
 from tf2price.sources.backpacktf import BackpackTfClient, PriceIndex
 from tf2price.sources.bcb import BcbClient
@@ -124,7 +125,7 @@ class IndiceSobDemanda:
             return self._indice
 
 
-SEM_COTACAO = "The key exchange rate has not loaded yet. Try again in a few minutes."
+SEM_COTACAO = "Steam's dollar conversion rate has not loaded yet. Try again in a few minutes."
 
 # Mesma validade do retrato, pelo mesmo raciocínio: 15 minutos é o que separa
 # "recente" de "vale pedir de novo" neste projeto. Uma cotação mais velha que
@@ -345,6 +346,22 @@ def _contexto(request: Request) -> Contexto:
     return request.app.state.contexto
 
 
+def chave_de_referencia(
+    contexto: Contexto, engine: Engine, indice: PriceIndex | None
+) -> ChaveReferencia | None:
+    """A régua das contas de troca: dólar da chave na bp.tf × PTAX.
+
+    Montada na hora com o índice em memória e a PTAX de `obter`, que só lê
+    memória e banco. Chamar **antes** de abrir a transação da rota: na
+    primeira leitura a PTAX passa pelo banco.
+    """
+    return montar_referencia(indice, contexto.ptax.obter(engine))
+
+
+def _brl(referencia: ChaveReferencia | None) -> Brl | None:
+    return referencia.brl if referencia is not None else None
+
+
 def _mensagem_falha_steam(erro: Exception) -> str:
     """Texto público estável; detalhes de terceiros não pertencem à interface."""
     if isinstance(erro, SteamLimitando):
@@ -425,6 +442,7 @@ def efeitos(request: Request, nome: str, efeito: str = "",
     pagina = leitura.pagina
     retrato_idade = idade_por_extenso(leitura.buscado_em, agora)
     indice = contexto.indice.obter()
+    referencia = chave_de_referencia(contexto, request.app.state.engine, indice)
     contexto_analise: dict[str, Any] = {}
     if efeito:
         # O botão de um acompanhado pede a lista e a avaliação num só clique.
@@ -432,7 +450,7 @@ def efeitos(request: Request, nome: str, efeito: str = "",
         # ValueError; a lista aparece normal e a avaliação avisa a ausência —
         # nunca o preço de outro efeito, que vale outra ordem de grandeza.
         try:
-            resultado = analyse(pagina, efeito, indice, cotacao.key_brl)
+            resultado = analyse(pagina, efeito, indice, _brl(referencia))
         except ValueError:
             # "sem listagem deste efeito agora" é uma afirmação sobre o
             # PRESENTE, sentada em cima de um retrato que pode ter horas — na
@@ -455,7 +473,7 @@ def efeitos(request: Request, nome: str, efeito: str = "",
     # para dar pra saber de qual linha a direita está falando.
     with request.app.state.engine.begin() as conn:
         linhas = linhas_acompanhadas(
-            conn, cotacao, indice, usuario.id, agora,
+            conn, _brl(referencia), indice, usuario.id, agora,
             selecionado=(nome, efeito) if efeito else None,
         )
     return TEMPLATES.TemplateResponse(
@@ -492,9 +510,10 @@ def rota_analise(request: Request, nome: str, efeito: str,
         return _erro(request, SEM_RETRATO)
     pagina = leitura.pagina
     indice = contexto.indice.obter()
+    referencia = chave_de_referencia(contexto, request.app.state.engine, indice)
     retrato_idade = idade_por_extenso(leitura.buscado_em, agora)
     try:
-        resultado = analyse(pagina, efeito, indice, cotacao.key_brl)
+        resultado = analyse(pagina, efeito, indice, _brl(referencia))
     except ValueError:
         contexto_analise = {
             "efeito_ausente": SEM_LISTAGEM_DO_EFEITO,
@@ -513,7 +532,7 @@ def rota_analise(request: Request, nome: str, efeito: str,
     # motivo de `_coluna`: a transação do banco tem de ser curta.
     with request.app.state.engine.begin() as conn:
         linhas = linhas_acompanhadas(
-            conn, cotacao, indice, usuario.id, agora, selecionado=(nome, efeito),
+            conn, _brl(referencia), indice, usuario.id, agora, selecionado=(nome, efeito),
         )
     return TEMPLATES.TemplateResponse(
         request=request,
@@ -561,14 +580,14 @@ def idade_por_extenso(quando: datetime | None, agora: datetime) -> str:
 
 
 def linhas_acompanhadas(
-    conn, cotacao, indice, usuario_id, agora, selecionado: tuple[str, str] | None = None
+    conn, chave, indice, usuario_id, agora, selecionado: tuple[str, str] | None = None
 ) -> list[LinhaAcompanhada]:
     """O que a coluna esquerda mostra, calculado na hora.
 
-    Recebe a cotação e o índice já resolvidos, e não o `Contexto`: os dois são
-    carregados sob demanda e podem ir à rede na primeira chamada. Resolvê-los
-    aqui dentro seguraria a conexão do banco durante esse download, que é
-    justamente o que `test_transacao.py` proíbe.
+    Recebe a chave de referência (`Brl | None`) e o índice já resolvidos, e
+    não o `Contexto`: os dois são carregados sob demanda e podem ir à rede na
+    primeira chamada. Resolvê-los aqui dentro seguraria a conexão do banco
+    durante esse download, que é justamente o que `test_transacao.py` proíbe.
 
     Nada de preço guardado: a linha sai do mesmo `analyse` do detalhe, então a
     esquerda nunca discorda da direita.
@@ -576,12 +595,15 @@ def linhas_acompanhadas(
     `selecionado`, quando dado, é o par `(hash_name, efeito)` aberto agora na
     direita — a linha correspondente sai marcada, para a esquerda dizer de
     qual linha a direita está falando.
+
+    Sem chave de referência a linha ainda mostra o preço, que já está em
+    reais no retrato; perde só o prêmio, que depende do valor sugerido.
     """
     saida = []
     for a in acompanhamento.listar(conn, usuario_id):
         marcado = selecionado is not None and (a.hash_name, a.efeito) == selecionado
         guardado = preco_repo.ler(conn, a.hash_name)
-        if guardado is None or cotacao is None:
+        if guardado is None:
             saida.append(LinhaAcompanhada(a.id, a.hash_name, a.efeito, None, None, None,
                                           "Awaiting evidence", selecionado=marcado))
             continue
@@ -602,7 +624,7 @@ def linhas_acompanhadas(
             ))
             continue
         try:
-            resultado = analyse(pagina, a.efeito, indice, cotacao.key_brl)
+            resultado = analyse(pagina, a.efeito, indice, chave)
         except ValueError:
             saida.append(LinhaAcompanhada(
                 a.id, a.hash_name, a.efeito, None, None, idade,
@@ -657,10 +679,10 @@ def _coluna(request: Request, usuario_id: int) -> HTMLResponse:
     """Monta os Case Files sem iniciar a aquisição do índice da backpack.tf."""
     contexto = _contexto(request)
     agora = db.agora()
-    cotacao = contexto.cotacao.obter(request.app.state.engine)
     indice = contexto.indice.em_memoria()
+    referencia = chave_de_referencia(contexto, request.app.state.engine, indice)
     with request.app.state.engine.begin() as conn:
-        linhas = linhas_acompanhadas(conn, cotacao, indice, usuario_id, agora)
+        linhas = linhas_acompanhadas(conn, _brl(referencia), indice, usuario_id, agora)
     return TEMPLATES.TemplateResponse(
         request=request, name="_case_files.html", context={"linhas": linhas}
     )

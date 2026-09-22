@@ -8,22 +8,36 @@ from tf2price.contas.modelo import Usuario
 from tf2price.painel import sessao as ses
 from tf2price.painel.consulta import idade_por_extenso, linhas_acompanhadas
 from tf2price.painel.templates import TEMPLATES
+from tf2price.painel.varredura import ha_quanto_tempo
+from tf2price.preco.referencia import montar_referencia, motivo_sem_referencia
 
 ROTEADOR = APIRouter(dependencies=[Depends(ses.usuario_obrigatorio)])
 
 
 def _estado(request: Request, usuario: Usuario) -> dict:
     contexto = request.app.state.contexto
+    engine = request.app.state.engine
     agora = db.agora()
-    cotacao = contexto.cotacao.obter(request.app.state.engine)
+    cotacao = contexto.cotacao.obter(engine)
     indice = contexto.indice.em_memoria()
-    with request.app.state.engine.begin() as conn:
-        linhas = linhas_acompanhadas(conn, cotacao, indice, usuario.id, agora)
+    ptax = contexto.ptax.obter(engine)
+    referencia = montar_referencia(indice, ptax)
+    with engine.begin() as conn:
+        linhas = linhas_acompanhadas(
+            conn, referencia.brl if referencia else None, indice, usuario.id, agora
+        )
     return {
         "usuario": usuario,
+        # A cotação da Steam só converte listagens em dólar; a Sources mostra
+        # a taxa dela com a idade.
         "cotacao": cotacao,
         "cotacao_idade": (
             idade_por_extenso(cotacao.buscado_em, agora) if cotacao else None
+        ),
+        "referencia": referencia,
+        "sem_referencia": motivo_sem_referencia(indice, ptax),
+        "bptf_idade": (
+            ha_quanto_tempo(referencia.bptf_carregado_em, agora) if referencia else None
         ),
         "indice_pronto": indice is not None,
         "linhas": linhas,

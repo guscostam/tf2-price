@@ -14,8 +14,9 @@ from fastapi.responses import HTMLResponse
 from tf2price import db
 from tf2price.contas.modelo import Usuario
 from tf2price.painel import sessao as ses
-from tf2price.painel.consulta import SEM_COTACAO, idade_por_extenso
+from tf2price.painel.consulta import idade_por_extenso
 from tf2price.painel.templates import TEMPLATES
+from tf2price.preco.referencia import montar_referencia, motivo_sem_referencia
 from tf2price.varredura import leitura
 from tf2price.varredura import repositorio as repo
 
@@ -63,8 +64,9 @@ def scan(
     engine = request.app.state.engine
     contexto = request.app.state.contexto
     agora = db.agora()
-    cotacao = contexto.cotacao.obter(engine)
     indice = contexto.indice.em_memoria()
+    ptax = contexto.ptax.obter(engine)
+    referencia = montar_referencia(indice, ptax)
     with engine.begin() as conn:
         listagens = repo.listar_listagens(
             conn, texto=filtros.texto, efeito=filtros.efeito,
@@ -76,7 +78,7 @@ def scan(
         completa = repo.ultima_completa(conn)
         cobertura = repo.cobertura(conn)
     resultado = leitura.montar(
-        listagens, indice, cotacao.key_brl if cotacao else None, filtros, int(time.time())
+        listagens, indice, referencia.brl if referencia else None, filtros, int(time.time())
     )
     agendador = request.app.state.agendador
     contexto_da_tela = {
@@ -89,8 +91,8 @@ def scan(
         "completa": completa,
         "cobertura": cobertura,
         "rodando": bool(agendador and agendador.rodando),
-        "cotacao": cotacao,
-        "sem_cotacao": SEM_COTACAO,
+        "referencia": referencia,
+        "sem_referencia": motivo_sem_referencia(indice, ptax),
         "motivo_429": repo.MOTIVO_429,
         "idade": lambda quando: idade_por_extenso(quando, agora),
         "ha": lambda quando: _ha(idade_por_extenso(quando, agora)),

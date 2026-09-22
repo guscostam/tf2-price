@@ -31,7 +31,8 @@
   <section class="source-card">
     <p class="scope-label">CONVERSION</p>
     <h2>Exchange Rate</h2>
-    {% if cotacao %}<p>{{ cotacao.key_brl }} per key · captured {{ cotacao_idade }}</p>{% else %}<p>Awaiting evidence</p>{% endif %}
+    {% include "_chave_referencia.html" %}
+    {% if cotacao %}<p>Steam listings quoted in dollars convert at {{ cotacao.usd_brl_formatado }} per US$ · captured {{ cotacao_idade }}</p>{% endif %}
   </section>
 </div>
 <p class="fan-disclaimer">

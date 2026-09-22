@@ -204,3 +204,21 @@ def test_paginas_novas_exigem_autenticacao(engine):
         resposta = cliente.get(caminho, follow_redirects=False)
         assert resposta.status_code == 303
         assert resposta.headers["location"] == "/entrar"
+
+
+def test_sources_mostra_a_taxa_da_steam_com_a_idade(engine):
+    from datetime import timedelta
+
+    from tf2price import db
+    from tf2price.painel.consulta import Cotacao
+
+    from .conftest import _CotacaoFalsa
+
+    ctx = _contexto()
+    ctx.cotacao = _CotacaoFalsa(Cotacao(CHAVE, 5.15, db.agora() - timedelta(hours=3)))
+    cliente = cliente_logado(engine, ctx)
+
+    texto = cliente.get("/sources").text
+
+    assert "≈ R$ 11,73" in texto
+    assert "R$ 5,15 per US$ · captured 3 h" in texto

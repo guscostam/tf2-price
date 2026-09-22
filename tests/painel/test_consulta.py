@@ -4,7 +4,7 @@ import json
 import time
 import re
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import quote
 
 import httpx
@@ -30,6 +30,7 @@ from .conftest import (
     _IndiceFalso,
     _pagina,
     _PaginasFalsas,
+    _PtaxFalsa,
     _SteamFalso,
     cliente_logado,
 )
@@ -552,19 +553,62 @@ def test_a_cotacao_da_chave_aparece_no_overview(cliente):
     assert str(CHAVE) in cliente.get("/").text
 
 
-def test_o_overview_diz_a_idade_da_cotacao(engine):
-    """Desde que a cotação atravessa o deploy no banco, o número do Overview
-    pode ser de horas atrás. Omitir a idade seria a única mentira da tela —
-    e a idade é a regra que governa este projeto."""
-    ctx = _contexto()
-    ctx.cotacao = _CotacaoFalsa(
-        Cotacao(CHAVE, 1.0, db.agora() - timedelta(hours=3))
+def test_o_overview_mostra_a_referencia_e_a_origem(engine):
+    """A régua das contas de troca é a chave em dinheiro, com as duas
+    idades à vista: a do dólar da bp.tf e a data da PTAX."""
+    indice = PriceIndex.from_payload(
+        {"response": {"items": {}, **USD_DO_TESTE}}, key_in_refined=64.11,
+        carregado_em=db.agora() - timedelta(hours=3),
     )
+    cliente = cliente_logado(engine, _contexto(indice=indice))
+
+    texto = cliente.get("/").text
+
+    assert "≈ R$ 11,73" in texto
+    assert "US$ 1.17 on backpack.tf" in texto
+    assert "loaded 3 h ago" in texto
+    assert "R$ 10,00 PTAX (Sep 21)" in texto
+
+
+def test_sem_ptax_a_tela_diz_o_que_falta(engine):
+    ctx = _contexto()
+    ctx.ptax = _PtaxFalsa(None)
     cliente = cliente_logado(engine, ctx)
 
     texto = cliente.get("/").text
 
-    assert "captured 3 h" in texto
+    assert "Awaiting evidence" in texto
+    assert "PTAX dollar rate" in texto
+
+
+def test_sem_referencia_a_analise_esconde_as_chaves_e_mantem_a_saida_imediata(engine):
+    ctx = _contexto(indice=_indice_com_preco(5))
+    ctx.ptax = _PtaxFalsa(None)
+    cliente = cliente_logado(engine, ctx)
+
+    texto = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"}).text
+
+    assert "reference key price is unavailable" in texto
+    assert " keys ·" not in texto
+    assert "106,31" in texto  # melhor oferta de compra: saída imediata segue
+
+
+def test_sem_cotacao_da_steam_a_analise_diz_e_nao_quebra(engine):
+    """A Steam limitando na subida não pode derrubar o painel: sem a taxa
+    implícita as listagens em dólar não viram real, e a tela diz isso."""
+    ctx = _contexto()
+    ctx.cotacao = _CotacaoFalsa(None)
+    cliente = cliente_logado(engine, ctx)
+
+    assert cliente.get("/").status_code == 200
+    assert "has not loaded yet" in cliente.get(
+        "/analise", params={"nome": NOME, "efeito": "Deep Dive"}
+    ).text
+
+
+def test_a_saida_paciente_diz_qual_chave_usou(engine):
+    texto = _texto_da_analise(engine, 5)
+    assert "Keys valued at ≈ R$ 11,73 each" in texto
 
 
 def test_o_painel_traz_o_gaveteiro_de_case_files(engine):
@@ -580,18 +624,6 @@ def test_analise_sem_indice_nao_mente_sobre_a_bptf(engine):
     cliente = cliente_logado(engine, ctx)
     r = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"})
     assert "backpack.tf price index has not loaded yet" in r.text
-
-
-def test_sem_cotacao_a_tela_diz_e_nao_quebra(engine):
-    """A Steam limitando na subida nao pode derrubar o painel inteiro."""
-    ctx = _contexto()
-    ctx.cotacao = _CotacaoFalsa(None)
-    cliente = cliente_logado(engine, ctx)
-
-    assert "Awaiting evidence" in cliente.get("/").text
-    assert "has not loaded yet" in cliente.get(
-        "/analise", params={"nome": NOME, "efeito": "Deep Dive"}
-    ).text
 
 
 def test_avaliacao_mostra_o_chapeu_e_a_aura(engine, tmp_path, monkeypatch):

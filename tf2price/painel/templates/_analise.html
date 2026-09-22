@@ -25,7 +25,11 @@
       <p class="scope-label">THIS EFFECT</p>
       <h3>Purchase Price</h3>
       <strong class="evidence-price">{{ a.cheapest.total_price }}</strong>
+      {% if a.price_in_keys is not none %}
       <p>{{ a.price_in_keys|keys }} keys · cheapest listing for this effect</p>
+      {% else %}
+      <p>Cheapest listing for this effect</p>
+      {% endif %}
       <form hx-post="/acompanhar" hx-target="#case-files">
         <input type="hidden" name="nome" value="{{ a.hash_name }}">
         <input type="hidden" name="efeito" value="{{ a.effect }}">
@@ -40,7 +44,7 @@
         {% for listing in a.listings %}
         <li class="evidence-row">
           <span>{{ "Only listing" if a.listings|length == 1 else "Listing " ~ loop.index }}</span>
-          <span class="evidence-amount"><strong>{{ listing.total_price }}</strong><small>{{ (listing.total_price.cents / a.key_brl.cents)|keys }} keys</small></span>
+          <span class="evidence-amount"><strong>{{ listing.total_price }}</strong>{% if a.key_brl %}<small>{{ (listing.total_price.cents / a.key_brl.cents)|keys }} keys</small>{% endif %}</span>
         </li>
         {% endfor %}
       </ol>
@@ -75,6 +79,7 @@
         <div class="evidence-row evidence-row--total"><dt>Result</dt><dd>{{ a.patient.result }}</dd></div>
       </dl>
       <p class="evidence-note">Suggested price, not a buy order. No buyer has committed to pay this value.</p>
+      <p class="evidence-note">Keys valued at ≈ {{ a.key_brl }} each: backpack.tf dollar price × PTAX.</p>
       {% else %}
       <p class="source-stamp">backpack.tf · Insufficient Data</p>
       <p>{{ a.patient.reason }}.</p>

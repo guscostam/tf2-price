@@ -127,8 +127,8 @@ def test_rota_nunca_dispara_busca_de_cotacao(engine):
     assert steam.emprestadas_durante_o_io is None, (
         "uma rota de página foi à Steam buscar cotação: a regressão dos 30s voltou"
     )
-    # E a Overview mostra o número velho com a idade dele, em vez de nada.
-    assert "captured 1 d" in respostas["/"].text
+    # E a Sources mostra a taxa velha com a idade dela, em vez de nada.
+    assert "captured 1 d" in respostas["/sources"].text
     assert "captured 1 d" not in respostas["/cases/new"].text
 
 

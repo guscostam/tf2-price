@@ -19,6 +19,6 @@
 {% if ultima and ultima.motivo_parada == motivo_429 %}
 <p class="evidence-note evidence-note--stale" role="status">The last scan stopped because Steam is rate limiting this server. The listings below are from earlier reads; each row shows its own age.</p>
 {% endif %}
-{% if not cotacao %}
-<p class="evidence-note evidence-note--stale" role="status">{{ sem_cotacao }}</p>
+{% if not referencia %}
+<p class="evidence-note evidence-note--stale" role="status">Results are hidden: {{ sem_referencia }}.</p>
 {% endif %}
