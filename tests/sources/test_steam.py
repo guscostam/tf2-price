@@ -792,3 +792,10 @@ def test_listings_com_json_continua_parseando():
 
     assert len(listings) == 2
     assert {l.effect for l in listings} == {"Burning Flames", "Green Confetti"}
+
+
+def test_parse_search_page_guarda_o_preco_cru_em_centavos_de_dolar():
+    # A assinatura da varredura precisa do número que a Steam mandou, antes
+    # da taxa: em reais, ele mudaria a cada processo novo.
+    page = parse_search_page(_fixture("steam_search_page.json"), TAXA_REDONDA)
+    assert [r.sell_price_usd_cents for r in page.results] == [2214, 89000, 15990]

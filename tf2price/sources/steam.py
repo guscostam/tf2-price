@@ -57,6 +57,10 @@ class SearchResult:
     hash_name: str
     lowest_price: Brl
     sell_listings: int
+    # `sell_price` como a busca mandou, em centavos de dólar, antes da taxa.
+    # A varredura compara este número entre rodadas; `lowest_price` depende
+    # da taxa do processo e mudaria sozinho a cada deploy.
+    sell_price_usd_cents: int = 0
 
 
 @dataclass(frozen=True)
@@ -149,6 +153,7 @@ def parse_search_page(payload: dict[str, Any], usd_to_brl: float) -> SearchPage:
             # taxa -> centavos de real.
             lowest_price=Brl.from_cents(round(int(row["sell_price"]) * usd_to_brl)),
             sell_listings=int(row["sell_listings"]),
+            sell_price_usd_cents=int(row["sell_price"]),
         )
         for row in (payload.get("results") or [])
     ]

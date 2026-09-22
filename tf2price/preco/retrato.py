@@ -80,7 +80,7 @@ class Retratos:
                 pagina, buscado_em = None, None
 
         if not self._vale_buscar(hash_name, buscado_em, quando, forcar):
-            return Leitura(pagina, buscado_em, self._em_calma())
+            return Leitura(pagina, buscado_em, self.em_calma())
 
         try:
             nova = self._paginas.item_page(hash_name, usd_to_brl)
@@ -90,7 +90,7 @@ class Retratos:
             # a calma à toa, e um 429 real podia perder a marca na mensagem
             # final do backoff (que só guarda a última tentativa) e nunca
             # ligar a calma. `SteamLimitando` já resolveu isso no laço.
-            self._calma_ate = self._relogio() + CALMA_APOS_429.total_seconds()
+            self.acalmar()
             print(f"[retrato] Steam limitando: {mensagem_saneada(erro)}; calma de "
                   f"{int(CALMA_APOS_429.total_seconds())}s", flush=True)
             return Leitura(pagina, buscado_em, True)
@@ -100,8 +100,14 @@ class Retratos:
             repo.guardar(conn, hash_name, json.dumps(serial.para_dict(nova)), quando)
         return Leitura(nova, quando, False)
 
-    def _em_calma(self) -> bool:
+    def em_calma(self) -> bool:
         return self._relogio() < self._calma_ate
+
+    def acalmar(self) -> None:
+        """Liga a calma por fora. A varredura chama isto quando a BUSCA da
+        Steam (não a página) responde 429: é o mesmo IP, e a consulta que
+        viesse logo depois bateria no mesmo limite."""
+        self._calma_ate = self._relogio() + CALMA_APOS_429.total_seconds()
 
     def _vale_buscar(
         self,
@@ -110,7 +116,7 @@ class Retratos:
         quando: datetime,
         forcar: bool,
     ) -> bool:
-        if self._em_calma():
+        if self.em_calma():
             return False
         if forcar:
             ultima = self._ultima_busca.get(hash_name)

@@ -179,3 +179,19 @@ def test_log_do_429_e_saneado(engine, capsys):
     saida = capsys.readouterr().out
     assert chave_secreta not in saida
     assert "status 429 for url" in saida
+
+
+def test_acalmar_por_fora_liga_a_mesma_calma_do_429(engine):
+    relogio = _Relogio()
+    paginas = _PaginasFalsas()
+    retratos = mod.Retratos(paginas, relogio=relogio)
+    assert not retratos.em_calma()
+
+    retratos.acalmar()
+
+    assert retratos.em_calma()
+    leitura = retratos.obter(engine, NOME, 1.0, AGORA)
+    assert paginas.chamadas == 0
+    assert leitura.limitando
+    relogio.avancar(mod.CALMA_APOS_429.total_seconds() + 1)
+    assert not retratos.em_calma()
