@@ -7,7 +7,9 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.engine import Connection
 
 from tf2price import db
+from tf2price.contas import pedidos
 from tf2price.contas import repositorio as repo
+from tf2price.contas import repositorio_pedidos as repo_pedidos
 from tf2price.contas import servico
 from tf2price.contas.modelo import Usuario
 from tf2price.painel import sessao as ses
@@ -29,6 +31,7 @@ def _tela_admin(
         context={
             "usuario": usuario,
             "usuarios": repo.listar_usuarios(conn),
+            "pedidos": repo_pedidos.listar_pendentes(conn),
             "link": link,
             "erro": erro,
         },
@@ -103,4 +106,40 @@ def mudar_ativo(
         # Desativar sem derrubar a sessão deixaria a pessoa dentro por
         # mais 30 dias.
         repo.apagar_sessoes_do_usuario(conn, usuario_id)
+    return _tela_admin(request, conn, usuario)
+
+
+_JA_RESOLVIDO = "This request was already resolved."
+
+
+@ROTEADOR.post("/admin/pedido/{pedido_id}/convidar", response_class=HTMLResponse,
+                  dependencies=[Depends(ses.mesma_origem)])
+def convidar_pedido(
+    request: Request,
+    pedido_id: int,
+    usuario: Usuario = Depends(ses.exigir_admin),
+    conn: Connection = Depends(ses.conexao),
+):
+    try:
+        token = pedidos.convidar_pedido(
+            conn, pedido_id, admin_id=usuario.id, quando=db.agora()
+        )
+    except pedidos.PedidoJaResolvido:
+        return _tela_admin(request, conn, usuario, erro=_JA_RESOLVIDO)
+    # O token em claro existe só aqui, como em `gerar_convite`.
+    return _tela_admin(request, conn, usuario, link=f"/convite/{token}")
+
+
+@ROTEADOR.post("/admin/pedido/{pedido_id}/descartar", response_class=HTMLResponse,
+                  dependencies=[Depends(ses.mesma_origem)])
+def descartar_pedido(
+    request: Request,
+    pedido_id: int,
+    usuario: Usuario = Depends(ses.exigir_admin),
+    conn: Connection = Depends(ses.conexao),
+):
+    try:
+        pedidos.descartar_pedido(conn, pedido_id, quando=db.agora())
+    except pedidos.PedidoJaResolvido:
+        return _tela_admin(request, conn, usuario, erro=_JA_RESOLVIDO)
     return _tela_admin(request, conn, usuario)

@@ -199,7 +199,8 @@ button:active { transform: translateY(1px); }
 .admin-link { padding: 1rem; border-left: 3px solid var(--warning); background: var(--ink-panel); }
 .admin-link p { margin: 0 0 .5rem; }
 .admin-link code { font: .85rem var(--font-mono); overflow-wrap: anywhere; }
-.admin-people h2 { margin: 0 0 1rem; font-family: var(--font-display); }
+.admin-people h2, .admin-requests h2 { margin: 0 0 1rem; font-family: var(--font-display); }
+.admin-requests { margin-bottom: 2rem; }
 .admin-people__list { list-style: none; margin: 0; padding: 0; }
 .admin-person { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0; border-top: 1px solid var(--ink-blue); }
 .admin-person__identity { display: grid; gap: .3rem; min-width: 0; overflow-wrap: anywhere; }

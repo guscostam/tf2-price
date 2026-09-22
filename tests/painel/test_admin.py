@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from tf2price import db
 from tf2price.contas import repositorio as repo
+from tf2price.contas import repositorio_pedidos as repo_pedidos
 from tf2price.contas import servico, tokens
 from tf2price.painel.app import criar_app
 from tf2price.painel.sessao import NOME_COOKIE
@@ -156,3 +160,83 @@ def test_admin_nao_ve_botao_de_desativar_a_propria_linha(admin, engine):
         outra = repo.usuario_por_nome(conn, "amiga")
     assert f'/admin/ativo/{eu.id}' not in texto
     assert f'/admin/ativo/{outra.id}' in texto
+
+
+def _pedido(engine, perfil="https://steamcommunity.com/id/amiga", contato="amiga no Discord",
+            observacao=None):
+    with engine.begin() as conn:
+        return repo_pedidos.criar_pedido(
+            conn, perfil_steam=perfil, contato=contato, observacao=observacao, quando=db.agora()
+        )
+
+
+def _status_do_pedido(engine, pedido_id):
+    with engine.begin() as conn:
+        return conn.execute(
+            select(db.pedido_acesso.c.status).where(db.pedido_acesso.c.id == pedido_id)
+        ).scalar_one()
+
+
+def test_admin_lista_pedidos_pendentes(admin, engine):
+    _pedido(engine, observacao="coleciono Team Captains")
+    texto = admin.get("/admin").text
+    assert "Access requests" in texto
+    assert ('<a href="https://steamcommunity.com/id/amiga" target="_blank" '
+            'rel="noopener noreferrer">') in texto
+    assert "amiga no Discord" in texto
+    assert "coleciono Team Captains" in texto
+
+
+def test_admin_sem_pedidos_diz_isso(admin):
+    assert "No pending requests." in admin.get("/admin").text
+
+
+def test_texto_do_pedido_e_escapado(admin, engine):
+    _pedido(engine, contato="<script>alert(1)</script>")
+    texto = admin.get("/admin").text
+    assert "<script>alert(1)</script>" not in texto
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in texto
+
+
+def test_convidar_pedido_mostra_link_valido_e_tira_da_lista(admin, engine):
+    pedido_id = _pedido(engine)
+    r = admin.post(f"/admin/pedido/{pedido_id}/convidar")
+    assert r.status_code == 200
+    token = re.search(r"/convite/([A-Za-z0-9_\-]+)", r.text).group(1)
+    with engine.begin() as conn:
+        assert repo.convite_por_hash(conn, tokens.hash_de(token)) is not None
+    assert _status_do_pedido(engine, pedido_id) == "convidado"
+    assert "https://steamcommunity.com/id/amiga" not in admin.get("/admin").text
+
+
+def test_descartar_pedido(admin, engine):
+    pedido_id = _pedido(engine)
+    r = admin.post(f"/admin/pedido/{pedido_id}/descartar")
+    assert r.status_code == 200
+    assert "/convite/" not in r.text
+    assert _status_do_pedido(engine, pedido_id) == "descartado"
+
+
+def test_pedido_ja_resolvido_nao_gera_convite(admin, engine):
+    pedido_id = _pedido(engine)
+    admin.post(f"/admin/pedido/{pedido_id}/descartar")
+    r = admin.post(f"/admin/pedido/{pedido_id}/convidar")
+    assert "This request was already resolved." in r.text
+    assert "/convite/" not in r.text
+    assert _status_do_pedido(engine, pedido_id) == "descartado"
+
+
+def test_acoes_de_pedido_exigem_mesma_origem(admin, engine):
+    pedido_id = _pedido(engine)
+    for acao in ("convidar", "descartar"):
+        r = admin.post(f"/admin/pedido/{pedido_id}/{acao}",
+                       headers={"Origin": "https://site-de-outro.example"})
+        assert r.status_code == 403
+    assert _status_do_pedido(engine, pedido_id) == "pendente"
+
+
+def test_nao_admin_nao_resolve_pedido(admin, engine):
+    comum = _entra(engine, "amiga", admin=False)
+    pedido_id = _pedido(engine)
+    assert comum.post(f"/admin/pedido/{pedido_id}/convidar").status_code == 403
+    assert _status_do_pedido(engine, pedido_id) == "pendente"

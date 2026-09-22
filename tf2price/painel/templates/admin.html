@@ -15,6 +15,33 @@
   </form>
 </section>
 
+<section class="admin-requests" aria-labelledby="requests-title">
+  <h2 id="requests-title">Access requests</h2>
+  {% if pedidos %}
+  <ul class="admin-people__list">
+  {% for p in pedidos %}
+    <li class="admin-person">
+      <div class="admin-person__identity">
+        <a href="{{ p.perfil_steam }}" target="_blank" rel="noopener noreferrer">{{ p.perfil_steam }}</a>
+        <span>{{ p.contato }} · Filed {{ p.criado_em.strftime('%Y-%m-%d %H:%M') }} UTC</span>
+        {% if p.observacao %}<p>{{ p.observacao }}</p>{% endif %}
+      </div>
+      <div class="admin-person__actions">
+        <form method="post" action="/admin/pedido/{{ p.id }}/convidar">
+          <button class="button button--primary" type="submit">Create invite</button>
+        </form>
+        <form method="post" action="/admin/pedido/{{ p.id }}/descartar">
+          <button class="button button--quiet" type="submit">Dismiss</button>
+        </form>
+      </div>
+    </li>
+  {% endfor %}
+  </ul>
+  {% else %}
+  <p>No pending requests.</p>
+  {% endif %}
+</section>
+
 <section class="admin-people" aria-labelledby="people-title">
   <h2 id="people-title">People</h2>
   <ul class="admin-people__list">
