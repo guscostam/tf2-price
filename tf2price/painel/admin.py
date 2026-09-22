@@ -1,4 +1,4 @@
-"""Rotas de administração: convidar, redefinir senha e ativar/desativar."""
+"""Rotas de administração: convidar, redefinir senha, ativar/desativar e mudar papel."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.engine import Connection
 
 from tf2price import db
-from tf2price.contas import pedidos
+from tf2price.contas import pedidos, permissoes
 from tf2price.contas import repositorio as repo
 from tf2price.contas import repositorio_pedidos as repo_pedidos
 from tf2price.contas import servico
@@ -19,6 +19,12 @@ from tf2price.varredura import repositorio as varredura_repo
 from tf2price.varredura.rodada import MAX_PAUSAS_SEGUIDAS
 
 ROTEADOR = APIRouter()
+
+
+def _proibido() -> HTMLResponse:
+    # Os botões proibidos não aparecem: só chega aqui requisição forjada ou
+    # uma corrida com outra mudança de papel.
+    return HTMLResponse("Not allowed.", status_code=403)
 
 
 def _contexto_do_andamento(request: Request, conn: Connection) -> dict:
@@ -44,6 +50,7 @@ def _tela_admin(
     erro: str | None = None,
     varredura_msg: str | None = None,
 ):
+    nome_super = request.app.state.superadmin
     return TEMPLATES.TemplateResponse(
         request=request,
         name="admin.html",
@@ -58,6 +65,13 @@ def _tela_admin(
             "rodadas": varredura_repo.ultimas_rodadas(conn),
             "intervalo_minimo": varredura_repo.INTERVALO_MINIMO_MIN,
             "varredura_msg": varredura_msg,
+            # A mesma regra das rotas, para os botões não prometerem o que a
+            # rota recusa.
+            "eh_superadmin": lambda u: permissoes.eh_superadmin(u, nome_super),
+            "pode_gerir": lambda alvo: permissoes.pode_gerir(usuario, alvo, nome_super),
+            "pode_mudar_admin": lambda alvo: permissoes.pode_mudar_admin(
+                usuario, alvo, nome_super
+            ),
         },
     )
 
@@ -91,10 +105,15 @@ def gerar_redefinicao(
     usuario: Usuario = Depends(ses.exigir_admin),
     conn: Connection = Depends(ses.conexao),
 ):
-    if repo.usuario_por_id(conn, usuario_id) is None:
+    alvo = repo.usuario_por_id(conn, usuario_id)
+    if alvo is None:
         # Sem isto o convite nasce com `alvo` apontando para ninguém: o
         # SQLite deixa passar, e a chave estrangeira do Postgres levanta.
         return HTMLResponse("User not found.", status_code=404)
+    if not permissoes.pode_gerir(usuario, alvo, request.app.state.superadmin):
+        # Quem gera o link pode usá-lo: resetar a senha de outro admin seria
+        # tomar a conta dele.
+        return _proibido()
     token = servico.convidar(
         conn,
         criado_por=usuario.id,
@@ -121,15 +140,44 @@ def mudar_ativo(
             usuario,
             erro="You cannot disable your own account.",
         )
-    if repo.usuario_por_id(conn, usuario_id) is None:
+    alvo = repo.usuario_por_id(conn, usuario_id)
+    if alvo is None:
         # Sem isto, "sucesso" é um UPDATE que não bateu em linha nenhuma.
         return HTMLResponse("User not found.", status_code=404)
+    nome_super = request.app.state.superadmin
+    if not permissoes.pode_gerir(usuario, alvo, nome_super):
+        return _proibido()
     ligado = ativo == "1"
-    repo.definir_ativo(conn, usuario_id, ligado)
+    # Admin comum grava só se o alvo ainda for membro no instante do UPDATE:
+    # a conferência acima leu antes, e uma promoção concorrente passaria
+    # entre a leitura e a escrita.
+    so_se_membro = not permissoes.eh_superadmin(usuario, nome_super)
+    if not repo.definir_ativo(conn, usuario_id, ligado, so_se_membro=so_se_membro):
+        return _proibido()
     if not ligado:
         # Desativar sem derrubar a sessão deixaria a pessoa dentro por
         # mais 30 dias.
         repo.apagar_sessoes_do_usuario(conn, usuario_id)
+    return _tela_admin(request, conn, usuario)
+
+
+@ROTEADOR.post("/admin/papel/{usuario_id}", response_class=HTMLResponse,
+                  dependencies=[Depends(ses.mesma_origem)])
+def mudar_papel(
+    request: Request,
+    usuario_id: int,
+    admin: str = Form(...),
+    usuario: Usuario = Depends(ses.exigir_admin),
+    conn: Connection = Depends(ses.conexao),
+):
+    alvo = repo.usuario_por_id(conn, usuario_id)
+    if alvo is None:
+        return HTMLResponse("User not found.", status_code=404)
+    if not permissoes.pode_mudar_admin(usuario, alvo, request.app.state.superadmin):
+        return _proibido()
+    # Rebaixar não derruba a sessão: `usuario_da_sessao` relê `admin` do
+    # banco a cada requisição, e o efeito já vale na próxima.
+    repo.definir_admin(conn, usuario_id, admin == "1")
     return _tela_admin(request, conn, usuario)
 
 

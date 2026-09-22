@@ -16,7 +16,7 @@ from tf2price.painel.sessao import NOME_COOKIE
 SENHA = "uma senha longa"
 
 
-def _entra(engine, nome, admin):
+def _entra(engine, nome, admin, superadmin=None):
     with engine.begin() as conn:
         if admin:
             token = servico.convite_de_partida(conn, db.agora())
@@ -24,7 +24,7 @@ def _entra(engine, nome, admin):
             dono = repo.usuario_por_nome(conn, "gusco")
             token = servico.convidar(conn, criado_por=dono.id if dono else None, quando=db.agora())
         servico.aceitar_convite(conn, token, nome=nome, senha=SENHA, quando=db.agora())
-    cliente = TestClient(criar_app(engine))
+    cliente = TestClient(criar_app(engine, superadmin=superadmin))
     cliente.post("/entrar", data={"nome": nome, "senha": SENHA})
     return cliente
 
@@ -240,3 +240,202 @@ def test_nao_admin_nao_resolve_pedido(admin, engine):
     pedido_id = _pedido(engine)
     assert comum.post(f"/admin/pedido/{pedido_id}/convidar").status_code == 403
     assert _status_do_pedido(engine, pedido_id) == "pendente"
+
+
+# --- administradores e superadmin -----------------------------------------
+
+
+@pytest.fixture
+def dono(engine):
+    """"gusco" é o superadmin: a primeira conta, e o nome na variável."""
+    return _entra(engine, "gusco", admin=True, superadmin="gusco")
+
+
+def _id(engine, nome):
+    with engine.begin() as conn:
+        return repo.usuario_por_nome(conn, nome).id
+
+
+def _usuario(engine, nome):
+    with engine.begin() as conn:
+        return repo.usuario_por_nome(conn, nome)
+
+
+def _colega(engine, nome="colega", superadmin="gusco"):
+    """Admin comum: nasce membro e é promovido direto no banco."""
+    cliente = _entra(engine, nome, admin=False, superadmin=superadmin)
+    with engine.begin() as conn:
+        repo.definir_admin(conn, repo.usuario_por_nome(conn, nome).id, True)
+    return cliente
+
+
+def test_superadmin_promove_e_rebaixa(dono, engine):
+    _entra(engine, "amiga", admin=False)
+    alvo = _id(engine, "amiga")
+
+    r = dono.post(f"/admin/papel/{alvo}", data={"admin": "1"})
+    assert r.status_code == 200
+    assert _usuario(engine, "amiga").admin is True
+    assert "Remove admin" in r.text
+
+    r = dono.post(f"/admin/papel/{alvo}", data={"admin": "0"})
+    assert r.status_code == 200
+    assert _usuario(engine, "amiga").admin is False
+    assert "Make admin" in r.text
+
+
+def test_promover_e_rebaixar_valem_na_requisicao_seguinte(dono, engine):
+    """Sem derrubar a sessão: `admin` é relido do banco a cada requisição."""
+    amiga = _entra(engine, "amiga", admin=False)
+    alvo = _id(engine, "amiga")
+    assert amiga.get("/admin").status_code == 403
+
+    dono.post(f"/admin/papel/{alvo}", data={"admin": "1"})
+    assert amiga.get("/admin").status_code == 200
+
+    dono.post(f"/admin/papel/{alvo}", data={"admin": "0"})
+    assert amiga.get("/admin").status_code == 403
+
+
+def test_admin_comum_nao_muda_papel_de_ninguem(dono, engine):
+    colega = _colega(engine)
+    _entra(engine, "amiga", admin=False)
+
+    r = colega.post(f"/admin/papel/{_id(engine, 'amiga')}", data={"admin": "1"})
+    assert r.status_code == 403
+    assert r.text == "Not allowed."
+    assert _usuario(engine, "amiga").admin is False
+
+    r = colega.post(f"/admin/papel/{_id(engine, 'gusco')}", data={"admin": "0"})
+    assert r.status_code == 403
+    assert _usuario(engine, "gusco").admin is True
+
+
+def test_admin_comum_nao_reseta_nem_desativa_admin(dono, engine):
+    colega = _colega(engine)
+    _colega(engine, nome="outro")
+
+    for nome in ("gusco", "outro"):
+        alvo = _id(engine, nome)
+        r = colega.post(f"/admin/redefinir/{alvo}")
+        assert r.status_code == 403
+        assert r.text == "Not allowed."
+        r = colega.post(f"/admin/ativo/{alvo}", data={"ativo": "0"})
+        assert r.status_code == 403
+        assert _usuario(engine, nome).ativo is True
+
+    with engine.begin() as conn:
+        resets = conn.execute(
+            select(db.convite).where(db.convite.c.tipo == servico.TIPO_REDEFINICAO)
+        ).all()
+    assert resets == []
+
+
+def test_admin_comum_continua_gerindo_membros(dono, engine):
+    colega = _colega(engine)
+    _entra(engine, "amiga", admin=False)
+    alvo = _id(engine, "amiga")
+
+    assert "/convite/" in colega.post(f"/admin/redefinir/{alvo}").text
+    assert colega.post(f"/admin/ativo/{alvo}", data={"ativo": "0"}).status_code == 200
+    assert _usuario(engine, "amiga").ativo is False
+
+
+def test_superadmin_reseta_e_desativa_admin(dono, engine):
+    _colega(engine)
+    alvo = _id(engine, "colega")
+
+    assert "/convite/" in dono.post(f"/admin/redefinir/{alvo}").text
+    assert dono.post(f"/admin/ativo/{alvo}", data={"ativo": "0"}).status_code == 200
+    assert _usuario(engine, "colega").ativo is False
+
+
+def test_superadmin_nao_se_rebaixa_nem_se_desativa(dono, engine):
+    eu = _id(engine, "gusco")
+
+    r = dono.post(f"/admin/papel/{eu}", data={"admin": "0"})
+    assert r.status_code == 403
+    r = dono.post(f"/admin/ativo/{eu}", data={"ativo": "0"})
+    assert "You cannot disable your own account." in r.text
+
+    gusco = _usuario(engine, "gusco")
+    assert gusco.admin is True and gusco.ativo is True
+
+
+def test_sem_superadmin_ninguem_muda_papel_nem_mexe_em_admin(admin, engine):
+    """`admin` é o fixture antigo: "gusco" sem a variável, um admin comum."""
+    _entra(engine, "amiga", admin=False)
+    _colega(engine, superadmin=None)
+
+    r = admin.post(f"/admin/papel/{_id(engine, 'amiga')}", data={"admin": "1"})
+    assert r.status_code == 403
+    assert _usuario(engine, "amiga").admin is False
+
+    assert admin.post(f"/admin/redefinir/{_id(engine, 'colega')}").status_code == 403
+    assert "/admin/papel/" not in admin.get("/admin").text
+
+
+def test_papel_exige_mesma_origem(dono, engine):
+    _entra(engine, "amiga", admin=False)
+    r = dono.post(
+        f"/admin/papel/{_id(engine, 'amiga')}",
+        data={"admin": "1"},
+        headers={"Origin": "https://site-de-outro.example"},
+    )
+    assert r.status_code == 403
+    assert _usuario(engine, "amiga").admin is False
+
+
+def test_papel_para_usuario_inexistente_da_404(dono):
+    r = dono.post("/admin/papel/999999", data={"admin": "1"})
+    assert r.status_code == 404
+    assert r.text == "User not found."
+
+
+def test_membro_leva_403_no_papel(dono, engine):
+    amiga = _entra(engine, "amiga", admin=False, superadmin="gusco")
+    r = amiga.post(f"/admin/papel/{_id(engine, 'amiga')}", data={"admin": "1"})
+    assert r.status_code == 403
+    assert _usuario(engine, "amiga").admin is False
+
+
+def _acao(caminho, ident):
+    return f'action="/admin/{caminho}/{ident}"'
+
+
+def test_botoes_vistos_pelo_superadmin(dono, engine):
+    _colega(engine)
+    _entra(engine, "amiga", admin=False)
+    texto = dono.get("/admin").text
+    eu, colega, amiga = (_id(engine, n) for n in ("gusco", "colega", "amiga"))
+
+    for outro in (colega, amiga):
+        for caminho in ("redefinir", "ativo", "papel"):
+            assert _acao(caminho, outro) in texto
+    assert _acao("redefinir", eu) in texto
+    assert _acao("ativo", eu) not in texto
+    assert _acao("papel", eu) not in texto
+
+    assert "Owner · Active" in texto
+    assert texto.count('data-confirm="Grant administrator access to this person?"') == 1
+    assert texto.count('data-confirm="Remove administrator access from this person?"') == 1
+
+
+def test_botoes_vistos_pelo_admin_comum(dono, engine):
+    colega = _colega(engine)
+    _colega(engine, nome="outro")
+    _entra(engine, "amiga", admin=False)
+    texto = colega.get("/admin").text
+    eu, gusco, outro, amiga = (
+        _id(engine, n) for n in ("colega", "gusco", "outro", "amiga")
+    )
+
+    assert "/admin/papel/" not in texto
+    for admin_alheio in (gusco, outro):
+        assert _acao("redefinir", admin_alheio) not in texto
+        assert _acao("ativo", admin_alheio) not in texto
+    assert _acao("redefinir", amiga) in texto
+    assert _acao("ativo", amiga) in texto
+    assert _acao("redefinir", eu) in texto
+    assert _acao("ativo", eu) not in texto
+    assert "Owner · Active" in texto

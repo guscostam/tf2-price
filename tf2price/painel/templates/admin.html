@@ -95,13 +95,21 @@
     <li class="admin-person">
       <div class="admin-person__identity">
         <strong>{{ u.nome }}</strong>
-        <span>{{ 'Administrator' if u.admin else 'Member' }} · {{ 'Active' if u.ativo else 'Disabled' }}</span>
+        <span>{{ 'Owner' if eh_superadmin(u) else ('Administrator' if u.admin else 'Member') }} · {{ 'Active' if u.ativo else 'Disabled' }}</span>
       </div>
       <div class="admin-person__actions">
+        {% if pode_gerir(u) %}
         <form method="post" action="/admin/redefinir/{{ u.id }}">
           <button class="button button--quiet" type="submit">Reset password</button>
         </form>
-        {% if u.id != usuario.id %}
+        {% endif %}
+        {% if pode_mudar_admin(u) %}
+        <form method="post" action="/admin/papel/{{ u.id }}" data-confirm="{{ 'Remove administrator access from this person?' if u.admin else 'Grant administrator access to this person?' }}">
+          <input type="hidden" name="admin" value="{{ '0' if u.admin else '1' }}">
+          <button class="button {{ 'button--danger' if u.admin else 'button--quiet' }}" type="submit">{{ 'Remove admin' if u.admin else 'Make admin' }}</button>
+        </form>
+        {% endif %}
+        {% if u.id != usuario.id and pode_gerir(u) %}
         <form method="post" action="/admin/ativo/{{ u.id }}"{% if u.ativo %} data-confirm="Disable this account and invalidate its sessions?"{% endif %}>
           <input type="hidden" name="ativo" value="{{ '0' if u.ativo else '1' }}">
           <button class="button {{ 'button--danger' if u.ativo else 'button--quiet' }}" type="submit">{{ 'Disable' if u.ativo else 'Reactivate' }}</button>
