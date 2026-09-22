@@ -148,9 +148,12 @@ def test_fechar_abertas_marca_interrompida(engine):
         assert repo.fechar_abertas(conn, T0) == 0
 
 
-def test_cobertura_conta_nomes_lidos_a_fundo_e_listagens(engine):
+def test_cobertura_conta_nomes_com_listagem_guardada_e_listagens(engine):
     with engine.begin() as conn:
         repo.gravar_vista(conn, "X", 1, 2, T0)
         repo.gravar_vista(conn, "So vista", 1, 1, T0)
+        # Lido a fundo, mas a página veio sem listagem: não cobre nada.
+        repo.gravar_vista(conn, "Lido vazio", 1, 1, T0)
         repo.substituir_listagens(conn, "X", [_l("1", 1), _l("2", 2)], T0)
+        repo.substituir_listagens(conn, "Lido vazio", [], T0)
         assert repo.cobertura(conn) == repo.Cobertura(nomes=1, listagens=2)

@@ -69,6 +69,7 @@ class _Retratos:
         self.contador = contador
         self.calma = False
         self.pedidos = []
+        self.taxas = []
         self.emprestadas = []
 
     def em_calma(self):
@@ -80,6 +81,7 @@ class _Retratos:
     def obter(self, engine, hash_name, usd_to_brl, quando, forcar=False):
         assert forcar
         self.pedidos.append(hash_name)
+        self.taxas.append(usd_to_brl)
         if self.ao_pedir is not None:
             self.ao_pedir(hash_name)
         if hash_name in self.erros:
@@ -421,3 +423,69 @@ def test_calma_ja_ligada_no_inicio_para_com_429_sem_requisicao(engine):
     assert retratos.pedidos == []
     with engine.begin() as conn:
         assert repo.ultima_rodada(conn).motivo_parada == "429"
+
+
+class _CotacaoMutavel:
+    def __init__(self, usd_to_brl):
+        self.valor = SimpleNamespace(usd_to_brl=usd_to_brl)
+
+    def obter(self, engine):
+        return self.valor
+
+
+def test_cada_leitura_funda_usa_a_cotacao_atual(engine):
+    cotacao = _CotacaoMutavel(5.0)
+
+    def ao_pedir(nome):
+        if nome == "Unusual A":
+            cotacao.valor = SimpleNamespace(usd_to_brl=6.0)
+
+    retratos = _Retratos(PAGINAS, ao_pedir=ao_pedir)
+
+    resumo = _rodar(engine, _Steam([_r("Unusual A"), _r("Unusual B")]), retratos, cotacao=cotacao)
+
+    assert retratos.taxas == [5.0, 6.0]
+    assert resumo.motivo == "ok"
+
+
+def test_cotacao_que_some_no_meio_para_a_rodada_com_erro(engine):
+    cotacao = _CotacaoMutavel(5.0)
+
+    def ao_pedir(nome):
+        cotacao.valor = None
+
+    retratos = _Retratos(PAGINAS, ao_pedir=ao_pedir)
+
+    resumo = _rodar(engine, _Steam([_r("Unusual A"), _r("Unusual B")]), retratos, cotacao=cotacao)
+
+    assert retratos.pedidos == ["Unusual A"]
+    assert resumo.motivo == "erro"
+
+
+def test_calma_ligada_durante_o_sono_da_busca_para_sem_requisicao(engine):
+    steam = _Steam([_r("Unusual A")])
+    retratos = _Retratos(PAGINAS)
+
+    def dormir(s):
+        retratos.calma = True  # um usuário bateu no 429 enquanto a rodada dormia
+
+    resumo = _rodar(engine, steam, retratos, dormir=dormir)
+
+    assert resumo.motivo == "429"
+    assert steam.chamadas == []
+
+
+def test_calma_ligada_durante_o_sono_da_funda_para_sem_requisicao(engine):
+    steam = _Steam([_r("Unusual A")])
+    retratos = _Retratos(PAGINAS)
+    sonos = []
+
+    def dormir(s):
+        sonos.append(s)
+        if len(sonos) == 2:  # o primeiro é da busca; o segundo, da funda
+            retratos.calma = True
+
+    resumo = _rodar(engine, steam, retratos, dormir=dormir)
+
+    assert resumo.motivo == "429"
+    assert retratos.pedidos == []

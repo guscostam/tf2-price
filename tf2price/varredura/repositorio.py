@@ -317,7 +317,9 @@ class Cobertura:
 
 
 def cobertura(conn: Connection) -> Cobertura:
-    n = db.varredura_nome
-    nomes = conn.execute(select(func.count()).select_from(n).where(n.c.funda_em.is_not(None))).scalar_one()
+    # Nome coberto é nome com listagem guardada: um lido a fundo cuja
+    # página veio vazia não cobre nada na tela.
+    l = db.listagem_varrida
+    nomes = conn.execute(select(func.count(func.distinct(l.c.hash_name)))).scalar_one()
     listagens = conn.execute(select(func.count()).select_from(db.listagem_varrida)).scalar_one()
     return Cobertura(nomes=int(nomes), listagens=int(listagens))

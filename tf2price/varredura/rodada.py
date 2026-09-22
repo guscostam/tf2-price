@@ -60,6 +60,17 @@ def _precisa_funda(
     return quando - anterior.funda_em > timedelta(hours=config.idade_max_funda_h)
 
 
+def _pode_requisitar(
+    retratos: Any, dormir: Callable[[float], None], espaco_extra_s: float
+) -> bool:
+    """Dorme o espaço extra entre duas calmas: um usuário pode ter batido no
+    429 durante o sono, e a requisição seguinte só pioraria a calma dele."""
+    if retratos.em_calma():
+        return False
+    dormir(espaco_extra_s)
+    return not retratos.em_calma()
+
+
 def executar_rodada(
     engine: Engine,
     *,
@@ -123,9 +134,8 @@ def _rodar(
     pendentes: list[str] = []
     start = 0
     for _ in range(MAX_PAGINAS_RASAS):
-        if retratos.em_calma():
+        if not _pode_requisitar(retratos, dormir, espaco_extra_s):
             return repo.MOTIVO_429
-        dormir(espaco_extra_s)
         try:
             pagina = steam.search_page(start=start, query=QUERY)
         except SteamLimitando:
@@ -166,9 +176,15 @@ def _rodar(
 
     # --- passada funda
     for nome in pendentes:
-        if retratos.em_calma():
+        if not _pode_requisitar(retratos, dormir, espaco_extra_s):
             return repo.MOTIVO_429
-        dormir(espaco_extra_s)
+        # Relida a cada nome (só memória e banco, sem rede): o retrato gravado
+        # nos `Retratos` é o mesmo que a consulta mostra, e tem que sair com a
+        # taxa atual, não com a do início de uma rodada que dura horas.
+        cot = cotacao.obter(engine)
+        if cot is None:
+            print("[varredura] a cotação da chave sumiu no meio da rodada", flush=True)
+            return repo.MOTIVO_ERRO
         quando = agora()
         # Qualquer falha de UM nome (página quebrada, parser, transporte, ou
         # o PostgreSQL recusando um campo longo demais na gravação) conta como

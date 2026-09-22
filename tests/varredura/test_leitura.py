@@ -112,6 +112,24 @@ def test_paginacao_limita_e_corrige_pagina_fora_do_intervalo():
     assert _montar(listagens, pagina=99).pagina == 2
 
 
+def test_arte_so_e_calculada_para_as_linhas_da_pagina(monkeypatch):
+    # A arte olha o disco (`is_file`) por listagem: com milhares de linhas,
+    # só a página devolvida precisa dela.
+    pedidos = []
+
+    def url_do_efeito(efeito, effects_path=None):
+        pedidos.append(efeito)
+        return f"/arte/{efeito}"
+
+    monkeypatch.setattr(leitura.arte_dos_efeitos, "url_do_efeito", url_do_efeito)
+    listagens = [_l(f"{i:03}", 80000 + i) for i in range(leitura.POR_PAGINA + 5)]
+
+    segunda = _montar(listagens, pagina=2)
+
+    assert len(pedidos) == 5
+    assert [l.arte for l in segunda.linhas] == ["/arte/Burning Flames"] * 5
+
+
 def test_filtros_da_query_valida_tudo():
     f = leitura.filtros_da_query(aba="lucro", q="  team ", efeito="Sunbeams",
                                  preco_min="10.50", preco_max="abc", idade_max="",

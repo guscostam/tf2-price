@@ -135,3 +135,21 @@ def test_estado_sem_varredura_ainda(engine):
     texto = cliente.get("/scan").text
     assert "No full scan yet" in texto
     assert "Scanner is off" in texto
+
+
+def _rodada_fechada(engine, motivo):
+    quando = db.agora()
+    with engine.begin() as conn:
+        rid = repo.abrir_rodada(conn, quando)
+        repo.fechar_rodada(conn, rid, quando, nomes_lidos=0, fundas_feitas=0,
+                           falhas=0, motivo=motivo)
+
+
+def test_aviso_de_429_so_quando_a_ultima_rodada_parou_por_429(engine):
+    aviso = "stopped because Steam is rate limiting"
+    _rodada_fechada(engine, repo.MOTIVO_429)
+    cliente = cliente_logado(engine, _contexto(indice=_indice()))
+    assert aviso in cliente.get("/scan").text
+
+    _rodada_fechada(engine, repo.MOTIVO_OK)
+    assert aviso not in cliente.get("/scan").text

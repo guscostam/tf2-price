@@ -85,7 +85,7 @@ def scan(
         "rodando": bool(agendador and agendador.rodando),
         "cotacao": cotacao,
         "sem_cotacao": SEM_COTACAO,
-        "rotulo_da_parada": ROTULO_DA_PARADA,
+        "motivo_429": repo.MOTIVO_429,
         "idade": lambda quando: idade_por_extenso(quando, agora),
         "ha": lambda quando: _ha(idade_por_extenso(quando, agora)),
     }

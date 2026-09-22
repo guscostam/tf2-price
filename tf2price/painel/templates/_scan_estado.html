@@ -16,7 +16,7 @@
     <dd>{{ cobertura.nomes }} items · {{ cobertura.listagens }} listings</dd>
   </div>
 </dl>
-{% if ultima and ultima.motivo_parada == '429' %}
+{% if ultima and ultima.motivo_parada == motivo_429 %}
 <p class="evidence-note evidence-note--stale" role="status">The last scan stopped because Steam is rate limiting this server. The listings below are from earlier reads; each row shows its own age.</p>
 {% endif %}
 {% if not cotacao %}

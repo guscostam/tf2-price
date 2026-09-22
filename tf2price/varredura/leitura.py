@@ -135,11 +135,9 @@ def avaliar(
     agora_unix: int,
     idade_max_bptf_dias: int | None,
     effects_path: Path = DEFAULT_EFFECTS_PATH,
+    com_arte: bool = True,
 ) -> LinhaVarrida:
-    arte = (
-        arte_dos_efeitos.url_do_efeito(listagem.efeito, effects_path=effects_path)
-        if listagem.efeito else None
-    )
+    arte = _arte(listagem, effects_path) if com_arte else None
 
     def linha(**campos) -> LinhaVarrida:
         base = dict(
@@ -183,6 +181,13 @@ def avaliar(
     )
 
 
+def _arte(listagem: ListagemVarrida, effects_path: Path) -> str | None:
+    # Olha o disco (`is_file`): cara demais para milhares de linhas.
+    if not listagem.efeito:
+        return None
+    return arte_dos_efeitos.url_do_efeito(listagem.efeito, effects_path=effects_path)
+
+
 def _chave_de_ordem(ordem: str):
     # Sem resultado vai sempre para o fim; o id desempata para a ordem ser
     # estável entre uma página e a seguinte.
@@ -206,7 +211,8 @@ def montar(
     effects_path: Path = DEFAULT_EFFECTS_PATH,
 ) -> Pagina:
     linhas = [
-        avaliar(l, indice, key_brl, agora_unix, filtros.idade_max_bptf_dias, effects_path)
+        avaliar(l, indice, key_brl, agora_unix, filtros.idade_max_bptf_dias, effects_path,
+                com_arte=False)
         for l in listagens
     ]
     if filtros.so_com_preco:
@@ -219,4 +225,9 @@ def montar(
     paginas = max(1, math.ceil(total / POR_PAGINA))
     pagina = min(max(1, filtros.pagina), paginas)
     inicio = (pagina - 1) * POR_PAGINA
-    return Pagina(linhas[inicio:inicio + POR_PAGINA], total, pagina, paginas)
+    # A arte só é buscada para as linhas que a página vai mostrar.
+    visiveis = [
+        replace(l, arte=_arte(l.listagem, effects_path))
+        for l in linhas[inicio:inicio + POR_PAGINA]
+    ]
+    return Pagina(visiveis, total, pagina, paginas)
