@@ -120,12 +120,13 @@ receive an invite link through the contact you gave."*
 ### Anti-spam
 
 - **Limite por IP em memória:** no máximo 3 envios por IP por hora corrida
-  (contam todos os envios que passam da validação de origem, gravados ou não) (`request.client.host`, que o `--proxy-headers` já
-  corrige). Ao exceder, `429` com a landing mostrando *"Too many requests from
-  this connection. Try again later."* no lugar do formulário. O limitador
-  recebe o relógio por injeção, protege seu estado com trava e descarta
-  entradas vencidas. Vive na memória do processo, coerente com a regra atual de
-  uma réplica só; um deploy o zera, o que o teto global cobre.
+  (contam todos os envios que passam da validação de origem, gravados ou
+  não) (`request.client.host`, que o `--proxy-headers` já corrige). Ao
+  exceder, `429` com a landing mostrando *"Too many requests from this
+  connection. Try again later."* no lugar do formulário. O limitador recebe
+  o relógio por injeção, protege seu estado com trava e descarta entradas
+  vencidas. Vive na memória do processo, coerente com a regra atual de uma
+  réplica só; um deploy o zera, o que o teto global cobre.
 - **Teto global:** com 200 pedidos `pendente` ou mais, novos pedidos não são
   gravados e a página mostra *"Access requests are temporarily closed."*
 - Ordem de checagem: limite por IP → honeypot → validação → teto global →
@@ -174,7 +175,9 @@ convites), seguindo o padrão SQLAlchemy Core de `contas/repositorio.py`.
   HTML puro.
 - O cartão do formulário reaproveita a linguagem de pasta de
   `auth_base.html`/`entrar.html` (aba "ACCESS FILE", papel, carimbo).
-- `<title>`, `meta description` e Open Graph (título e descrição; sem `og:image`, porque o único logo disponível é SVG, que Discord e Steam não exibem como prévia) para uma boa prévia no Discord e na Steam.
+- `<title>`, `meta description` e Open Graph (título e descrição; sem
+  `og:image`, porque o único logo disponível é SVG, que Discord e Steam não
+  exibem como prévia) para uma boa prévia no Discord e na Steam.
 - **Responsivo:** acima de ~900px, hero em duas colunas e cartão inclinado 2°;
   abaixo, uma coluna (texto → CTA → cartão sem rotação). Passos e colunas
   `THIS/ALL` empilham. O corpo nunca rola na horizontal.
@@ -190,7 +193,8 @@ convites), seguindo o padrão SQLAlchemy Core de `contas/repositorio.py`.
 
 Nova seção **Access requests** em `/admin`, listando os pedidos `pendente` do
 mais antigo para o mais novo: perfil como link externo
-(`rel="noopener noreferrer"`, `target="_blank"`), contato, observação e data de envio em UTC.
+(`rel="noopener noreferrer"`, `target="_blank"`), contato, observação e
+data de envio em UTC.
 Todo texto vindo do pedido passa pelo autoescape do Jinja; o link do perfil só é
 renderizado porque a forma canônica foi validada na entrada.
 
