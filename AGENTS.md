@@ -79,6 +79,9 @@ não configure.
   autenticação.
 - `tf2price/acompanhamento/`: persistência dos pares item-efeito acompanhados
   por cada usuário.
+- `tf2price/varredura/`: varredura periódica dos cosméticos Unusual — escopo
+  pelo schema da Valve, rodada em dois níveis (busca rasa; página só onde a
+  assinatura mudou), agendador de fundo e cálculo do resultado na leitura.
 - `tf2price/painel/`: aplicação FastAPI, composição de dependências, rotas,
   autenticação, templates Jinja/HTMX e trabalho de aquecimento em segundo plano.
 - `tf2price/data/`: `effects.json` e artes WebP empacotadas com a aplicação.
@@ -222,10 +225,11 @@ As dependências têm `pyproject.toml` como fonte de verdade. O
 `requirements.txt` contém apenas `.` e serve de ponte para o construtor do
 Railway instalar o próprio projeto; não mantenha uma segunda lista manual ali.
 
-`tf2price/data/effects.json` e `tf2price/data/efeitos/*.webp` são dados gerados e
-empacotados, não arquivos de edição casual. Atualize-os pelo fluxo gerador
-correspondente e revise quantidade, origem e diff. Não regrave ou inclua em
-massa artefatos que não sejam necessários à mudança.
+`tf2price/data/effects.json`, `tf2price/data/efeitos/*.webp` e
+`tf2price/data/cosmeticos.json` (gerado por `scripts/fetch_cosmeticos.py`) são
+dados gerados e empacotados, não arquivos de edição casual. Atualize-os pelo
+fluxo gerador correspondente e revise quantidade, origem e diff. Não regrave
+ou inclua em massa artefatos que não sejam necessários à mudança.
 
 O deploy usa PostgreSQL, variáveis de ambiente e o `Procfile`. Não coloque
 credenciais reais no repositório nem acrescente publicação automática como

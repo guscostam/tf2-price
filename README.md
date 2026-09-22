@@ -66,6 +66,12 @@ A busca aceita a dupla qualidade (`Strange Unusual ...`), que é quase um terço
 dos nomes e a faixa mais cara do mercado, e recusa as ferramentas
 `Unusual Taunt: X Unusualifier` — elas aplicam um efeito, não o têm.
 
+A página **Market Scan** lista as listagens de cosméticos Unusual varridas em
+segundo plano. O admin liga, desliga e define o intervalo entre rodadas em
+`/admin` (mínimo de 60 min). O resultado de cada listagem é "valor da bp.tf em
+chaves × preço da chave − preço na Steam", com a idade do preço da bp.tf como
+filtro.
+
 ## Implantação (Railway)
 
 1. Crie o serviço a partir do repositório e acrescente um serviço **Postgres** —

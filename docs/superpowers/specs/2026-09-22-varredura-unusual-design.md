@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-22
 
-**Status:** aprovado para planejamento
+**Status:** implementado
 
 **Base funcional:** aplicação existente em `master`, após `6fe9133`
 
@@ -78,7 +78,7 @@ mão, e o import não acessa a rede.
 | Tabela | Colunas |
 | --- | --- |
 | `varredura_config` | `id` (sempre 1), `ligada` (bool), `intervalo_min` (int), `idade_max_funda_h` (int), `alterado_em` |
-| `varredura_nome` | `hash_name` (PK), `menor_preco_cents`, `n_listagens` (a assinatura), `visto_em`, `funda_em` (nulo até a primeira leitura funda) |
+| `varredura_nome` | `hash_name` (PK), `preco_usd_cents`, `n_listagens` (a assinatura), `n_guardadas`, `visto_em`, `funda_em` (nulo até a primeira leitura funda) |
 | `listagem_varrida` | `listing_id` (PK), `hash_name`, `efeito`, `preco_cents`, `icone`, `lido_em` |
 | `varredura_rodada` | `id`, `inicio`, `fim` (nulo enquanto roda), `nomes_lidos`, `fundas_feitas`, `falhas`, `motivo_parada` (`ok` / `429` / `erro` / `interrompida`) |
 
@@ -93,11 +93,23 @@ linhas aparecem com "effect unknown" e sem resultado, e nunca herdam preço.
 1. **Passada rasa.** `SteamClient.search_page(query="Unusual")` página a
    página (~180 requisições com 10 itens cada, medido em 2026-09-19). Para cada
    resultado que `e_cosmetico_unusual` aceita, guarda a assinatura
-   (`menor_preco_cents`, `n_listagens`) e `visto_em` numa transação curta.
+   (`preco_usd_cents`, `n_listagens`) e `visto_em` numa transação curta. A
+   assinatura usa o preço em centavos de **dólar** que a busca já devolve
+   (`sell_price`), e não o valor em reais: a busca responde em USD, e o valor
+   em reais depende da taxa derivada da chave, que muda entre processos — com
+   a assinatura em reais, cada deploy faria todos os nomes parecerem
+   "mudados".
 2. **Seleção da passada funda.** Um nome vai para a passada funda se:
    - a assinatura mudou desde a última leitura, **ou**
    - `funda_em` é nulo, **ou**
    - `funda_em` é mais velho que `idade_max_funda_h`.
+
+   Quando a passada rasa vê a assinatura de um nome já existente mudar, ela
+   zera o `funda_em` daquele nome na mesma transação
+   (`repositorio.marcar_para_funda`). Assim, se a leitura funda não terminar
+   nesta rodada (429, falha, retrato velho, reinício), a próxima rodada tenta
+   de novo — em vez de esperar até `idade_max_funda_h` porque a assinatura
+   nova já parece recente.
 3. **Passada funda**, nome a nome:
    1. `Retratos.obter(..., forcar=True)` busca a página do item e grava o
       retrato como a consulta faria. Com isso a tela de consulta fica
@@ -112,8 +124,13 @@ linhas aparecem com "effect unknown" e sem resultado, e nunca herdam preço.
       insere as atuais**, e atualiza `funda_em`. Uma listagem vendida ou
       retirada some.
 4. **Nomes que sumiram da passada rasa** (sem listagem nenhuma) têm as
-   listagens apagadas ao fim de uma rodada **completa** (`motivo_parada = ok`).
-   Uma rodada parada por 429 não apaga nada, porque não viu o mercado inteiro.
+   listagens apagadas só depois de **duas rodadas completas** seguidas sem
+   vê-los (`motivo_parada = ok`) — ver decisão 3. Uma rodada parada por 429
+   não apaga nada, porque não viu o mercado inteiro.
+
+Estourar o teto de páginas da passada rasa (`MAX_PAGINAS_RASAS`) termina a
+rodada como `erro`, não `ok`: sem ver o mercado inteiro, nada pode ser apagado
+a partir de uma visão parcial.
 
 Nenhuma conexão com o banco fica aberta durante HTTP: cada passo lê, fecha,
 faz a requisição e abre outra transação curta para gravar.
@@ -128,9 +145,13 @@ faz a requisição e abre outra transação curta para gravar.
   curso, o botão diz isso e não faz nada.
 - **Espaçamento próprio.** O `RateLimiter` compartilhado é uma trava simples,
   não uma fila de prioridade. A varredura dorme um intervalo extra
-  (`ESPACO_EXTRA_S`, constante no código) entre as suas requisições, deixando
-  a trava livre na maior parte do tempo. Uma consulta de usuário espera no
-  máximo uma requisição da varredura.
+  (`ESPACO_EXTRA_S = 4.0`, constante no código) entre as suas requisições,
+  deixando a trava livre na maior parte do tempo — com o `RateLimiter` de 1s,
+  dá uma requisição a cada ~5s. Uma consulta de usuário espera no máximo uma
+  requisição da varredura. Nas medições de 2026-09-19, a Steam deu 429 na
+  128ª requisição a 1s e cinco 429 em 389 requisições a 3s; rodadas
+  interrompidas não perdem trabalho, porque `funda_em` por nome faz a próxima
+  pular o que já foi lido.
 - **Calma.** Antes de cada requisição, a rodada verifica a calma dos
   `Retratos`. Se está em calma, a rodada para com `motivo_parada = 429`.
 - **Reinício do processo.** Na subida, qualquer rodada com `fim` nulo é
@@ -148,9 +169,12 @@ progresso), última parada por 429, total de nomes e listagens cobertos.
 > 0).
 
 **Colunas:** arte do efeito · item · efeito · preço na Steam (R$ e chaves) ·
-valor na bp.tf (chaves e R$) · **resultado** (R$ e %, verde/vermelho) · idade
+valor na bp.tf (chaves e R$) · **resultado** (R$ e %) · idade
 do preço da bp.tf · idade da leitura da listagem · links para a tela de
-consulta (item + efeito) e para a página do item na Steam.
+consulta (item + efeito) e para a página do item na Steam. Ganho e perda não
+usam verde/vermelho: a paleta da marca só tem sete cores aprovadas, e o
+resultado usa a cor do papel para ganho e a cor do carimbo (ferrugem) para
+perda.
 
 **Resultado indisponível**, com o motivo que a `patient_exit` já devolve:
 efeito desconhecido, índice da bp.tf não carregado, ou "backpack.tf does not
@@ -158,9 +182,15 @@ price this effect". **Nunca se usa o preço de outro efeito.** Sem cotação da
 chave, a coluna de resultado inteira fica indisponível, com o aviso que a
 consulta já mostra.
 
+**Preço da bp.tf mais velho que o filtro de idade:** a linha continua em
+"All listings", com o valor e a idade à mostra, mas sem resultado. O motivo
+aparece no lugar do resultado ("backpack.tf price is older than N days"), e a
+linha nunca entra em "Profitable" — ver decisão 4.
+
 **Filtros** (na query string): texto no nome do item; efeito; faixa de preço na
 Steam; **idade máxima do preço da bp.tf (padrão 90 dias)**; "só com preço na
-bp.tf".
+bp.tf". Preços acima de R$ 10.000.000 são ignorados (`leitura.PRECO_MAXIMO`),
+para uma query string hostil nunca quebrar a página.
 
 **Ordenação:** resultado em R$ (padrão), resultado em %, preço, idade do preço
 da bp.tf.
@@ -195,13 +225,18 @@ As rotas mutáveis exigem admin e validação de mesma origem, como as existente
 
 ## 9. Verificações antes de implementar
 
-1. **Paginação de listagens na página do item.** O endpoint
-   `/market/listings/.../render/` devolve HTML desde 2026-09-19, e a página traz
-   só a primeira página de listagens. É preciso verificar se a página aceita
-   `start`/`count` (ou outro parâmetro) para trazer as seguintes. **Se não
-   aceitar**, a varredura guarda só as listagens que a página traz, e a linha
-   do item mostra "N more on Steam" com o link. Nenhuma requisição é
-   inventada.
+1. **Paginação de listagens na página do item — resolvido, sem paginação.**
+   A medição ao vivo de 2026-09-22
+   (`docs/superpowers/findings/2026-09-22-varredura-verificacoes.md`) mostrou
+   que a página do item já embute **todas** as listagens: em três itens
+   testados, a contagem sem parâmetro bateu com `sell_orders` (inclusive
+   15 de 15 num item com `sell_orders > 10`), e `count=100` não trouxe
+   nenhuma listagem a mais nem `listing_id` diferente. Além disso, `start`
+   além do intervalo disponível quebra a extração da página
+   (`PageStructureError`). A Task 5 (paginar via `start`/`count`) foi
+   **pulada**: a varredura guarda só as listagens que a página traz, e "+N
+   more on Steam" (`n_listagens − n_guardadas`) continua como a rede de
+   segurança, sem nenhuma requisição inventada.
 2. **Quantas listagens a página traz** por padrão (supostamente 10).
 3. **Quantos nomes a passada rasa aceita** como cosmético Unusual, para
    dimensionar o custo da primeira rodada, que é toda funda.

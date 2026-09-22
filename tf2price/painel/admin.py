@@ -14,6 +14,8 @@ from tf2price.contas import servico
 from tf2price.contas.modelo import Usuario
 from tf2price.painel import sessao as ses
 from tf2price.painel.templates import TEMPLATES
+from tf2price.painel.varredura import ROTULO_DA_PARADA
+from tf2price.varredura import repositorio as varredura_repo
 
 ROTEADOR = APIRouter()
 
@@ -24,7 +26,9 @@ def _tela_admin(
     usuario: Usuario,
     link=None,
     erro: str | None = None,
+    varredura_msg: str | None = None,
 ):
+    agendador = request.app.state.agendador
     return TEMPLATES.TemplateResponse(
         request=request,
         name="admin.html",
@@ -34,6 +38,12 @@ def _tela_admin(
             "pedidos": repo_pedidos.listar_pendentes(conn),
             "link": link,
             "erro": erro,
+            "varredura": varredura_repo.ler_config(conn),
+            "rodadas": varredura_repo.ultimas_rodadas(conn),
+            "rodando": bool(agendador and agendador.rodando),
+            "rotulo_da_parada": ROTULO_DA_PARADA,
+            "intervalo_minimo": varredura_repo.INTERVALO_MINIMO_MIN,
+            "varredura_msg": varredura_msg,
         },
     )
 
@@ -143,3 +153,50 @@ def descartar_pedido(
     except pedidos.PedidoJaResolvido:
         return _tela_admin(request, conn, usuario, erro=_JA_RESOLVIDO)
     return _tela_admin(request, conn, usuario)
+
+
+@ROTEADOR.post("/admin/varredura", response_class=HTMLResponse,
+                  dependencies=[Depends(ses.mesma_origem)])
+def salvar_varredura(
+    request: Request,
+    ligada: str = Form(""),
+    intervalo_min: str = Form(""),
+    idade_max_funda_h: str = Form(""),
+    usuario: Usuario = Depends(ses.exigir_admin),
+    conn: Connection = Depends(ses.conexao),
+):
+    # Texto, e não `int` no Form: um valor inválido tem de voltar como
+    # mensagem na tela do admin, não como o 422 cru do FastAPI.
+    try:
+        config = varredura_repo.Config(
+            ligada=ligada == "1",
+            intervalo_min=int(intervalo_min),
+            idade_max_funda_h=int(idade_max_funda_h),
+        )
+    except ValueError:
+        return _tela_admin(request, conn, usuario, erro="Scanner settings must be whole numbers.")
+    if config.intervalo_min < varredura_repo.INTERVALO_MINIMO_MIN:
+        return _tela_admin(
+            request, conn, usuario,
+            erro=f"The interval must be at least {varredura_repo.INTERVALO_MINIMO_MIN} minutes.",
+        )
+    if config.idade_max_funda_h < varredura_repo.IDADE_MINIMA_FUNDA_H:
+        return _tela_admin(request, conn, usuario, erro="The re-read age must be at least 1 hour.")
+    varredura_repo.gravar_config(conn, config, db.agora())
+    return _tela_admin(request, conn, usuario, varredura_msg="Scanner settings saved.")
+
+
+@ROTEADOR.post("/admin/varredura/rodar", response_class=HTMLResponse,
+                  dependencies=[Depends(ses.mesma_origem)])
+def rodar_varredura(
+    request: Request,
+    usuario: Usuario = Depends(ses.exigir_admin),
+    conn: Connection = Depends(ses.conexao),
+):
+    agendador = request.app.state.agendador
+    if agendador is None:
+        return _tela_admin(request, conn, usuario,
+                           erro="The scanner is not available in this process.")
+    if not agendador.disparar_em_segundo_plano():
+        return _tela_admin(request, conn, usuario, erro="A scan is already running.")
+    return _tela_admin(request, conn, usuario, varredura_msg="Scan started.")

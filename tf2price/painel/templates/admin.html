@@ -42,6 +42,51 @@
   {% endif %}
 </section>
 
+<section class="admin-scan" aria-labelledby="scan-title">
+  <h2 id="scan-title">Market scan</h2>
+  {% if varredura_msg %}<div class="admin-link" role="status"><p>{{ varredura_msg }}</p></div>{% endif %}
+  <form method="post" action="/admin/varredura" class="scan-filters">
+    <label class="scan-filters__check">
+      <input type="checkbox" name="ligada" value="1"{% if varredura.ligada %} checked{% endif %}>
+      Scanner enabled
+    </label>
+    <label>Interval between scans (minutes)
+      <input type="number" name="intervalo_min" min="{{ intervalo_minimo }}" value="{{ varredura.intervalo_min }}" required>
+    </label>
+    <label>Re-read unchanged items after (hours)
+      <input type="number" name="idade_max_funda_h" min="1" value="{{ varredura.idade_max_funda_h }}" required>
+    </label>
+    <button class="button button--primary" type="submit">Save scanner settings</button>
+  </form>
+  <form method="post" action="/admin/varredura/rodar">
+    <button class="button button--quiet" type="submit"{% if rodando %} disabled{% endif %}>{{ 'Scan running…' if rodando else 'Run now' }}</button>
+  </form>
+  {% if rodadas %}
+  <div class="scan-table-wrap">
+    <table class="scan-table">
+      <thead><tr>
+        <th scope="col">Started (UTC)</th><th scope="col">Duration</th><th scope="col">Items seen</th>
+        <th scope="col">Re-read</th><th scope="col">Failures</th><th scope="col">Outcome</th>
+      </tr></thead>
+      <tbody>
+      {% for r in rodadas %}
+        <tr>
+          <td>{{ r.inicio.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ ((r.fim - r.inicio).total_seconds() // 60)|int ~ ' min' if r.fim else '—' }}</td>
+          <td>{{ r.nomes_lidos }}</td>
+          <td>{{ r.fundas_feitas }}</td>
+          <td>{{ r.falhas }}</td>
+          <td>{{ rotulo_da_parada.get(r.motivo_parada, r.motivo_parada) }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No scans yet.</p>
+  {% endif %}
+</section>
+
 <section class="admin-people" aria-labelledby="people-title">
   <h2 id="people-title">People</h2>
   <ul class="admin-people__list">
