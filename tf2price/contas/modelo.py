@@ -35,3 +35,14 @@ class Sessao:
     usuario_id: int
     criado_em: datetime
     expira_em: datetime
+
+
+@dataclass(frozen=True)
+class PedidoAcesso:
+    id: int
+    perfil_steam: str
+    contato: str
+    observacao: str | None
+    criado_em: datetime
+    status: str
+    resolvido_em: datetime | None

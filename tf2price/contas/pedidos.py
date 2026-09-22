@@ -10,6 +10,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+
+from sqlalchemy.engine import Connection
+
+from tf2price.contas import repositorio_pedidos as repo
+from tf2price.contas import servico
 
 CONTATO_MAXIMO = 200
 OBSERVACAO_MAXIMA = 1000
@@ -60,3 +67,50 @@ def validar_pedido(
     if erros:
         return None, erros
     return Pedido(perfil_steam=perfil, contato=contato, observacao=observacao or None), {}
+
+
+TETO_DE_PENDENTES = 200
+
+
+class Resultado(Enum):
+    GRAVADO = "gravado"
+    DUPLICADO = "duplicado"
+    FECHADO = "fechado"
+
+
+class PedidoJaResolvido(Exception):
+    """O pedido não existe ou já saiu de pendente."""
+
+
+def registrar_pedido(conn: Connection, pedido: Pedido, quando: datetime) -> Resultado:
+    # O teto vem antes da deduplicação: uma inundação não pode crescer a
+    # tabela, e a resposta de "fechado" não depende de quem pede.
+    if repo.contar_pendentes(conn) >= TETO_DE_PENDENTES:
+        return Resultado.FECHADO
+    # Consulta e insert na mesma transação curta. Dois envios simultâneos do
+    # mesmo perfil ainda podem gerar duas linhas; o admin descarta uma. Um
+    # índice parcial evitaria isso, mas a sintaxe dele depende do dialeto.
+    if repo.existe_pendente(conn, pedido.perfil_steam):
+        return Resultado.DUPLICADO
+    repo.criar_pedido(
+        conn,
+        perfil_steam=pedido.perfil_steam,
+        contato=pedido.contato,
+        observacao=pedido.observacao,
+        quando=quando,
+    )
+    return Resultado.GRAVADO
+
+
+def convidar_pedido(
+    conn: Connection, pedido_id: int, *, admin_id: int, quando: datetime
+) -> str:
+    """Resolve o pedido e cria o convite na mesma transação; devolve o token."""
+    if not repo.resolver(conn, pedido_id, repo.CONVIDADO, quando):
+        raise PedidoJaResolvido()
+    return servico.convidar(conn, criado_por=admin_id, quando=quando)
+
+
+def descartar_pedido(conn: Connection, pedido_id: int, *, quando: datetime) -> None:
+    if not repo.resolver(conn, pedido_id, repo.DESCARTADO, quando):
+        raise PedidoJaResolvido()

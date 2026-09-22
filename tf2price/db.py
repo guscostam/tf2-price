@@ -120,6 +120,19 @@ acompanhado = Table(
     UniqueConstraint("usuario_id", "hash_name", "efeito", name="acompanhado_unico"),
 )
 
+pedido_acesso = Table(
+    "pedido_acesso",
+    METADATA,
+    Column("id", Integer, primary_key=True),
+    # Forma canônica (contas/pedidos.py): é ela que o admin abre como link.
+    Column("perfil_steam", String(120), nullable=False),
+    Column("contato", String(200), nullable=False),
+    Column("observacao", String(1000), nullable=True),
+    Column("criado_em", DateTime, nullable=False),
+    Column("status", String(20), nullable=False),  # pendente, convidado, descartado
+    Column("resolvido_em", DateTime, nullable=True),
+)
+
 
 def url_do_ambiente() -> str:
     """URL do banco, com o dialeto normalizado.
