@@ -222,11 +222,18 @@ def andamento_da_varredura(
     usuario: Usuario = Depends(ses.exigir_admin),
     conn: Connection = Depends(ses.conexao),
 ):
-    return TEMPLATES.TemplateResponse(
+    contexto = _contexto_do_andamento(request, conn)
+    resposta = TEMPLATES.TemplateResponse(
         request=request,
         name="_varredura_andamento.html",
-        context=_contexto_do_andamento(request, conn),
+        context=contexto,
     )
+    # A rodada acabou enquanto o fragmento se atualizava: o "Run now" e a
+    # tabela de rodadas estão fora dele e ficariam velhos. Recarrega a
+    # página uma vez; ociosa, ela não tem `hx-trigger`, então não entra em laço.
+    if request.headers.get("HX-Request") and not contexto["rodando"]:
+        resposta.headers["HX-Refresh"] = "true"
+    return resposta
 
 
 @ROTEADOR.post("/admin/varredura/parar", response_class=HTMLResponse,

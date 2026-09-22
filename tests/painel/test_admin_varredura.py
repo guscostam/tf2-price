@@ -178,6 +178,28 @@ def test_andamento_mostra_o_resultado_da_ultima_rodada(engine):
     assert "cancelada" not in texto
 
 
+def test_andamento_pedido_pelo_htmx_quando_a_rodada_acaba_recarrega_a_pagina(engine):
+    """O fragmento para de se atualizar quando a rodada acaba, mas o botão
+    "Run now" e a tabela de rodadas estão fora dele: sem recarregar, o botão
+    seguiria desligado e a tabela, velha. A página inteira ociosa não tem
+    `hx-trigger`, então o recarregamento acontece uma vez só."""
+    cliente = _entra(engine, agendador=_AgendadorFalso())
+    resposta = cliente.get("/admin/varredura/andamento", headers={"HX-Request": "true"})
+    assert resposta.headers.get("HX-Refresh") == "true"
+
+
+def test_andamento_pedido_pelo_htmx_com_rodada_nao_recarrega(engine):
+    _rodada_aberta(engine, fase=repo.FASE_BUSCA)
+    cliente = _entra(engine, agendador=_AgendadorFalso(livre=False))
+    resposta = cliente.get("/admin/varredura/andamento", headers={"HX-Request": "true"})
+    assert "HX-Refresh" not in resposta.headers
+
+
+def test_andamento_sem_htmx_nao_recarrega(engine):
+    resposta = _entra(engine, agendador=_AgendadorFalso()).get("/admin/varredura/andamento")
+    assert "HX-Refresh" not in resposta.headers
+
+
 def test_andamento_sem_agendador(engine):
     texto = _entra(engine).get("/admin/varredura/andamento").text
     assert "The scanner is not available in this process." in texto
