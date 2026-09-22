@@ -89,5 +89,14 @@ def scan(
         "idade": lambda quando: idade_por_extenso(quando, agora),
         "ha": lambda quando: _ha(idade_por_extenso(quando, agora)),
     }
-    nome = "_scan_tabela.html" if request.headers.get("HX-Request") else "scan.html"
-    return TEMPLATES.TemplateResponse(request=request, name=nome, context=contexto_da_tela)
+    # Na restauração do histórico (hx-push-url sem cache), o htmx manda
+    # HX-Request junto e troca o <body> inteiro: precisa da página toda.
+    so_a_tabela = bool(request.headers.get("HX-Request")) and not request.headers.get(
+        "HX-History-Restore-Request"
+    )
+    nome = "_scan_tabela.html" if so_a_tabela else "scan.html"
+    resposta = TEMPLATES.TemplateResponse(request=request, name=nome, context=contexto_da_tela)
+    # A mesma URL devolve página ou fragmento: sem Vary, o Voltar do
+    # navegador pode servir o fragmento em cache como se fosse a página.
+    resposta.headers["Vary"] = "HX-Request"
+    return resposta

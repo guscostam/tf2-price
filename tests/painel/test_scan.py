@@ -102,6 +102,34 @@ def test_htmx_recebe_so_a_tabela(engine):
     assert "R$ 800,00" in parcial
 
 
+def test_restauracao_do_historico_recebe_a_pagina_inteira(engine):
+    # Com hx-push-url, o htmx 1.9 sem cache do histórico pede a URL de novo
+    # com HX-Request E HX-History-Restore-Request, e troca o <body> inteiro:
+    # a tabela sozinha apagaria cabeçalho, navegação e filtros.
+    _semear(engine, [("1", 80000, "Burning Flames")])
+    cliente = cliente_logado(engine, _contexto(indice=_indice()))
+
+    texto = cliente.get("/scan", headers={
+        "HX-Request": "true", "HX-History-Restore-Request": "true",
+    }).text
+
+    assert "<!doctype" in texto.lower()
+    assert 'href="/scan"' in texto and "Market Scan" in texto
+    assert "R$ 800,00" in texto
+
+
+def test_pagina_e_parcial_variam_pelo_cabecalho_do_htmx(engine):
+    # Sem Vary, o Voltar do navegador pode servir o fragmento em cache no
+    # lugar da página inteira.
+    cliente = cliente_logado(engine, _contexto(indice=_indice()))
+
+    inteira = cliente.get("/scan")
+    parcial = cliente.get("/scan", headers={"HX-Request": "true"})
+
+    assert "HX-Request" in inteira.headers.get("vary", "")
+    assert "HX-Request" in parcial.headers.get("vary", "")
+
+
 def test_estado_sem_varredura_ainda(engine):
     cliente = cliente_logado(engine, _contexto())
     texto = cliente.get("/scan").text
