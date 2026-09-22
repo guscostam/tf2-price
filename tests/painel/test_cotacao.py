@@ -166,7 +166,7 @@ def test_renovar_nao_busca_o_que_ainda_esta_recente(engine):
 
 
 def test_na_fronteira_da_validade_ainda_vale(engine):
-    """Exatamente 15 min conta como recente: sem o `<=`, todo minuto redondo
+    """Exatamente a validade conta como recente: sem o `<=`, a fronteira
     viraria uma requisição a mais à Steam."""
     _guardar(engine, chave_cents=1173, quando=AGORA - VALIDADE_COTACAO)
     steam = _SteamClienteFalso()

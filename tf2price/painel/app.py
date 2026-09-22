@@ -146,10 +146,10 @@ def _aquece(nome: str, buscar) -> None:
 
 # De quanto em quanto tempo o fundo acorda para ver se a cotação ou a PTAX
 # envelheceram. Não é a frequência das requisições à Steam nem ao BC:
-# `renovar` volta na hora se o que há ainda é recente (15 min para a cotação
+# `renovar` volta na hora se o que há ainda é recente (6 h para a cotação
 # da Steam, 1 h para a PTAX) ou se a calma dos 300s está de pé. Acordar de
 # minuto em minuto só garante que a renovação aconteça pouco depois de a
-# validade mais curta (a da Steam) vencer, e não até um ciclo inteiro depois.
+# validade vencer, e não até um ciclo inteiro depois.
 PERIODO_DO_RENOVO_S = 60.0
 
 

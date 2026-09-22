@@ -127,11 +127,15 @@ class IndiceSobDemanda:
 
 SEM_COTACAO = "Steam's dollar conversion rate has not loaded yet. Try again in a few minutes."
 
-# Mesma validade do retrato, pelo mesmo raciocínio: 15 minutos é o que separa
-# "recente" de "vale pedir de novo" neste projeto. Uma cotação mais velha que
-# isso manda buscar — mas, se a busca falhar, a velha continua servindo, com
-# a idade à vista.
-VALIDADE_COTACAO = timedelta(minutes=15)
+# Seis horas, decidido pelo dono em 22/09/2026. Até então a cotação nunca era
+# rebuscada (o cache do `SteamClient` não expirava); com o descongelamento, os
+# 15 min de antes viraram 2 requisições à Steam a cada 15 min, pelo mesmo
+# `SteamClient` da busca da tela — e um 429 no fundo liga a calma de 60 s
+# também para quem está buscando. Desde a chave de referência, esta cotação só
+# converte as listagens que a Steam devolve em dólar, e essa taxa quase não
+# anda em seis horas. Uma cotação mais velha que isso manda buscar — mas, se a
+# busca falhar, a velha continua servindo, com a idade à vista na Sources.
+VALIDADE_COTACAO = timedelta(hours=6)
 
 
 @dataclass(frozen=True)
@@ -307,10 +311,10 @@ class Contexto:
     # convertido pela taxa velha ao lado de uma cotação nova.
     #
     # Desde que a cotação também persiste, o deploy deixou de ser o gatilho:
-    # o processo novo herda a MESMA taxa, e as duas coisas agora têm a mesma
-    # validade de 15 min. Sobrou a janela de quando a cotação é renovada e um
-    # retrato de antes dela ainda vale. O erro numérico é desprezível (o real
-    # não anda tanto em 15 min), mas é real — e é por isso que este
+    # o processo novo herda a MESMA taxa. Sobrou a janela de quando a cotação
+    # é renovada (de seis em seis horas) e um retrato de antes dela ainda vale
+    # (até 15 min). O erro numérico é desprezível (o real não anda tanto entre
+    # duas renovações), mas é real — e é por isso que este
     # comentário existe: para quem for mexer aqui não presumir, pelo nome da
     # chave do retrato, que ela já inclui a taxa.
     cotacao: CotacaoSobDemanda
