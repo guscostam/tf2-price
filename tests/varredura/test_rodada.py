@@ -39,9 +39,10 @@ def _pagina(nome, *listagens):
 class _Steam:
     """Busca falsa: fatia a lista inteira de 10 em 10, como a Steam real."""
 
-    def __init__(self, resultados, erro_no_start=None, contador=None):
+    def __init__(self, resultados, erro_no_start=None, contador=None, erro=None):
         self.resultados = list(resultados)
         self.erro_no_start = erro_no_start
+        self.erro = erro or SteamLimitando("429")
         self.contador = contador
         self.chamadas = []
         self.emprestadas = []
@@ -51,14 +52,17 @@ class _Steam:
         if self.contador is not None:
             self.emprestadas.append(self.contador["emprestadas"])
         if start == self.erro_no_start:
-            raise SteamLimitando("429")
+            raise self.erro
         return SearchPage(total_count=len(self.resultados),
                           results=self.resultados[start:start + 10])
 
 
 class _Retratos:
-    def __init__(self, paginas, limitar_em=None, quebrar=(), antigo=(), contador=None):
+    def __init__(self, paginas, limitar_em=None, quebrar=(), antigo=(), contador=None,
+                 erros=None, ao_pedir=None):
         self.paginas = paginas
+        self.erros = dict(erros or {})
+        self.ao_pedir = ao_pedir
         self.limitar_em = limitar_em
         self.quebrar = set(quebrar)
         self.antigo = set(antigo)
@@ -76,6 +80,10 @@ class _Retratos:
     def obter(self, engine, hash_name, usd_to_brl, quando, forcar=False):
         assert forcar
         self.pedidos.append(hash_name)
+        if self.ao_pedir is not None:
+            self.ao_pedir(hash_name)
+        if hash_name in self.erros:
+            raise self.erros[hash_name]
         if self.contador is not None:
             self.emprestadas.append(self.contador["emprestadas"])
         if hash_name == self.limitar_em:
@@ -329,3 +337,87 @@ def test_nenhuma_conexao_emprestada_durante_as_requisicoes(engine):
 
     assert steam.emprestadas == [0]
     assert retratos.emprestadas == [0, 0]
+
+
+def test_excecao_qualquer_na_leitura_funda_conta_falha_e_a_rodada_segue(engine):
+    # Um ValueError/KeyError do parser não é RuntimeError. Se escapasse, a
+    # rodada inteira pararia com "erro" e, como os pendentes seguem a ordem da
+    # busca, o mesmo nome travaria todas as rodadas seguintes.
+    retratos = _Retratos(PAGINAS, erros={"Unusual A": ValueError("preco estranho")})
+
+    resumo = _rodar(engine, _Steam([_r("Unusual A"), _r("Unusual B")]), retratos)
+
+    assert retratos.pedidos == ["Unusual A", "Unusual B"]
+    assert (resumo.falhas, resumo.fundas_feitas, resumo.motivo) == (1, 1, "ok")
+    assert _listagens(engine) == {("Unusual B", "b1")}
+
+
+def test_falha_ao_gravar_as_listagens_conta_falha_e_a_rodada_segue(engine, monkeypatch):
+    # No PostgreSQL, um `efeito` ou `icone` maior que a coluna vira DataError
+    # na gravação (o SQLite não impõe o tamanho); aqui a falha é simulada.
+    original = repo.substituir_listagens
+
+    def substituir(conn, nome, listagens, quando):
+        if nome == "Unusual A":
+            raise RuntimeError("value too long for type character varying(120)")
+        return original(conn, nome, listagens, quando)
+
+    monkeypatch.setattr(repo, "substituir_listagens", substituir)
+
+    resumo = _rodar(engine, _Steam([_r("Unusual A"), _r("Unusual B")]), _Retratos(PAGINAS))
+
+    assert (resumo.falhas, resumo.fundas_feitas, resumo.motivo) == (1, 1, "ok")
+    assert _listagens(engine) == {("Unusual B", "b1")}
+    with engine.begin() as conn:
+        assert repo.ler_assinatura(conn, "Unusual A").funda_em is None
+        rodada = repo.ultima_rodada(conn)
+    assert (rodada.motivo_parada, rodada.falhas, rodada.fundas_feitas) == ("ok", 1, 1)
+
+
+def test_progresso_da_falha_e_gravado_antes_do_proximo_nome(engine):
+    falhas_vistas = []
+
+    def ao_pedir(nome):
+        if nome == "Unusual B":
+            with engine.begin() as conn:
+                falhas_vistas.append(repo.ultima_rodada(conn).falhas)
+
+    retratos = _Retratos(PAGINAS, erros={"Unusual A": KeyError("x")}, ao_pedir=ao_pedir)
+
+    _rodar(engine, _Steam([_r("Unusual A"), _r("Unusual B")]), retratos)
+
+    assert falhas_vistas == [1]
+
+
+def test_erro_que_nao_e_429_na_busca_para_com_erro_sem_apagar_nada(engine):
+    _rodar(engine, _Steam([_r("Unusual A"), _r("Unusual B")]), _Retratos(PAGINAS))
+    _rodar(engine, _Steam([_r("Unusual A"), _r("Unusual B")]), _Retratos(PAGINAS),
+           quando=T0 + timedelta(hours=1))
+    antes = _listagens(engine)
+    retratos = _Retratos(PAGINAS)
+    steam = _Steam([_r("Unusual A")], erro_no_start=0, erro=RuntimeError("HTTP 500"))
+
+    resumo = _rodar(engine, steam, retratos, quando=T0 + timedelta(hours=2))
+
+    assert resumo.motivo == "erro"
+    assert not retratos.calma
+    assert retratos.pedidos == []
+    assert _listagens(engine) == antes
+    with engine.begin() as conn:
+        rodada = repo.ultima_rodada(conn)
+    assert rodada.motivo_parada == "erro"
+    assert rodada.fim is not None
+
+
+def test_calma_ja_ligada_no_inicio_para_com_429_sem_requisicao(engine):
+    steam = _Steam([_r("Unusual A")])
+    retratos = _Retratos(PAGINAS)
+    retratos.calma = True
+
+    resumo = _rodar(engine, steam, retratos)
+
+    assert resumo.motivo == "429"
+    assert steam.chamadas == []
+    assert retratos.pedidos == []
+    with engine.begin() as conn:
+        assert repo.ultima_rodada(conn).motivo_parada == "429"

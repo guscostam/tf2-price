@@ -170,22 +170,31 @@ def _rodar(
             return repo.MOTIVO_429
         dormir(espaco_extra_s)
         quando = agora()
+        # Qualquer falha de UM nome (página quebrada, parser, transporte, ou
+        # o PostgreSQL recusando um campo longo demais na gravação) conta como
+        # falha dele e a rodada segue. Se escapasse, a rodada pararia com
+        # "erro" e, como os pendentes seguem a ordem da busca, o mesmo nome
+        # travaria todas as rodadas seguintes.
         try:
             leitura = retratos.obter(engine, nome, cot.usd_to_brl, quando, forcar=True)
-        except RuntimeError as erro:  # PageStructureError e falhas de transporte
+            if leitura.limitando:
+                return repo.MOTIVO_429
+            # Retrato devolvido do banco (piso de `forcar`: alguém acabou de
+            # atualizar este item) não é leitura nova. Regravar com ele
+            # marcaria como "lido agora" um dado de antes.
+            if leitura.pagina is None or leitura.buscado_em != quando:
+                continue
+            with engine.begin() as conn:
+                repo.substituir_listagens(conn, nome, leitura.pagina.listings, quando)
+                repo.atualizar_progresso(conn, rodada_id, nomes_lidos=resumo.nomes_lidos,
+                                         fundas_feitas=resumo.fundas_feitas + 1,
+                                         falhas=resumo.falhas)
+        except Exception as erro:
             resumo.falhas += 1
             print(f"[varredura] {nome}: {type(erro).__name__}: {mensagem_saneada(erro)}", flush=True)
+            with engine.begin() as conn:
+                repo.atualizar_progresso(conn, rodada_id, nomes_lidos=resumo.nomes_lidos,
+                                         fundas_feitas=resumo.fundas_feitas, falhas=resumo.falhas)
             continue
-        if leitura.limitando:
-            return repo.MOTIVO_429
-        # Retrato devolvido do banco (piso de `forcar`: alguém acabou de
-        # atualizar este item) não é leitura nova. Regravar com ele marcaria
-        # como "lido agora" um dado de antes.
-        if leitura.pagina is None or leitura.buscado_em != quando:
-            continue
-        with engine.begin() as conn:
-            repo.substituir_listagens(conn, nome, leitura.pagina.listings, quando)
-            resumo.fundas_feitas += 1
-            repo.atualizar_progresso(conn, rodada_id, nomes_lidos=resumo.nomes_lidos,
-                                     fundas_feitas=resumo.fundas_feitas, falhas=resumo.falhas)
+        resumo.fundas_feitas += 1
     return repo.MOTIVO_OK
