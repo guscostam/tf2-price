@@ -174,8 +174,7 @@ convites), seguindo o padrão SQLAlchemy Core de `contas/repositorio.py`.
   HTML puro.
 - O cartão do formulário reaproveita a linguagem de pasta de
   `auth_base.html`/`entrar.html` (aba "ACCESS FILE", papel, carimbo).
-- `<title>`, `meta description` e Open Graph (título, descrição, imagem com o
-  logo) para uma boa prévia no Discord e na Steam.
+- `<title>`, `meta description` e Open Graph (título e descrição; sem `og:image`, porque o único logo disponível é SVG, que Discord e Steam não exibem como prévia) para uma boa prévia no Discord e na Steam.
 - **Responsivo:** acima de ~900px, hero em duas colunas e cartão inclinado 2°;
   abaixo, uma coluna (texto → CTA → cartão sem rotação). Passos e colunas
   `THIS/ALL` empilham. O corpo nunca rola na horizontal.
@@ -191,7 +190,7 @@ convites), seguindo o padrão SQLAlchemy Core de `contas/repositorio.py`.
 
 Nova seção **Access requests** em `/admin`, listando os pedidos `pendente` do
 mais antigo para o mais novo: perfil como link externo
-(`rel="noopener noreferrer"`, `target="_blank"`), contato, observação e idade.
+(`rel="noopener noreferrer"`, `target="_blank"`), contato, observação e data de envio em UTC.
 Todo texto vindo do pedido passa pelo autoescape do Jinja; o link do perfil só é
 renderizado porque a forma canônica foi validada na entrada.
 

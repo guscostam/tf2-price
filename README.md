@@ -38,9 +38,13 @@ TF2 e precisa de `STEAM_API_KEY` configurada em `.env`.
 .venv/Scripts/python -m tf2price.painel.app
 ```
 
-Abre em `http://127.0.0.1:8000`. Na primeira subida, com o banco vazio, o
-terminal imprime um link de convite de administrador válido por 24 horas — é
-por ele que a primeira conta nasce. Depois, novas contas saem de `/admin`.
+Abre em `http://127.0.0.1:8000`. Sem sessão, a raiz mostra a landing pública,
+onde qualquer pessoa pode pedir acesso informando o perfil da Steam e um
+contato; com sessão, a raiz é o Overview. Na primeira subida, com o banco
+vazio, o terminal imprime um link de convite de administrador válido por 24
+horas — é por ele que a primeira conta nasce. Depois, novas contas saem de
+`/admin`, que também lista os pedidos de acesso pendentes: `Create invite`
+gera o link para enviar à pessoa, `Dismiss` descarta o pedido.
 
 Requer `BPTF_API_KEY` e `DATABASE_URL` no `.env`. A aplicação sobe mesmo quando
 a Steam ou a backpack.tf estão fora do ar: a cotação e o índice de preços são
