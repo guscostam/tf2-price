@@ -176,6 +176,11 @@ def redefinir(
     # Antes do hash e do consumo, como toda recusa aqui: a transação da
     # requisição fecha com commit mesmo no caminho de erro, e recusar depois
     # de consumir queimaria o link.
+    #
+    # Entre esta conferência e `trocar_senha` há o hash Argon2 e o consumo:
+    # uma promoção que feche nessa janela equivale a "resetou enquanto era
+    # membro e depois foi promovida", que o desenho já aceita — não vale um
+    # `trocar_senha` condicional.
     if not redefinicao_autorizada(conn, convite, nome_super):
         raise ConviteInvalido("convite inválido")
 

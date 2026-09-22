@@ -175,7 +175,7 @@ def test_definir_admin_promove_e_rebaixa(engine):
         assert repo.usuario_por_id(conn, ident).admin is False
 
 
-def test_definir_ativo_devolve_se_mudou_a_linha(engine):
+def test_definir_ativo_devolve_se_alcancou_a_linha(engine):
     with engine.begin() as conn:
         ident = _usuario(conn)
         assert repo.definir_ativo(conn, ident, False) is True

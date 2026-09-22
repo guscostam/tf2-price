@@ -91,7 +91,8 @@ próxima rodada espera um intervalo inteiro contado do reinício.
 4. Na primeira subida, procure no log a linha `[partida] convite de
    administrador:` e abra o link.
 5. Depois de criar a conta, configure `SUPERADMIN` com o nome dela nas
-   variáveis do serviço web.
+   variáveis do serviço web. Na subida seguinte, o log não deve ter nenhuma
+   linha `[superadmin]`; se tiver, o nome na variável não é um admin ativo.
 
 Uma réplica só: o freio de requisições à Steam e o período de calma vivem na
 memória do processo.

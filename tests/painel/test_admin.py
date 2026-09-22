@@ -341,6 +341,19 @@ def test_admin_comum_continua_gerindo_membros(dono, engine):
     assert _usuario(engine, "amiga").ativo is False
 
 
+def test_admin_comum_reativa_membro(dono, engine):
+    colega = _colega(engine)
+    _entra(engine, "amiga", admin=False)
+    alvo = _id(engine, "amiga")
+
+    assert colega.post(f"/admin/ativo/{alvo}", data={"ativo": "0"}).status_code == 200
+    assert _usuario(engine, "amiga").ativo is False
+
+    r = colega.post(f"/admin/ativo/{alvo}", data={"ativo": "1"})
+    assert r.status_code == 200
+    assert _usuario(engine, "amiga").ativo is True
+
+
 def test_superadmin_reseta_e_desativa_admin(dono, engine):
     _colega(engine)
     alvo = _id(engine, "colega")

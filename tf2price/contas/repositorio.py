@@ -64,13 +64,17 @@ def contar_usuarios(conn: Connection) -> int:
 def definir_ativo(
     conn: Connection, usuario_id: int, ativo: bool, *, so_se_membro: bool = False
 ) -> bool:
-    """Liga ou desliga a conta e diz se alguma linha mudou.
+    """Liga ou desliga a conta e diz se o UPDATE alcançou a linha.
 
     Com `so_se_membro`, o UPDATE só alcança a linha se ela não é admin. É
     assim que um admin comum grava: conferir em Python que o alvo é membro e
     só depois escrever deixaria uma promoção concorrente passar entre as
     duas coisas — as rotas correm em threads de verdade. Mesmo desenho de
     `consumir_convite`.
+
+    `rowcount` conta linhas alcançadas, não valores alterados — desativar
+    quem já está desativado devolve True, e é isso que evita um 403 falso
+    na rota.
     """
     consulta = update(db.usuario).where(db.usuario.c.id == usuario_id)
     if so_se_membro:

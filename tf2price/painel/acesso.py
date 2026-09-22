@@ -83,9 +83,9 @@ def _convite_aberto(conn: Connection, token: str, nome_super: str | None):
     # Link de reset que perdeu a autorização (o alvo virou admin, quem gerou
     # foi rebaixado) é só mais um link inválido. Sem isto a tela mostraria o
     # formulário de um link que `servico.redefinir` vai recusar.
-    if convite.tipo == servico.TIPO_REDEFINICAO and not servico.redefinicao_autorizada(
-        conn, convite, nome_super
-    ):
+    if convite.tipo != servico.TIPO_REDEFINICAO:
+        return convite
+    if not servico.redefinicao_autorizada(conn, convite, nome_super):
         return None
     return convite
 
@@ -125,6 +125,9 @@ def usar_convite(
     redefinicao = convite.tipo == servico.TIPO_REDEFINICAO
     try:
         if redefinicao:
+            # `redefinir` confere a autorização de novo de propósito — o
+            # serviço não depende da rota para impor a regra (defesa em
+            # profundidade).
             usuario = servico.redefinir(
                 conn, token, senha=senha, quando=db.agora(),
                 nome_super=request.app.state.superadmin,
