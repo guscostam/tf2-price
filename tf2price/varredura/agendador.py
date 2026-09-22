@@ -27,7 +27,7 @@ class Agendador:
     def __init__(
         self,
         engine: Engine,
-        rodar: Callable[[], Any],
+        rodar: Callable[[threading.Event], Any],
         agora: Callable[[], datetime] = db.agora,
     ) -> None:
         self._engine = engine
@@ -37,6 +37,9 @@ class Agendador:
         # porque "Run now" a adquire no thread da requisição e a solta no
         # thread da rodada.
         self._trava = threading.Lock()
+        # Um evento por rodada: `parar_rodada` o liga, e a rodada o usa como
+        # espera (`Event.wait` devolve verdadeiro quando foi ligado).
+        self._cancelar = threading.Event()
 
     @property
     def rodando(self) -> bool:
@@ -57,25 +60,41 @@ class Agendador:
         referencia = ultima.fim or ultima.inicio
         return self._agora() - referencia >= timedelta(minutes=config.intervalo_min)
 
+    def _comecar(self) -> bool:
+        if not self._trava.acquire(blocking=False):
+            return False
+        # Criado ANTES de soltar o thread: um Stop que chegue antes de a
+        # rodada começar ainda cai no evento dela, e não no da anterior.
+        self._cancelar = threading.Event()
+        return True
+
     def tentar_rodar(self) -> bool:
         """Roda no thread de quem chamou. Falso se já havia rodada em curso."""
-        if not self._trava.acquire(blocking=False):
+        if not self._comecar():
             return False
         self._executar_segurando()
         return True
 
     def disparar_em_segundo_plano(self) -> bool:
         """Para o "Run now": a requisição volta na hora, a rodada leva minutos."""
-        if not self._trava.acquire(blocking=False):
+        if not self._comecar():
             return False
         threading.Thread(
             target=self._executar_segurando, name="varredura-manual", daemon=True
         ).start()
         return True
 
+    def parar_rodada(self) -> bool:
+        """Para o "Stop scan". Falso se não havia rodada. A rodada atende na
+        próxima espera: no máximo uma requisição depois, ou no meio da pausa."""
+        if not self.rodando:
+            return False
+        self._cancelar.set()
+        return True
+
     def _executar_segurando(self) -> None:
         try:
-            self._rodar()
+            self._rodar(self._cancelar)
         finally:
             self._trava.release()
 
@@ -92,12 +111,13 @@ class Agendador:
 
 
 def construir_agendador(engine: Engine, contexto: Any) -> Agendador:
-    def rodar():
+    def rodar(cancelar: threading.Event):
         return executar_rodada(
             engine,
             steam=contexto.steam,
             retratos=contexto.retratos,
             cotacao=contexto.cotacao,
+            esperar=cancelar.wait,
         )
 
     return Agendador(engine, rodar)
