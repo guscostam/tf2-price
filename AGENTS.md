@@ -201,6 +201,10 @@ primeiro coordenar esse estado entre processos.
 - Nunca grave credenciais, tokens, cabeçalhos sensíveis ou URLs de banco em
   logs e mensagens de erro. Passe exceções de terceiros pelo saneamento já
   existente antes de expô-las ou imprimi-las.
+- Quem pode mexer em quem na lista de pessoas mora em `contas/permissoes.py`;
+  rotas, template do admin e revalidação do link de redefinição usam as mesmas
+  funções. Não duplique a regra. Admin comum age só sobre membros: quem gera
+  um link de reset pode usá-lo, então resetar outro admin é tomar a conta dele.
 
 ## Testes
 

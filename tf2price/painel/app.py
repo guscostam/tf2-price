@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
@@ -14,7 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.engine import Engine
 
 from tf2price import db
-from tf2price.contas import servico
+from tf2price.contas import permissoes, servico
+from tf2price.contas import repositorio as repo_contas
 from tf2price.efeitos import arte as arte_dos_efeitos
 from tf2price.painel import acesso, admin, publico
 from tf2price.painel import sessao as ses
@@ -207,6 +209,35 @@ def preparar_varredura(
     return agendador
 
 
+_SEM_GESTAO = "ninguém pode promover ou rebaixar administradores"
+
+
+def aviso_do_superadmin(engine: Engine, nome: str | None) -> str | None:
+    """A linha do log quando `SUPERADMIN` não serve, ou None quando serve.
+
+    Não é erro fatal: sem superadmin o painel funciona e nenhum admin fica
+    exposto — só não há quem promova ou rebaixe. Na primeira subida, antes
+    de a conta nascer pelo convite de partida, o aviso é esperado; a conta
+    vale como superadmin assim que existir, sem reiniciar.
+    """
+    if not nome:
+        return f"[superadmin] SUPERADMIN ausente: {_SEM_GESTAO}"
+    with engine.begin() as conn:
+        usuario = repo_contas.usuario_por_nome(conn, nome)
+    if usuario is None or not permissoes.eh_superadmin(usuario, nome):
+        return f'[superadmin] "{nome}" não é um admin ativo: {_SEM_GESTAO}'
+    return None
+
+
+def preparar_superadmin(engine: Engine) -> str | None:
+    """Lê `SUPERADMIN`, avisa no log se ela não serve e devolve o nome."""
+    nome = (os.getenv("SUPERADMIN") or "").strip() or None
+    aviso = aviso_do_superadmin(engine, nome)
+    if aviso:
+        print(aviso, flush=True)
+    return nome
+
+
 def servir() -> None:
     """Ponto de entrada: python -m tf2price.painel.app"""
     import uvicorn
@@ -226,11 +257,16 @@ def servir() -> None:
         token = servico.convite_de_partida(conn, db.agora())
     if token:
         print(f"[partida] nenhum usuário ainda. Convite de administrador: /convite/{token}")
+    superadmin = preparar_superadmin(engine)
 
     contexto = construir_contexto()
     aquecer_em_segundo_plano(contexto, engine)
     agendador = preparar_varredura(engine, contexto)
-    uvicorn.run(criar_app(engine, contexto, agendador), host="127.0.0.1", port=8000)
+    uvicorn.run(
+        criar_app(engine, contexto, agendador, superadmin=superadmin),
+        host="127.0.0.1",
+        port=8000,
+    )
 
 
 def construir_aplicacao() -> FastAPI:
@@ -259,13 +295,14 @@ def construir_aplicacao() -> FastAPI:
     if token:
         # Primeiro acesso: o link sai no log, uma vez, e vale 24 horas.
         print(f"[partida] convite de administrador: /convite/{token}", flush=True)
+    superadmin = preparar_superadmin(engine)
     contexto = construir_contexto()
     # Em segundo plano, e antes de a primeira pessoa chegar: é a diferença
     # entre o processo esperar pelos terceiros e alguém esperar olhando uma
     # página em branco.
     aquecer_em_segundo_plano(contexto, engine)
     agendador = preparar_varredura(engine, contexto)
-    return criar_app(engine, contexto, agendador)
+    return criar_app(engine, contexto, agendador, superadmin=superadmin)
 
 
 if __name__ == "__main__":

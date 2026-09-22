@@ -46,6 +46,11 @@ horas — é por ele que a primeira conta nasce. Depois, novas contas saem de
 `/admin`, que também lista os pedidos de acesso pendentes: `Create invite`
 gera o link para enviar à pessoa, `Dismiss` descarta o pedido.
 
+A conta nomeada em `SUPERADMIN` é a dona do painel: só ela promove e rebaixa
+administradores (`Make admin` / `Remove admin` em `/admin`), e ninguém mexe
+nela. Os outros administradores convidam, resetam senha e desativam apenas
+membros. Sem a variável, o painel funciona, mas ninguém promove nem rebaixa.
+
 Requer `BPTF_API_KEY` e `DATABASE_URL` no `.env`. A aplicação sobe mesmo quando
 a Steam ou a backpack.tf estão fora do ar: a cotação e o índice de preços são
 buscados na primeira necessidade, e a tela diz quando algum deles ainda não
@@ -85,6 +90,8 @@ próxima rodada espera um intervalo inteiro contado do reinício.
    sessão receber `Secure` atrás do proxy.
 4. Na primeira subida, procure no log a linha `[partida] convite de
    administrador:` e abra o link.
+5. Depois de criar a conta, configure `SUPERADMIN` com o nome dela nas
+   variáveis do serviço web.
 
 Uma réplica só: o freio de requisições à Steam e o período de calma vivem na
 memória do processo.
