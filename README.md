@@ -72,7 +72,9 @@ segundo plano. O admin liga, desliga e define o intervalo entre rodadas em
 chaves × preço da chave − preço na Steam", com a idade do preço da bp.tf como
 filtro. O admin também vê o progresso da rodada em curso e pode interrompê-la
 com "Stop scan"; num limite da Steam (429) a rodada pausa e retoma sozinha, e
-só desiste depois de ~65 min sem nenhuma requisição dar certo.
+só desiste depois de ~65 min sem nenhuma requisição dar certo. Um reinício do
+serviço no meio de uma rodada a marca como "Interrupted by a restart", e a
+próxima rodada espera um intervalo inteiro contado do reinício.
 
 ## Implantação (Railway)
 

@@ -62,16 +62,25 @@ minutos. Se a tentativa feita **depois da quarta pausa seguida** também levar
 zera a contagem, e a próxima pausa volta a ser de 5 min.
 
 A pausa nunca é menor que a calma ainda em curso dos `Retratos` e do
-`SteamClient`: ao fim da pausa, se `retratos.em_calma()` ainda for verdadeiro,
-a rodada espera mais, e isso conta como a mesma pausa.
+`SteamClient`: ao fim da pausa, se sobrar calma de um dos dois
+(`calma_restante_s()` de cada um, vale a maior), a rodada espera mais, e isso
+conta como a mesma pausa. Antes de esperar a sobra, o andamento passa a mostrar
+o novo fim esperado, para o admin nunca ver "Resuming at" com uma hora passada.
+
+A calma esperada antes de cada passo (seção 3.2) é também a maior das duas. A
+do `SteamClient` (60 s, `CALMA_APOS_429_S`) é ligada ainda pela renovação da
+cotação em segundo plano e pela busca de usuário, que usam o mesmo cliente;
+com ela ligada, o cliente recusa com `SteamLimitando` **sem** requisição, e
+essa recusa não pode ser tratada como um 429 da rodada.
 
 ### 3.2 O que conta como 429
 
 - `SteamLimitando` levantado pela busca ou pela cotação do dólar.
 - `Leitura.limitando` devolvido por `Retratos.obter` na passada funda.
 - A calma já ligada antes de uma requisição (um usuário acabou de bater no
-  429): a rodada pausa pelo que falta da calma, e isso **não** conta como pausa
-  seguida, porque a rodada não fez requisição nenhuma.
+  429), seja a dos `Retratos` ou a do `SteamClient`: a rodada espera o que falta
+  da calma, e isso **não** conta como pausa seguida nem liga a calma dos
+  `Retratos`, porque a rodada não fez requisição nenhuma.
 
 ### 3.3 Onde veio o 429
 
@@ -92,8 +101,11 @@ distingue os três lugares:
 Nada muda na proteção da consulta: todo 429 liga a calma dos `Retratos` (a
 consulta mostra retratos guardados, com a idade) e a do `SteamClient`. A pausa
 só faz a rodada **voltar** depois da calma em vez de ir embora. No pior caso, a
-cada pausa a rodada faz uma requisição de teste. Com o teto de 4 pausas, isso
-dá no máximo 4 requisições em ~65 minutos contra um IP limitado.
+rodada faz 5 tentativas do mesmo passo (a primeira e uma depois de cada uma das
+4 pausas). Cada tentativa pode fazer até 2 requisições HTTP, por causa da única
+retentativa do cliente; a primeira tentativa da cotação do dólar pode fazer até
+4, porque são duas chamadas ao `priceoverview`. Isso dá na ordem de 10
+requisições em ~65 minutos contra um IP limitado.
 
 ## 4. Interromper ("Stop scan")
 
@@ -101,8 +113,9 @@ dá no máximo 4 requisições em ~65 minutos contra um IP limitado.
   `parar_rodada() -> bool` o liga e devolve falso se não houver rodada.
 - A rodada recebe a espera como uma função `esperar(segundos) -> bool`, que
   devolve verdadeiro se foi cancelada. É `evento.wait` em produção e um dublê
-  nos testes. Tanto o espaço extra de ~4 s quanto as pausas passam por ela, de
-  modo que o cancelamento é atendido em no máximo uma requisição.
+  nos testes. O espaço extra de ~4 s, a espera da calma e as pausas passam por
+  ela, de modo que o cancelamento é atendido na próxima espera: uma requisição
+  já em curso, com a retentativa e o backoff do cliente, termina antes.
 - Motivo novo: `MOTIVO_CANCELADA = "cancelada"`, com o rótulo "Stopped by admin".
   Uma rodada cancelada não apaga nomes sumidos, como qualquer rodada incompleta.
 - Rota `POST /admin/varredura/parar` (admin, mesma origem). Ela responde com a

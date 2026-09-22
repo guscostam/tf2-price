@@ -43,7 +43,10 @@ ITENS_POR_PAGINA_DA_BUSCA = 10
 # Minutos da n-ésima pausa seguida depois de um 429; da quarta em diante, 30.
 PAUSAS_MIN = (5, 10, 20, 30)
 # Uma tentativa depois da quarta pausa que também leve 429 encerra a rodada:
-# ~65 min batendo num IP limitado já é resposta.
+# ~65 min batendo num IP limitado já é resposta. São 5 tentativas do mesmo
+# passo (a primeira e uma depois de cada pausa), cada uma com até 2
+# requisições pela retentativa do cliente (a primeira da cotação do dólar, até
+# 4: são dois `priceoverview`): na ordem de 10 requisições nesses ~65 min.
 MAX_PAUSAS_SEGUIDAS = 4
 
 
