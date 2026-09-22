@@ -9,8 +9,10 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from tf2price import db
 from tf2price.contas import repositorio_pedidos as repo
 from tf2price.painel.app import criar_app
+from tf2price.painel import publico
 from tf2price.painel.limite import LimitePorChave
 from tf2price.painel.publico import chave_do_cliente
+from tf2price.sources.steam_page import url_da_imagem
 
 from .conftest import _contexto, cliente_logado
 
@@ -159,12 +161,16 @@ def test_landing_tem_o_conteudo_da_spec(engine):
         assert trecho in texto, trecho
 
 
-def test_exemplo_e_rotulado_e_nao_inventa_item(engine):
+def test_exemplo_e_rotulado_e_so_usa_imagens_reais(engine):
     texto = _anonimo(engine).get("/").text
     assert "Sample case · Fictional values" in texto
-    assert 'src="/arte/13.webp"' in texto
-    # Só a marca e a arte real do efeito: nenhuma render de chapéu.
-    assert texto.count("<img") == 2
+    # A foto do chapéu é a da Steam, do mesmo CDN que a avaliação usa, e a
+    # arte do efeito é a empacotada: nada desenhado para a landing.
+    assert f'src="{url_da_imagem(publico.ICONE_DO_EXEMPLO)}"' in texto
+    assert 'alt="Unusual Team Captain"' in texto
+    assert texto.count('src="/arte/13.webp"') == 3
+    # Marca, chapéu e as três camadas do efeito; nenhuma outra imagem.
+    assert texto.count("<img") == 5
 
 
 def test_landing_e_acessivel_e_sem_javascript(engine):

@@ -17,12 +17,22 @@ from tf2price.contas import pedidos
 from tf2price.contas.modelo import Usuario
 from tf2price.painel import sessao as ses
 from tf2price.painel.templates import TEMPLATES
+from tf2price.sources.steam_page import url_da_imagem
 
 ROTEADOR = APIRouter()
 
 PEDIDOS_POR_IP = 3
 JANELA_DOS_PEDIDOS_S = 3600
 _CONFIRMADO = "/?requested=1#access"
+
+# `icon_url` do Unusual Team Captain no mercado da Steam (21/09/2026). O
+# exemplo mostra a foto real do item, pelo mesmo CDN da avaliação, e nunca
+# uma render feita para a landing. Fixo aqui: a landing não fala com a Steam.
+ICONE_DO_EXEMPLO = (
+    "fWFc82js0fmoRAP-qOIPu5THSWqfSmTELLqcUywGkijVjZULUrsm1j-9xgEYYwsVVB7whzdFjsHl"
+    "COCzBOESnN97tJVUgWU7xlMuNuK2Zm42JFCXV_YLX_Zqp17qX3c0sZYzV4-3p-lVehKv6tUSNeZLcw"
+)
+_FOTO_DO_EXEMPLO = url_da_imagem(ICONE_DO_EXEMPLO)
 
 
 def renderizar_landing(
@@ -36,7 +46,12 @@ def renderizar_landing(
     return TEMPLATES.TemplateResponse(
         request=request,
         name="landing.html",
-        context={"estado": estado, "valores": valores or {}, "erros": erros or {}},
+        context={
+            "estado": estado,
+            "valores": valores or {},
+            "erros": erros or {},
+            "foto_do_exemplo": _FOTO_DO_EXEMPLO,
+        },
         status_code=status_code,
     )
 

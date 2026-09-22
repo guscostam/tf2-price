@@ -16,8 +16,14 @@
 .sample-case { padding: clamp(1rem, 3vw, 1.5rem); background: var(--paper); color: var(--charcoal); border-top: .4rem solid var(--active-blue); box-shadow: 0 1.25rem 2.5rem rgba(0, 0, 0, .45); transform: rotate(2deg); transition: transform .3s ease; }
 .sample-case:hover { transform: rotate(.5deg); }
 .sample-case__tag { display: inline-block; margin: 0 0 1rem; padding: .2rem .55rem; border: 2px solid var(--rust-stamp); color: var(--rust-stamp); font: 600 .7rem var(--font-mono); letter-spacing: .12em; text-transform: uppercase; }
-.sample-case__head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 1rem; align-items: center; padding-bottom: 1rem; border-bottom: 1px solid rgba(14, 15, 16, .2); }
-.sample-case__head img { width: 4.5rem; height: 4.5rem; background: var(--ink-panel); }
+/* O palco é o mesmo da avaliação (.evidence-visual, .item-image, .effect-layer
+   em briefcase.css), só reduzido para caber no cartão. */
+.sample-case__visual { min-height: 12rem; margin-bottom: 1rem; }
+.sample-case__visual .item-image { width: min(13rem, 80%); height: auto; }
+.sample-case__visual .effect-layer { width: 10rem; height: 10rem; }
+.sample-case__visual .effect-layer:nth-of-type(2) { width: 8rem; height: 8rem; }
+.sample-case__visual .effect-layer:nth-of-type(3) { width: 12rem; height: 12rem; }
+.sample-case__head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem; align-items: center; padding-bottom: 1rem; border-bottom: 1px solid rgba(14, 15, 16, .2); }
 .sample-case__head .scope-label { color: var(--ink-blue); }
 .sample-case h2 { margin: 0; font: 800 1.6rem/1.1 var(--font-display); letter-spacing: -.03em; }
 .sample-case__effect { margin: .25rem 0 0; font: 600 .95rem var(--font-condensed); color: var(--ink-blue); }
@@ -74,7 +80,7 @@
   .steps, .rule-columns { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 30rem) {
-  .sample-case__head { grid-template-columns: auto minmax(0, 1fr); }
+  .sample-case__head { grid-template-columns: minmax(0, 1fr); }
   .sample-case__verdict { grid-column: 1 / -1; justify-self: start; }
   .sample-case__columns { grid-template-columns: minmax(0, 1fr); }
 }

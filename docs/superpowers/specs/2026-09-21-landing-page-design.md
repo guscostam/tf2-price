@@ -171,9 +171,12 @@ convites), seguindo o padrão SQLAlchemy Core de `contas/repositorio.py`.
   `THIS EFFECT` e `ALL EFFECTS` visualmente separadas, idade do preço à vista
   (*"priced 3 days ago"*) e valores em BRL.
 - Selo fixo **SAMPLE CASE · FICTIONAL VALUES**, visível em todas as larguras.
-- Usa uma arte de efeito **real** já empacotada em `tf2price/data/efeitos/`,
-  servida por `/arte/<id>.webp`. **Nenhuma render de chapéu**: o item aparece
-  só pelo nome, em tipografia. Nada de aura ou item inventado.
+- Só imagens **reais**, montadas como no palco da avaliação (`.evidence-visual`):
+  a foto do Unusual Team Captain vinda do CDN da Steam (`url_da_imagem` com o
+  `icon_url` fixo em `publico.ICONE_DO_EXEMPLO`, que o navegador carrega; o
+  servidor não fala com a Steam) e três camadas da arte de efeito empacotada em
+  `tf2price/data/efeitos/`, servida por `/arte/13.webp`. Nada de aura ou item
+  desenhado para a landing.
 - Veredito do exemplo: `Fair Price`.
 
 ## 7. Front-end
