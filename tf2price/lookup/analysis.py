@@ -25,6 +25,10 @@ RAZAO_SEM_PRECO = "backpack.tf does not price this effect for this item"
 RAZAO_SEM_INDICE = (
     "the backpack.tf price index has not loaded yet; try again in a few minutes"
 )
+RAZAO_SEM_REFERENCIA = (
+    "the reference key price is unavailable "
+    "(backpack.tf dollar value or PTAX missing)"
+)
 
 
 @dataclass(frozen=True)
@@ -64,7 +68,7 @@ class Analysis:
     effect: str
     listings: list[PageListing]
     cheapest: PageListing
-    price_in_keys: float
+    price_in_keys: float | None
     immediate: ImmediateExit
     patient: PatientExit
     # Abaixo: dados DO ITEM INTEIRO, somando todos os efeitos. A Steam não os
@@ -74,7 +78,9 @@ class Analysis:
     history: list[SalePoint]
     history_median: Brl | None
     history_purchases: int
-    key_brl: Brl
+    # Preço de referência da chave em dinheiro (bp.tf × PTAX), ou None se
+    # ele não carregou. Não é o preço da chave na Steam.
+    key_brl: Brl | None
 
 
 def net_after_fee(buyer_price: Brl) -> Brl:
@@ -120,7 +126,7 @@ def patient_exit(
     hash_name: str,
     effect: str,
     index: PriceIndex | None,
-    key_brl: Brl,
+    key_brl: Brl | None,
     now: int | None = None,
     effects_path: Path = DEFAULT_EFFECTS_PATH,
 ) -> PatientExit:
@@ -132,6 +138,9 @@ def patient_exit(
 
     if index is None:
         return PatientExit(False, RAZAO_SEM_INDICE, None, None, None, None)
+
+    if key_brl is None or key_brl.cents <= 0:
+        return PatientExit(False, RAZAO_SEM_REFERENCIA, None, None, None, None)
 
     identity = parse_market_hash_name(hash_name)
     for nome in bptf_name_candidates(identity, hash_name):
@@ -159,7 +168,7 @@ def analyse(
     page: ItemPage,
     effect: str,
     index: PriceIndex | None,
-    key_brl: Brl,
+    key_brl: Brl | None,
     now: int | None = None,
     effects_path: Path = DEFAULT_EFFECTS_PATH,
 ) -> Analysis:
@@ -175,7 +184,11 @@ def analyse(
         effect=effect,
         listings=listagens,
         cheapest=barata,
-        price_in_keys=barata.total_price.cents / key_brl.cents,
+        price_in_keys=(
+            barata.total_price.cents / key_brl.cents
+            if key_brl is not None and key_brl.cents > 0
+            else None
+        ),
         immediate=immediate_exit(barata.total_price, page.orderbook),
         patient=patient_exit(
             barata.total_price, page.hash_name, effect, index, key_brl,

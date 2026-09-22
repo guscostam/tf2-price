@@ -10,6 +10,7 @@ from tf2price.sources.steam_page import ItemPage, OrderBook, parse_item_page
 from tf2price.lookup.analysis import (
     RAZAO_SEM_INDICE,
     RAZAO_SEM_PRECO,
+    RAZAO_SEM_REFERENCIA,
     Analysis,
     analyse,
     effects_available,
@@ -145,6 +146,23 @@ def test_saida_paciente_disponivel_traz_valor_e_idade():
     assert r.age_days == 60
 
 
+def test_sem_referencia_a_saida_paciente_diz_que_falta_a_referencia():
+    idx = _indice({"Taunt: Chairholder": {"prices": {"5": {"Tradable": {"Craftable": {
+        "13": {"currency": "keys", "value": 20.0, "last_update": AGORA - 60 * 86400}
+    }}}}}})
+    r = patient_exit(Brl.from_cents(12452), NOME, "Burning Flames", idx, None,
+                     now=AGORA, effects_path=EFEITOS)
+    assert r.available is False
+    assert r.reason == RAZAO_SEM_REFERENCIA
+    assert r.fair_value is None
+
+
+def test_sem_indice_vem_antes_de_sem_referencia(pagina: ItemPage):
+    """Os motivos que já existiam continuam na frente."""
+    r = analyse(pagina, "Deep Dive", None, None, now=AGORA)
+    assert r.patient.reason == RAZAO_SEM_INDICE
+
+
 # --- análise completa ----------------------------------------------------
 
 
@@ -174,6 +192,15 @@ def test_analise_converte_para_chaves(pagina: ItemPage):
     idx = _indice({"Taunt: Chairholder": {"prices": {}}})
     a = analyse(pagina, "Deep Dive", idx, CHAVE, now=AGORA, effects_path=EFEITOS)
     assert a.price_in_keys == pytest.approx(180.44 / 11.73, rel=1e-3)
+
+
+def test_sem_referencia_a_analise_nao_converte_para_chaves(pagina: ItemPage):
+    idx = _indice({"Taunt: Chairholder": {"prices": {}}})
+    a = analyse(pagina, "Deep Dive", idx, None, now=AGORA, effects_path=EFEITOS)
+    assert a.price_in_keys is None
+    assert a.key_brl is None
+    # A saída imediata não depende da chave.
+    assert a.immediate.top_bid is not None
 
 
 def test_analise_de_efeito_sem_listagem_levanta(pagina: ItemPage):

@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 from tf2price.domain.effects import DEFAULT_EFFECTS_PATH
 from tf2price.domain.money import Brl
 from tf2price.efeitos import arte as arte_dos_efeitos
-from tf2price.lookup.analysis import patient_exit
+from tf2price.lookup.analysis import RAZAO_SEM_REFERENCIA, patient_exit
 from tf2price.sources.backpacktf import PriceIndex
 from tf2price.varredura.repositorio import ListagemVarrida
 
@@ -24,7 +24,6 @@ IDADE_MAX_BPTF_PADRAO = 90
 POR_PAGINA = 50
 ABAS = ("todas", "lucro")
 ORDENS = ("resultado", "percentual", "preco", "idade_bptf")
-SEM_COTACAO = "the key exchange rate has not loaded yet"
 EFEITO_DESCONHECIDO = "Steam did not report the effect of this listing"
 PRECO_MAXIMO = Decimal("10000000")  # Limita preco da query para sempre poder formatar de volta
 
@@ -148,7 +147,7 @@ def avaliar(
         return LinhaVarrida(**base)
 
     if key_brl is None or key_brl.cents <= 0:
-        return linha(motivo=SEM_COTACAO)
+        return linha(motivo=RAZAO_SEM_REFERENCIA)
     em_chaves = listagem.preco.cents / key_brl.cents
     if listagem.efeito is None:
         return linha(preco_em_chaves=em_chaves, motivo=EFEITO_DESCONHECIDO)

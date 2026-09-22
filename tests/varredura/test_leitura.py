@@ -6,7 +6,7 @@ import pytest
 
 from tf2price import db
 from tf2price.domain.money import Brl
-from tf2price.lookup.analysis import RAZAO_SEM_INDICE, RAZAO_SEM_PRECO
+from tf2price.lookup.analysis import RAZAO_SEM_INDICE, RAZAO_SEM_PRECO, RAZAO_SEM_REFERENCIA
 from tf2price.sources.backpacktf import PriceIndex
 from tf2price.varredura import leitura
 from tf2price.varredura.repositorio import ListagemVarrida
@@ -58,10 +58,10 @@ def test_efeito_desconhecido_nao_tem_resultado():
     assert linha.motivo == leitura.EFEITO_DESCONHECIDO
 
 
-def test_sem_cotacao_nao_tem_resultado():
+def test_sem_referencia_nao_tem_resultado():
     linha = _avaliar(_l("1", 80000), chave=None)
     assert (linha.resultado, linha.preco_em_chaves) == (None, None)
-    assert linha.motivo == leitura.SEM_COTACAO
+    assert linha.motivo == RAZAO_SEM_REFERENCIA
 
 
 def test_sem_indice_diz_que_o_indice_nao_carregou():
