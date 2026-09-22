@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Iterator
 
 import httpx
@@ -27,15 +28,15 @@ class BptfPrice:
 @dataclass(frozen=True)
 class Currencies:
     key_in_refined: float
-    key_in_usd: float
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "Currencies":
+        # Aqui existia `key_in_usd`, lido de `price.usd`. A bp.tf deixou de
+        # mandar esse campo (conferido em 22/09/2026) e ele valia 0 sem
+        # ninguém perceber. O dólar da chave agora vem do `IGetPrices`: ver
+        # `PriceIndex.key_in_usd`.
         price = payload["response"]["currencies"]["keys"]["price"]
-        return cls(
-            key_in_refined=float(price["value"]),
-            key_in_usd=float(price.get("usd", 0.0)),
-        )
+        return cls(key_in_refined=float(price["value"]))
 
 
 @dataclass(frozen=True)
@@ -55,21 +56,73 @@ def _to_price(entry: dict[str, Any]) -> BptfPrice:
     )
 
 
+def _agora_utc() -> datetime:
+    # Mesmo formato de `db.agora()` (UTC ingênuo), sem uma fonte de dados
+    # importar o módulo do banco.
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _positivo_ou_none(valor: Any) -> float | None:
+    try:
+        numero = float(valor)
+    except (TypeError, ValueError):
+        return None
+    return numero if numero > 0 else None
+
+
 class PriceIndex:
     """O índice de preços da backpack.tf, indexado para consulta."""
 
-    def __init__(self, items: dict[str, Any], key_in_refined: float) -> None:
+    def __init__(
+        self,
+        items: dict[str, Any],
+        key_in_refined: float,
+        raw_usd_value: float | None = None,
+        usd_currency: str | None = None,
+        carregado_em: datetime | None = None,
+    ) -> None:
         if key_in_refined <= 0:
             raise ValueError("key_in_refined tem que ser positivo")
         self._items = items
         self._key_in_refined = key_in_refined
+        self._raw_usd_value = raw_usd_value
+        self._usd_currency = usd_currency
+        # Quando o payload foi baixado. O índice é carregado uma vez por
+        # processo e nunca renovado, então esta é a idade do dólar da chave.
+        self.carregado_em = carregado_em or _agora_utc()
 
     @classmethod
-    def from_payload(cls, payload: dict[str, Any], key_in_refined: float) -> "PriceIndex":
-        return cls(payload["response"]["items"], key_in_refined)
+    def from_payload(
+        cls,
+        payload: dict[str, Any],
+        key_in_refined: float,
+        carregado_em: datetime | None = None,
+    ) -> "PriceIndex":
+        response = payload["response"]
+        return cls(
+            response["items"],
+            key_in_refined,
+            # Lido com tolerância: um campo de dólar estragado custa só a
+            # referência, nunca o índice inteiro.
+            raw_usd_value=_positivo_ou_none(response.get("raw_usd_value")),
+            usd_currency=response.get("usd_currency"),
+            carregado_em=carregado_em,
+        )
 
     def item_names(self) -> set[str]:
         return set(self._items)
+
+    def key_in_usd(self) -> float | None:
+        """Dólar de uma chave segundo a bp.tf, ou None se não der para saber.
+
+        `raw_usd_value` é o dólar de uma unidade de `usd_currency`, que em
+        22/09/2026 era `metal` (o refined): 0.026 × 64.11 ref ≈ US$ 1,67.
+        Outra unidade é recusa, não conversão: sem saber o que ela vale em
+        chaves, qualquer conta aqui sairia errada em silêncio.
+        """
+        if self._usd_currency != "metal" or self._raw_usd_value is None:
+            return None
+        return self._raw_usd_value * self._key_in_refined
 
     def entries(self, item_name: str, quality_id: int) -> list[PriceEntry]:
         return list(self._iter_entries(item_name, quality_id))

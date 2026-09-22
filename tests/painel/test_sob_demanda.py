@@ -43,7 +43,7 @@ class _ClienteBptfFalso:
         self.chamadas += 1
         if self.falhar:
             raise RuntimeError("bp.tf fora do ar")
-        return Currencies(key_in_refined=self._key_in_refined, key_in_usd=0.0)
+        return Currencies(key_in_refined=self._key_in_refined)
 
     def prices_payload(self) -> dict:
         return {"response": {"items": {}}}

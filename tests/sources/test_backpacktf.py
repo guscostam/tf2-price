@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -28,10 +29,59 @@ def index() -> PriceIndex:
 # --- moedas --------------------------------------------------------------
 
 
-def test_currencies_le_chave_em_refined_e_em_usd():
+def test_currencies_le_chave_em_refined():
     currencies = Currencies.from_payload(_fixture("bptf_currencies.json"))
     assert currencies.key_in_refined == pytest.approx(69.44)
-    assert currencies.key_in_usd == pytest.approx(2.52)
+
+
+# --- dólar da chave --------------------------------------------------------
+
+
+def test_key_in_usd_e_o_dolar_do_refined_vezes_a_chave(index: PriceIndex):
+    # A fixture traz raw_usd_value 0.0363 por refined, e a chave vale 69.44 ref.
+    assert index.key_in_usd() == pytest.approx(0.0363 * 69.44)
+
+
+def _indice_com(extra: dict) -> PriceIndex:
+    return PriceIndex.from_payload({"response": {"items": {}, **extra}}, 64.11)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {},
+        {"raw_usd_value": 0.026},
+        {"raw_usd_value": 0, "usd_currency": "metal"},
+        {"raw_usd_value": -1, "usd_currency": "metal"},
+        {"raw_usd_value": "abc", "usd_currency": "metal"},
+        {"raw_usd_value": 0.026, "usd_currency": "keys"},
+    ],
+)
+def test_key_in_usd_recusa_o_que_nao_sabe_ler(extra):
+    """Moeda inesperada ou valor ruim é recusa, não conta errada."""
+    assert _indice_com(extra).key_in_usd() is None
+
+
+def test_valor_ruim_de_dolar_nao_derruba_o_indice():
+    """O índice inteiro não pode sumir por causa do campo de dólar."""
+    idx = _indice_com({"raw_usd_value": "abc", "usd_currency": "metal"})
+    assert idx.item_names() == set()
+
+
+def test_carregado_em_e_quem_carregou_que_diz():
+    quando = datetime(2026, 9, 22, 12, 0)
+    idx = PriceIndex.from_payload({"response": {"items": {}}}, 64.11, carregado_em=quando)
+    assert idx.carregado_em == quando
+
+
+def _agora() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def test_carregado_em_padrao_e_agora():
+    antes = _agora()
+    idx = PriceIndex.from_payload({"response": {"items": {}}}, 64.11)
+    assert antes <= idx.carregado_em <= _agora()
 
 
 # --- a esquisitice lista vs dicionário -----------------------------------
