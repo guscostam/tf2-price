@@ -28,11 +28,13 @@ from tf2price.domain.money import Brl
 from tf2price.efeitos import arte as arte_dos_efeitos
 from tf2price.lookup.analysis import analyse, effects_available
 from tf2price.painel import sessao as ses
+from tf2price.painel.ptax import PtaxSobDemanda
 from tf2price.painel.templates import TEMPLATES
 from tf2price.preco import repositorio as preco_repo
 from tf2price.preco import serial
 from tf2price.preco.retrato import Retratos
 from tf2price.sources.backpacktf import BackpackTfClient, PriceIndex
+from tf2price.sources.bcb import BcbClient
 from tf2price.sources.ratelimit import RateLimiter
 from tf2price.sources.steam import SteamClient
 from tf2price.sources.steam_page import (
@@ -311,6 +313,11 @@ class Contexto:
     # comentário existe: para quem for mexer aqui não presumir, pelo nome da
     # chave do retrato, que ela já inclui a taxa.
     cotacao: CotacaoSobDemanda
+    # PTAX do Banco Central, sob demanda. Com o dólar da chave na bp.tf, dá
+    # a chave de referência em dinheiro (`preco/referencia.py`), que é a
+    # régua das contas de troca. A cotação da Steam acima ficou só com a
+    # taxa que converte as listagens em dólar.
+    ptax: PtaxSobDemanda
     retratos: Retratos
 
 
@@ -723,5 +730,6 @@ def construir_contexto() -> Contexto:
         paginas=paginas,
         indice=IndiceSobDemanda(bptf),
         cotacao=CotacaoSobDemanda(steam),
+        ptax=PtaxSobDemanda(BcbClient()),
         retratos=Retratos(paginas),
     )

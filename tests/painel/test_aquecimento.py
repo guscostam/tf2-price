@@ -43,21 +43,34 @@ class _Fonte:
 
 
 class _ContextoFalso:
-    def __init__(self, cotacao, indice) -> None:
+    def __init__(self, cotacao, indice, ptax=None) -> None:
         self.cotacao = cotacao
         self.indice = indice
+        self.ptax = ptax if ptax is not None else _Fonte()
 
 
-def test_aquecer_busca_as_duas_e_diz_no_log(engine, capsys):
+def test_aquecer_busca_as_tres_e_diz_no_log(engine, capsys):
     ctx = _ContextoFalso(_Fonte(), _Fonte())
 
     aquecer(ctx, engine)
 
     assert ctx.cotacao.chamadas == 1
+    assert ctx.ptax.chamadas == 1
     assert ctx.indice.chamadas == 1
     saida = capsys.readouterr().out
     assert "[aquecimento] cotação: ok" in saida
+    assert "[aquecimento] PTAX: ok" in saida
     assert "[aquecimento] índice: ok" in saida
+
+
+def test_ptax_que_falha_nao_impede_a_cotacao_nem_o_indice(engine, capsys):
+    ctx = _ContextoFalso(_Fonte(), _Fonte(), ptax=_Fonte(valor=None))
+
+    aquecer(ctx, engine)
+
+    saida = capsys.readouterr().out
+    assert "[aquecimento] PTAX: falhou" in saida
+    assert ctx.cotacao.chamadas == 1 and ctx.indice.chamadas == 1
 
 
 def test_fonte_que_devolve_none_aparece_como_falha_no_log(engine, capsys):
@@ -133,13 +146,17 @@ def test_manter_quente_renova_a_cotacao_em_ciclo(engine):
     thread.start()
 
     limite = time.monotonic() + 5
-    while ctx.cotacao.chamadas < 4 and time.monotonic() < limite:
+    while (
+        min(ctx.cotacao.chamadas, ctx.ptax.chamadas) < 4
+        and time.monotonic() < limite
+    ):
         time.sleep(0.02)
     parar.set()
     thread.join(timeout=5)
 
     assert not thread.is_alive(), "`parar` não interrompeu o laço"
     assert ctx.cotacao.chamadas >= 4, "a cotação não está sendo renovada"
+    assert ctx.ptax.chamadas >= 4, "a PTAX não está sendo renovada"
     assert ctx.indice.chamadas == 1, "o índice entrou no ciclo sem ser convidado"
 
 

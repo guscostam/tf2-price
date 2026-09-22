@@ -119,3 +119,10 @@ def test_obter_depois_de_renovar_usa_a_memoria(engine):
     with engine.begin() as conn:
         preco_repo.guardar_ptax(conn, 9.9, DATA_DO_BC, AGORA)
     assert sob.obter(engine).valor == 5.1117
+
+
+def test_contexto_real_traz_a_ptax_sob_demanda(monkeypatch):
+    from tf2price.painel.consulta import construir_contexto
+
+    monkeypatch.setenv("BPTF_API_KEY", "chave-de-teste")
+    assert isinstance(construir_contexto().ptax, PtaxSobDemanda)

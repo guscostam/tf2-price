@@ -125,6 +125,7 @@ def aquecer(contexto: "Contexto", engine: Engine) -> None:
     recente, este aquecimento nem fala com a Steam.
     """
     _aquece("cotação", lambda: contexto.cotacao.renovar(engine, db.agora()))
+    _aquece("PTAX", lambda: contexto.ptax.renovar(engine, db.agora()))
     _aquece("índice", contexto.indice.obter)
 
 
@@ -157,7 +158,7 @@ def manter_quente(
     periodo_s: float = PERIODO_DO_RENOVO_S,
     parar: threading.Event | None = None,
 ) -> None:
-    """Aquece uma vez e depois renova a cotação enquanto o processo viver.
+    """Aquece uma vez e depois renova a cotação e a PTAX enquanto o processo viver.
 
     Este ciclo existe porque `CotacaoSobDemanda.obter` deixou de ir à rede:
     sem alguem renovando por fora, a cotação congelaria no valor da subida e
@@ -171,6 +172,9 @@ def manter_quente(
     parar = parar or threading.Event()
     while not parar.wait(periodo_s):
         contexto.cotacao.renovar(engine, db.agora())
+        # Independente da cotação: `renovar` engole a falha do terceiro, então
+        # uma Steam limitando não impede a PTAX, nem o contrário.
+        contexto.ptax.renovar(engine, db.agora())
 
 
 def aquecer_em_segundo_plano(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -11,6 +12,7 @@ from tf2price.painel.app import criar_app
 from tf2price.painel.consulta import Contexto, Cotacao
 from tf2price.preco.retrato import Leitura
 from tf2price.sources.backpacktf import PriceIndex
+from tf2price.sources.bcb import Ptax
 from tf2price.sources.steam import SearchPage, SearchResult
 from tf2price.sources.steam_page import parse_item_page
 
@@ -18,6 +20,13 @@ FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 NOME = "Unusual Taunt: Chairholder"
 CHAVE = Brl.from_float(11.73)
 SENHA = "uma senha longa"
+
+# A chave de referência dos testes do painel sai igual a `CHAVE`:
+# 0.0183 US$/ref × 64.11 ref × R$ 10,00 = R$ 11,73. Todo índice falso daqui
+# precisa de `**USD_DO_TESTE` na `response`, senão não há referência e a
+# saída pela troca fica indisponível.
+USD_DO_TESTE = {"raw_usd_value": 0.0183, "usd_currency": "metal"}
+PTAX_DO_TESTE = Ptax(10.0, datetime(2026, 9, 21, 13, 6))
 
 
 def _pagina():
@@ -65,6 +74,20 @@ class _CotacaoFalsa:
         return self.cotacao
 
 
+class _PtaxFalsa:
+    """Dublê de `PtaxSobDemanda`; a passagem pelo banco tem teste próprio em
+    `test_ptax.py`."""
+
+    def __init__(self, ptax):
+        self.ptax = ptax
+
+    def obter(self, engine=None):
+        return self.ptax
+
+    def renovar(self, engine=None, quando=None):
+        return self.ptax
+
+
 class _PaginasFalsas:
     def __init__(self, pagina=None, erro=None):
         self._pagina = pagina
@@ -106,9 +129,10 @@ def _contexto(steam=None, paginas=None, indice=None, usd_to_brl=1.0):
         steam=steam or _SteamFalso(),
         paginas=paginas or _PaginasFalsas(_pagina()),
         indice=_IndiceFalso(indice or PriceIndex.from_payload(
-            {"response": {"items": {}}}, key_in_refined=64.11
+            {"response": {"items": {}, **USD_DO_TESTE}}, key_in_refined=64.11
         )),
         cotacao=_CotacaoFalsa(Cotacao(CHAVE, usd_to_brl, db.agora())),
+        ptax=_PtaxFalsa(PTAX_DO_TESTE),
         retratos=None,
     )
     ctx.retratos = _RetratosFalsos(lambda: ctx.paginas)

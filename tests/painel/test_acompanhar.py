@@ -16,7 +16,7 @@ from tf2price.preco import serial
 from tf2price.preco.retrato import Retratos
 from tf2price.sources.backpacktf import PriceIndex
 from tf2price.sources.steam_page import SteamLimitando
-from .conftest import NOME, _contexto, _pagina, _PaginasFalsas, cliente_logado
+from .conftest import NOME, USD_DO_TESTE, _contexto, _pagina, _PaginasFalsas, cliente_logado
 
 SENHA = "uma senha longa"
 
@@ -30,7 +30,7 @@ def _indice_com_preco(idade_dias: int) -> PriceIndex:
     """
     agora = int(time.time())
     return PriceIndex.from_payload(
-        {"response": {"items": {"Taunt: Chairholder": {"prices": {"5": {"Tradable": {
+        {"response": {**USD_DO_TESTE, "items": {"Taunt: Chairholder": {"prices": {"5": {"Tradable": {
             "Craftable": {"3229": {
                 "currency": "keys", "value": 20.0,
                 "last_update": agora - idade_dias * 86400,

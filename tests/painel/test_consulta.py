@@ -24,6 +24,7 @@ from tf2price.sources.steam_page import PageStructureError, SteamLimitando, Stea
 from .conftest import (
     CHAVE,
     NOME,
+    USD_DO_TESTE,
     _contexto,
     _CotacaoFalsa,
     _IndiceFalso,
@@ -474,7 +475,7 @@ def _indice_com_preco(idade_dias: int) -> PriceIndex:
     """Índice onde Deep Dive (id 3229 no mapa real) tem preço com essa idade."""
     agora = int(time.time())
     return PriceIndex.from_payload(
-        {"response": {"items": {"Taunt: Chairholder": {"prices": {"5": {"Tradable": {
+        {"response": {**USD_DO_TESTE, "items": {"Taunt: Chairholder": {"prices": {"5": {"Tradable": {
             "Craftable": {"3229": {
                 "currency": "keys", "value": 20.0,
                 "last_update": agora - idade_dias * 86400,

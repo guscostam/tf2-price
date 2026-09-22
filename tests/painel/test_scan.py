@@ -12,7 +12,7 @@ from tf2price.sources.backpacktf import PriceIndex
 from tf2price.sources.steam_page import PageListing
 from tf2price.varredura import repositorio as repo
 
-from .conftest import _contexto, cliente_logado
+from .conftest import USD_DO_TESTE, _contexto, cliente_logado
 
 NOME = "Unusual Team Captain"
 
@@ -23,7 +23,7 @@ def _indice(dias=10):
         "Team Captain": {"prices": {"5": {"Tradable": {"Craftable": {
             "13": {"currency": "keys", "value": 100.0, "last_update": int(time.time()) - dias * 86400},
         }}}}},
-    }}}, key_in_refined=64.11)
+    }, **USD_DO_TESTE}}, key_in_refined=64.11)
 
 
 def _semear(engine, listagens, n_listagens=None, nome=NOME):
