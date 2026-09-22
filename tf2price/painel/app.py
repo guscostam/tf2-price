@@ -21,6 +21,7 @@ from tf2price.efeitos import arte as arte_dos_efeitos
 from tf2price.painel import acesso, admin, publico
 from tf2price.painel import sessao as ses
 from tf2price.painel.limite import LimitePorChave
+from tf2price.saneamento import mensagem_saneada
 from tf2price.varredura import repositorio as varredura_repo
 from tf2price.varredura.agendador import (
     Agendador,
@@ -101,9 +102,9 @@ def criar_app(
 
 
 def aquecer(contexto: "Contexto", engine: Engine) -> None:
-    """Puxa cotação e índice para a memória do processo, fora da requisição.
+    """Puxa cotação, PTAX e índice para a memória do processo, fora da requisição.
 
-    As duas nascem vazias e se preenchem na primeira necessidade. Quem pagava
+    As três nascem vazias e se preenchem na primeira necessidade. Quem pagava
     esse primeiro carregamento era a primeira pessoa a abrir o painel depois
     de cada deploy, de dentro do `GET /`, olhando uma página em branco —
     medido em 21/09/2026: ~3,5s no caminho bom (duas requisições à Steam
@@ -143,11 +144,12 @@ def _aquece(nome: str, buscar) -> None:
     )
 
 
-# De quanto em quanto tempo o fundo acorda para ver se a cotação envelheceu.
-# Não é a frequência das requisições à Steam: `renovar` volta na hora se o
-# que há ainda é recente (15 min) ou se a calma dos 300s está de pé. Acordar
-# de minuto em minuto só garante que a renovação aconteça pouco depois de a
-# validade vencer, e não até um ciclo inteiro depois.
+# De quanto em quanto tempo o fundo acorda para ver se a cotação ou a PTAX
+# envelheceram. Não é a frequência das requisições à Steam nem ao BC:
+# `renovar` volta na hora se o que há ainda é recente (15 min para a cotação
+# da Steam, 1 h para a PTAX) ou se a calma dos 300s está de pé. Acordar de
+# minuto em minuto só garante que a renovação aconteça pouco depois de a
+# validade mais curta (a da Steam) vencer, e não até um ciclo inteiro depois.
 PERIODO_DO_RENOVO_S = 60.0
 
 
@@ -171,10 +173,27 @@ def manter_quente(
     aquecer(contexto, engine)
     parar = parar or threading.Event()
     while not parar.wait(periodo_s):
-        contexto.cotacao.renovar(engine, db.agora())
-        # Independente da cotação: `renovar` engole a falha do terceiro, então
-        # uma Steam limitando não impede a PTAX, nem o contrário.
-        contexto.ptax.renovar(engine, db.agora())
+        # Cada `renovar` só engole a falha do terceiro (Steam/BC); uma leitura
+        # ou escrita do NOSSO banco pode levantar (um soluço do Postgres, por
+        # exemplo), e sem o `try` aqui essa exceção mataria o thread daemon —
+        # ninguém mais renovaria nada até reiniciar o processo. Cada chamada
+        # tem o seu próprio `try`, então uma falha no banco de uma não impede
+        # a outra: independente da cotação, uma Steam limitando não impede a
+        # PTAX, nem o contrário.
+        try:
+            contexto.cotacao.renovar(engine, db.agora())
+        except Exception as erro:
+            print(
+                f"[renovo] cotação: {type(erro).__name__}: {mensagem_saneada(erro)}",
+                flush=True,
+            )
+        try:
+            contexto.ptax.renovar(engine, db.agora())
+        except Exception as erro:
+            print(
+                f"[renovo] PTAX: {type(erro).__name__}: {mensagem_saneada(erro)}",
+                flush=True,
+            )
 
 
 def aquecer_em_segundo_plano(

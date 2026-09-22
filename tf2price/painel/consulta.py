@@ -688,11 +688,15 @@ def _coluna(request: Request, usuario_id: int) -> HTMLResponse:
     )
 
 
-# Nenhuma destas três rotas declara `conn`: cada uma abre e fecha a sua
-# própria transação curta antes de chamar `_coluna`, que abre a dela por
-# último — depois de ler a PTAX (possivelmente do banco) em
-# `chave_de_referencia`. Declarar `conn` como dependência prenderia a conexão
-# durante essas leituras.
+# Nenhuma destas três rotas declara `conn`. `acompanhar` e
+# `parar_de_acompanhar` abrem e fecham a própria transação curta (gravar ou
+# apagar o acompanhamento) antes de chamar `_coluna`; `atualizar` não abre
+# transação nenhuma antes — ela vai à Steam (`retratos.obter(...,
+# forcar=True)`), que é rede, não banco. `_coluna` abre a sua transação por
+# último, depois de ler a PTAX (possivelmente do banco) em
+# `chave_de_referencia`. Declarar `conn` como dependência do roteador
+# prenderia a conexão durante a rede das três — e durante a leitura da PTAX
+# de `_coluna`, que já teria uma emprestada sem usar.
 @ROTEADOR.post("/acompanhar", response_class=HTMLResponse,
                dependencies=[Depends(ses.mesma_origem)])
 def acompanhar(request: Request, nome: str = Form(...), efeito: str = Form(...),

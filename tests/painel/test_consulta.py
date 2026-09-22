@@ -576,9 +576,9 @@ def test_o_overview_mostra_a_referencia_e_a_origem(engine):
     texto = cliente.get("/").text
 
     assert "≈ R$ 11,73" in texto
-    assert "US$ 1.17 on backpack.tf" in texto
+    assert "US$ 1,17 on backpack.tf" in texto
     assert "loaded 3 h ago" in texto
-    assert "R$ 10,00 PTAX (Sep 21)" in texto
+    assert "R$ 10,0000 PTAX (Sep 21)" in texto
 
 
 def test_sem_ptax_a_tela_diz_o_que_falta(engine):
@@ -630,7 +630,7 @@ def test_a_saida_paciente_diz_qual_chave_usou(engine):
 # passariam do mesmo jeito com `cotacao.key_brl` no lugar de `_brl(referencia)`.
 # Os testes abaixo usam uma PTAX diferente (R$ 5,00) para separar os dois
 # valores: a referência fica em R$ 5,87 (round(0.0183 × 64.11 × 100 × 5.0) =
-# 587 centavos), 20 chaves valem R$ 117,40, e a chave da Steam continua en
+# 587 centavos), 20 chaves valem R$ 117,40, e a chave da Steam continua em
 # R$ 11,73 (20 chaves valeriam R$ 234,60 se a rota usasse `cotacao.key_brl`).
 
 _PTAX_DIFERENTE = Ptax(5.0, datetime(2026, 9, 21, 13, 6))

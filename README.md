@@ -77,11 +77,12 @@ segundo plano. O admin liga, desliga e define o intervalo entre rodadas em
 chaves × chave de referência − preço na Steam", com a idade do preço da bp.tf
 como filtro. A chave de referência é o valor da chave em dinheiro: o dólar da
 chave segundo a backpack.tf vezes a PTAX do Banco Central. O preço da chave na
-Steam só converte as listagens que a Steam devolve em dólar. O admin também vê o progresso da rodada em curso e pode interrompê-la
-com "Stop scan"; num limite da Steam (429) a rodada pausa e retoma sozinha, e
-só desiste depois de ~65 min sem nenhuma requisição dar certo. Um reinício do
-serviço no meio de uma rodada a marca como "Interrupted by a restart", e a
-próxima rodada espera um intervalo inteiro contado do reinício.
+Steam só converte as listagens que a Steam devolve em dólar. O admin também vê o
+progresso da rodada em curso e pode interrompê-la com "Stop scan"; num limite da
+Steam (429) a rodada pausa e retoma sozinha, e só desiste depois de ~65 min sem
+nenhuma requisição dar certo. Um reinício do serviço no meio de uma rodada a
+marca como "Interrupted by a restart", e a próxima rodada espera um intervalo
+inteiro contado do reinício.
 
 ## Implantação (Railway)
 

@@ -1,4 +1,4 @@
-"""SQL do retrato compartilhado e da cotação da chave."""
+"""SQL do retrato compartilhado, da cotação da chave na Steam e da PTAX."""
 
 from __future__ import annotations
 

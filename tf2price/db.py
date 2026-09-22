@@ -116,9 +116,12 @@ ptax = Table(
     Column("id", Integer, primary_key=True),
     # Reais por dólar: razão, não dinheiro, por isso float.
     Column("valor", Float, nullable=False),
-    # Quando o BC fechou a cotação: é esta a data que a tela mostra.
+    # Quando o BC fechou a cotação: é esta a data que a tela mostra. Ingênua
+    # em horário de Brasília — é assim que o BC publica —, e não UTC como o
+    # resto deste esquema (linha 32); nunca é comparada com `db.agora()`.
     Column("data_cotacao", DateTime, nullable=False),
-    # Quando nós a buscamos: é esta que decide a validade de 1 hora.
+    # Quando nós a buscamos: UTC ingênuo, como o resto do esquema. É esta que
+    # decide a validade de 1 hora, comparada com `db.agora()`.
     Column("buscado_em", DateTime, nullable=False),
 )
 

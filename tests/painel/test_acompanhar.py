@@ -426,10 +426,10 @@ def test_o_premio_dos_case_files_usa_a_chave_de_referencia_nao_a_da_steam(engine
     with engine.begin() as conn:
         preco_repo.guardar(conn, NOME, json.dumps(serial.para_dict(_pagina())), db.agora())
 
+    indice = ctx.indice.em_memoria()
+    referencia = chave_de_referencia(ctx, engine, indice)
     with engine.begin() as conn:
         eu = contas.usuario_por_nome(conn, "gusco")
-        indice = ctx.indice.em_memoria()
-        referencia = chave_de_referencia(ctx, engine, indice)
         linhas = linhas_acompanhadas(
             conn, referencia.brl if referencia else None, indice, eu.id, db.agora(),
         )

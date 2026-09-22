@@ -85,7 +85,11 @@ class _PtaxFalsa:
         return self.ptax
 
     def renovar(self, engine=None, quando=None):
-        return self.ptax
+        # Só o fio de fundo (`manter_quente`) chama `renovar`; nenhuma rota
+        # deveria. Levantar aqui faz uma rota que chamasse `renovar` por
+        # engano falhar alto, em vez de o duplo esconder o bug devolvendo um
+        # valor qualquer.
+        raise AssertionError("rota não pode renovar a PTAX: só o fio de fundo")
 
 
 class _PaginasFalsas:

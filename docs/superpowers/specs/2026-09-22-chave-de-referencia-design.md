@@ -191,8 +191,10 @@ da PTAX de `obter`. Nada de rede no caminho da requisição.
   unavailable (backpack.tf dollar value or PTAX missing)". A ordem de checagem
   mantém os motivos atuais primeiro (efeito desconhecido, índice não
   carregado).
-- `Analysis.price_in_keys` vira `float | None`; o template mostra "—" e a
-  coluna de chaves das listagens some.
+- `Analysis.price_in_keys` vira `float | None`; o template implementado não
+  mostra "—" no lugar — ele some com a coluna de chaves das listagens e com a
+  frase de "N chaves" inteira, ficando só com "Cheapest listing for this
+  effect" e o preço em reais.
 - A saída imediata, as listagens, o livro e o histórico continuam funcionando:
   dependem só da Steam.
 - A varredura trata `None` como já trata a falta de `key_brl` hoje, com o

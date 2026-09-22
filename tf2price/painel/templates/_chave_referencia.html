@@ -2,7 +2,7 @@
    Banco Central. O "≈" é obrigatório: o dólar da bp.tf vem com três casas. #}
 {% if referencia %}
 <strong>≈ {{ referencia.brl }}</strong>
-<p>Per key · US$ {{ "%.2f"|format(referencia.usd) }} on backpack.tf (loaded {{ bptf_idade }}) × {{ referencia.ptax_formatada }} PTAX ({{ referencia.ptax_data.strftime("%b %d") }})</p>
+<p>Per key · {{ referencia.usd_formatado }} on backpack.tf (loaded {{ bptf_idade }}) × {{ referencia.ptax_formatada }} PTAX ({{ referencia.ptax_data.strftime("%b %d") }})</p>
 {% else %}
 <strong>Awaiting evidence</strong>
 <p>Reference unavailable: {{ sem_referencia }}.</p>

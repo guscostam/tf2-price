@@ -53,7 +53,12 @@ def test_arredonda_uma_vez_so():
 
 def test_ptax_formatada_para_a_tela():
     ref = montar_referencia(_indice(), Ptax(5.1161, PTAX.data))
-    assert str(ref.ptax_formatada) == "R$ 5,12"
+    assert ref.ptax_formatada == "R$ 5,1161"
+
+
+def test_usd_formatado_para_a_tela():
+    ref = montar_referencia(_indice(), PTAX)
+    assert ref.usd_formatado == "US$ 1,17"
 
 
 def test_sem_indice():

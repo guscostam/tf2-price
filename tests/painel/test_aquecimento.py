@@ -160,6 +160,33 @@ def test_manter_quente_renova_a_cotacao_em_ciclo(engine):
     assert ctx.indice.chamadas == 1, "o índice entrou no ciclo sem ser convidado"
 
 
+def test_erro_no_banco_da_cotacao_nao_derruba_o_fio_nem_a_ptax(engine, capsys):
+    """`renovar` só engole a falha do terceiro (Steam); um erro que nasça na
+    leitura/escrita do NOSSO banco (um soluço do Postgres, por exemplo) tem
+    que ser pego por `manter_quente`, senão mata o thread daemon e ninguém
+    mais renova nada até reiniciar o processo — nem a PTAX, que não tem
+    nada a ver com o erro da cotação."""
+    ctx = _ContextoFalso(_Fonte(erro=RuntimeError("banco soluçou")), _Fonte())
+    parar = threading.Event()
+
+    def correr():
+        manter_quente(ctx, engine, periodo_s=0.02, parar=parar)
+
+    thread = threading.Thread(target=correr, daemon=True)
+    thread.start()
+
+    limite = time.monotonic() + 5
+    while ctx.ptax.chamadas < 3 and time.monotonic() < limite:
+        time.sleep(0.02)
+    parar.set()
+    thread.join(timeout=5)
+
+    assert not thread.is_alive(), "o erro da cotação matou o fio de fundo"
+    assert ctx.ptax.chamadas >= 3, "a PTAX parou de ser renovada"
+    saida = capsys.readouterr().out
+    assert "[renovo] cotação: RuntimeError" in saida
+
+
 def test_preparar_varredura_fecha_rodadas_abertas_e_inicia_o_agendador(engine):
     from tf2price import db
     from tf2price.painel.app import preparar_varredura

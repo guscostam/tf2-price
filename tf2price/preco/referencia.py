@@ -34,8 +34,20 @@ class ChaveReferencia:
     bptf_carregado_em: datetime  # idade do dólar da chave
 
     @property
-    def ptax_formatada(self) -> Brl:
-        return Brl.from_float(self.ptax)
+    def ptax_formatada(self) -> str:
+        """PTAX com as 4 casas que a conta usa de verdade.
+
+        `Brl.from_float` arredondava para 2 casas (R$ 5,12), enquanto o × que
+        gera `brl` usa `self.ptax` inteiro (R$ 5,1161) — a tela mentia sobre
+        a própria conta. 4 casas e vírgula: o mesmo formato que o BC publica.
+        """
+        return f"R$ {self.ptax:.4f}".replace(".", ",")
+
+    @property
+    def usd_formatado(self) -> str:
+        """Dólar da chave na bp.tf com 2 casas e vírgula, no mesmo estilo da
+        PTAX — para a tela não misturar separador decimal entre os dois."""
+        return f"US$ {self.usd:.2f}".replace(".", ",")
 
 
 def montar_referencia(
