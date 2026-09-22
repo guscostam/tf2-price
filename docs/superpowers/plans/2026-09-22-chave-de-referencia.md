@@ -1168,7 +1168,7 @@ def test_sem_dolar_na_bptf():
 
 def test_referencia_de_zero_centavos_e_ausencia():
     """Zero centavos viraria divisão por zero em "N chaves"."""
-    indice = _indice(raw_usd_value=0.00001)
+    indice = _indice(raw_usd_value=0.000001)
     assert montar_referencia(indice, PTAX) is None
     assert motivo_sem_referencia(indice, PTAX) == FALTA_DOLAR_BPTF
 
