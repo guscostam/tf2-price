@@ -133,6 +133,58 @@ pedido_acesso = Table(
     Column("resolvido_em", DateTime, nullable=True),
 )
 
+varredura_config = Table(
+    "varredura_config",
+    METADATA,
+    # Uma linha só, id 1, como a cotação: a configuração é global.
+    Column("id", Integer, primary_key=True),
+    Column("ligada", Boolean, nullable=False),
+    Column("intervalo_min", Integer, nullable=False),
+    Column("idade_max_funda_h", Integer, nullable=False),
+    Column("alterado_em", DateTime, nullable=False),
+)
+
+varredura_nome = Table(
+    "varredura_nome",
+    METADATA,
+    Column("hash_name", String(300), primary_key=True),
+    # A assinatura é o preço CRU da busca, em centavos de dólar. Em reais ela
+    # dependeria da taxa derivada da chave, que muda entre processos, e cada
+    # deploy faria o mercado inteiro parecer "mudado".
+    Column("preco_usd_cents", Integer, nullable=False),
+    Column("n_listagens", Integer, nullable=False),
+    # Quantas listagens a última leitura funda gravou. A diferença para
+    # `n_listagens` é o "+N more on Steam" da tela.
+    Column("n_guardadas", Integer, nullable=False, default=0),
+    Column("visto_em", DateTime, nullable=False),
+    Column("funda_em", DateTime, nullable=True),
+)
+
+listagem_varrida = Table(
+    "listagem_varrida",
+    METADATA,
+    Column("listing_id", String(40), primary_key=True),
+    Column("hash_name", String(300), nullable=False, index=True),
+    # Nulo quando a Steam não informou o efeito: essa linha não tem preço.
+    Column("efeito", String(120), nullable=True),
+    Column("preco_cents", Integer, nullable=False),
+    Column("icone", String(500), nullable=True),
+    Column("lido_em", DateTime, nullable=False),
+)
+
+varredura_rodada = Table(
+    "varredura_rodada",
+    METADATA,
+    Column("id", Integer, primary_key=True),
+    Column("inicio", DateTime, nullable=False),
+    Column("fim", DateTime, nullable=True),
+    Column("nomes_lidos", Integer, nullable=False, default=0),
+    Column("fundas_feitas", Integer, nullable=False, default=0),
+    Column("falhas", Integer, nullable=False, default=0),
+    # ok, 429, erro, interrompida; nulo enquanto roda.
+    Column("motivo_parada", String(20), nullable=True),
+)
+
 
 def url_do_ambiente() -> str:
     """URL do banco, com o dialeto normalizado.
