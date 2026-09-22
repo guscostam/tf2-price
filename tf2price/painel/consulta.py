@@ -688,9 +688,11 @@ def _coluna(request: Request, usuario_id: int) -> HTMLResponse:
     )
 
 
-# Nenhuma destas três rotas declara `conn`: cada uma abre a sua transação
-# curta, e `_coluna` pode ir à rede antes de abrir a dela. Declarar `conn`
-# como dependência prenderia a conexão durante esse instante.
+# Nenhuma destas três rotas declara `conn`: cada uma abre e fecha a sua
+# própria transação curta antes de chamar `_coluna`, que abre a dela por
+# último — depois de ler a PTAX (possivelmente do banco) em
+# `chave_de_referencia`. Declarar `conn` como dependência prenderia a conexão
+# durante essas leituras.
 @ROTEADOR.post("/acompanhar", response_class=HTMLResponse,
                dependencies=[Depends(ses.mesma_origem)])
 def acompanhar(request: Request, nome: str = Form(...), efeito: str = Form(...),

@@ -222,3 +222,15 @@ def test_sources_mostra_a_taxa_da_steam_com_a_idade(engine):
 
     assert "≈ R$ 11,73" in texto
     assert "R$ 5,15 per US$ · captured 3 h" in texto
+
+
+def test_sources_sem_cotacao_da_steam_diz_que_falta(engine):
+    from .conftest import _CotacaoFalsa
+
+    ctx = _contexto()
+    ctx.cotacao = _CotacaoFalsa(None)
+    cliente = cliente_logado(engine, ctx)
+
+    texto = cliente.get("/sources").text
+
+    assert "Steam dollar conversion rate: awaiting evidence" in texto

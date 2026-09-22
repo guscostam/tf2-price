@@ -32,7 +32,7 @@
     <p class="scope-label">CONVERSION</p>
     <h2>Exchange Rate</h2>
     {% include "_chave_referencia.html" %}
-    {% if cotacao %}<p>Steam listings quoted in dollars convert at {{ cotacao.usd_brl_formatado }} per US$ · captured {{ cotacao_idade }}</p>{% endif %}
+    {% if cotacao %}<p>Steam listings quoted in dollars convert at {{ cotacao.usd_brl_formatado }} per US$ · captured {{ cotacao_idade }}</p>{% else %}<p>Steam dollar conversion rate: awaiting evidence</p>{% endif %}
   </section>
 </div>
 <p class="fan-disclaimer">

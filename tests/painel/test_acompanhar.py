@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tf2price import db
@@ -11,12 +12,16 @@ from tf2price.acompanhamento import repositorio as repo
 from tf2price.contas import repositorio as contas
 from tf2price.contas import servico
 from tf2price.painel.app import criar_app
+from tf2price.painel.consulta import chave_de_referencia, linhas_acompanhadas
 from tf2price.preco import repositorio as preco_repo
 from tf2price.preco import serial
 from tf2price.preco.retrato import Retratos
 from tf2price.sources.backpacktf import PriceIndex
+from tf2price.sources.bcb import Ptax
 from tf2price.sources.steam_page import SteamLimitando
-from .conftest import NOME, USD_DO_TESTE, _contexto, _pagina, _PaginasFalsas, cliente_logado
+from .conftest import (
+    NOME, USD_DO_TESTE, _contexto, _pagina, _PaginasFalsas, _PtaxFalsa, cliente_logado,
+)
 
 SENHA = "uma senha longa"
 
@@ -398,6 +403,60 @@ def test_premio_mostra_a_idade_da_bptf_junto_da_idade_do_retrato(engine):
 
     assert "Steam snapshot" in r.text
     assert "backpack.tf reference · 12 d" in r.text
+
+
+# --- o × usa a chave de referência, não a da Steam (achado de review) -----
+#
+# `_case_files.html` nunca imprime o NÚMERO do prêmio como texto — só usa
+# `l.premio` como booleano para decidir se mostra "backpack.tf reference ·
+# {idade}" ao lado da idade do retrato da Steam (ver o template). Com a PTAX
+# padrão dos fixtures (R$ 10,00) a referência e a chave da Steam dão o mesmo
+# R$ 11,73, então nem o número nem a presença do texto provariam qual das
+# duas alimenta a conta. Por isso: (1) uma PTAX diferente (R$ 5,00), que
+# separa os dois valores, e (2) uma chamada direta a `linhas_acompanhadas` —
+# a mesma função que a rota HTTP chama — para inspecionar `l.premio`, já que
+# o HTML não expõe o número.
+
+
+def test_o_premio_dos_case_files_usa_a_chave_de_referencia_nao_a_da_steam(engine):
+    ctx = _contexto(indice=_indice_com_preco(5))
+    ctx.ptax = _PtaxFalsa(Ptax(5.0, datetime(2026, 9, 21, 13, 6)))
+    cliente = cliente_logado(engine, ctx)
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+    with engine.begin() as conn:
+        preco_repo.guardar(conn, NOME, json.dumps(serial.para_dict(_pagina())), db.agora())
+
+    with engine.begin() as conn:
+        eu = contas.usuario_por_nome(conn, "gusco")
+        indice = ctx.indice.em_memoria()
+        referencia = chave_de_referencia(ctx, engine, indice)
+        linhas = linhas_acompanhadas(
+            conn, referencia.brl if referencia else None, indice, eu.id, db.agora(),
+        )
+
+    assert len(linhas) == 1
+    # 180,44 é a listagem mais barata do efeito na fixture (mesma de
+    # test_analise_mostra_preco_e_oferta). 117,40 = 20 chaves × R$ 5,87 (a
+    # referência com esta PTAX: round(0,0183 × 64,11 × 100 × 5,0) = 587
+    # centavos). 234,60 = 20 × R$ 11,73 seria a conta com a chave da Steam.
+    premio_com_referencia = 18044 / 11740
+    premio_com_a_chave_da_steam = 18044 / 23460
+    assert linhas[0].premio == pytest.approx(premio_com_referencia, rel=1e-6)
+    assert linhas[0].premio != pytest.approx(premio_com_a_chave_da_steam, rel=1e-2)
+
+
+def test_case_files_sem_ptax_mostra_o_preco_e_esconde_o_premio(engine):
+    ctx = _contexto(indice=_indice_com_preco(5))
+    ctx.ptax = _PtaxFalsa(None)
+    cliente = cliente_logado(engine, ctx)
+    cliente.post("/acompanhar", data={"nome": NOME, "efeito": "Deep Dive"})
+    with engine.begin() as conn:
+        preco_repo.guardar(conn, NOME, json.dumps(serial.para_dict(_pagina())), db.agora())
+
+    texto = cliente.get("/cases").text
+
+    assert "180,44" in texto
+    assert "backpack.tf reference" not in texto
 
 
 # --- esquerda e direita concordam, sem aninhar (achado I6) -----------------

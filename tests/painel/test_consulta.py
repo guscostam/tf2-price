@@ -13,11 +13,12 @@ from fastapi.testclient import TestClient
 
 from tf2price import db
 from tf2price.painel.app import criar_app
-from tf2price.painel.consulta import SEM_RETRATO, Contexto, Cotacao
+from tf2price.painel.consulta import SEM_RETRATO, Contexto
 from tf2price.preco import repositorio as preco_repo
 from tf2price.preco import serial
 from tf2price.preco.retrato import Retratos
 from tf2price.sources.backpacktf import PriceIndex
+from tf2price.sources.bcb import Ptax
 from tf2price.sources.ratelimit import RateLimiter
 from tf2price.sources.steam_page import PageStructureError, SteamLimitando, SteamPageClient
 
@@ -548,8 +549,18 @@ def test_trocar_de_item_apaga_a_avaliacao(cliente):
     assert 'id="analysis"' in r.text and 'hx-swap-oob="true"' in r.text
 
 
-def test_a_cotacao_da_chave_aparece_no_overview(cliente):
-    """Os valores em chaves não significam nada sem o preço que os converteu."""
+def test_a_referencia_da_chave_aparece_no_overview(cliente):
+    """Os valores em chaves não significam nada sem o preço que os converteu.
+
+    O Overview mostra a chave de REFERÊNCIA (dólar da chave na bp.tf ×
+    PTAX), não mais a cotação da chave na Steam — nos fixtures do painel os
+    dois valores coincidem por construção (R$ 11,73 = `CHAVE` =
+    `USD_DO_TESTE` × `PTAX_DO_TESTE`; ver `conftest.py`), então esta
+    asserção sozinha não prova qual das duas a tela usa. Quem prova isso são
+    `test_a_saida_paciente_usa_a_chave_de_referencia_nao_a_da_steam` e os
+    testes de `/efeitos` e dos Case Files logo abaixo, com uma PTAX
+    diferente que separa os dois valores.
+    """
     assert str(CHAVE) in cliente.get("/").text
 
 
@@ -609,6 +620,45 @@ def test_sem_cotacao_da_steam_a_analise_diz_e_nao_quebra(engine):
 def test_a_saida_paciente_diz_qual_chave_usou(engine):
     texto = _texto_da_analise(engine, 5)
     assert "Keys valued at ≈ R$ 11,73 each" in texto
+
+
+# --- a referência distinta da chave da Steam (achado de review) -----------
+#
+# `PTAX_DO_TESTE` (R$ 10,00) faz a referência coincidir com `CHAVE`
+# (R$ 11,73): 0.0183 × 64.11 × 10,00 ≈ 11,73. Isso deixa os testes acima
+# incapazes de provar que a rota usa a referência, e não a chave da Steam —
+# passariam do mesmo jeito com `cotacao.key_brl` no lugar de `_brl(referencia)`.
+# Os testes abaixo usam uma PTAX diferente (R$ 5,00) para separar os dois
+# valores: a referência fica em R$ 5,87 (round(0.0183 × 64.11 × 100 × 5.0) =
+# 587 centavos), 20 chaves valem R$ 117,40, e a chave da Steam continua en
+# R$ 11,73 (20 chaves valeriam R$ 234,60 se a rota usasse `cotacao.key_brl`).
+
+_PTAX_DIFERENTE = Ptax(5.0, datetime(2026, 9, 21, 13, 6))
+
+
+def test_a_saida_paciente_usa_a_chave_de_referencia_nao_a_da_steam(engine):
+    ctx = _contexto(indice=_indice_com_preco(5))
+    ctx.ptax = _PtaxFalsa(_PTAX_DIFERENTE)
+    cliente = cliente_logado(engine, ctx)
+
+    texto = cliente.get("/analise", params={"nome": NOME, "efeito": "Deep Dive"}).text
+
+    assert "R$ 117,40" in texto
+    assert "Keys valued at ≈ R$ 5,87 each" in texto
+    assert "R$ 234,60" not in texto  # 20 × R$ 11,73: seria isto com a chave da Steam
+
+
+def test_efeitos_usa_a_chave_de_referencia_nao_a_da_steam(engine):
+    ctx = _contexto(indice=_indice_com_preco(5))
+    ctx.ptax = _PtaxFalsa(_PTAX_DIFERENTE)
+    cliente = cliente_logado(engine, ctx)
+
+    texto = cliente.get(
+        "/efeitos", params={"nome": NOME, "efeito": "Deep Dive"}
+    ).text
+
+    assert "R$ 117,40" in texto
+    assert "R$ 234,60" not in texto
 
 
 def test_o_painel_traz_o_gaveteiro_de_case_files(engine):
