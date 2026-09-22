@@ -628,5 +628,5 @@ def test_efeito_sem_arte_recebe_tipografia_e_nao_aura(engine, tmp_path, monkeypa
 
 def test_a_consulta_exige_sessao(engine):
     cliente = TestClient(criar_app(engine, _contexto()), follow_redirects=False)
-    for caminho in ("/", "/buscar", "/efeitos", "/analise"):
+    for caminho in ("/cases", "/buscar", "/efeitos", "/analise"):
         assert cliente.get(caminho, params={"q": "x", "nome": "x", "efeito": "x"}).status_code in (303, 401)

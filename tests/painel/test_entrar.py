@@ -43,9 +43,15 @@ def test_entrar_com_senha_errada_nao_cria_cookie(cliente):
 
 
 def test_painel_sem_cookie_manda_para_entrar(cliente):
-    r = cliente.get("/")
+    r = cliente.get("/cases")
     assert r.status_code == 303
     assert r.headers["location"] == "/entrar"
+
+
+def test_raiz_sem_cookie_mostra_a_landing(cliente):
+    r = cliente.get("/")
+    assert r.status_code == 200
+    assert 'data-page="landing"' in r.text
 
 
 def test_fragmento_htmx_sem_cookie_devolve_401_com_redirecionamento(cliente):
@@ -53,7 +59,7 @@ def test_fragmento_htmx_sem_cookie_devolve_401_com_redirecionamento(cliente):
 
     O navegador só sai da página quando o HTMX vê HX-Redirect.
     """
-    r = cliente.get("/", headers={"HX-Request": "true"})
+    r = cliente.get("/cases", headers={"HX-Request": "true"})
     assert r.status_code == 401
     assert r.headers["HX-Redirect"] == "/entrar"
 
@@ -69,7 +75,7 @@ def test_sair_apaga_a_sessao(cliente):
     cliente.post("/entrar", data={"nome": "gusco", "senha": SENHA})
     r = cliente.post("/sair")
     assert r.status_code == 303
-    assert cliente.get("/").status_code == 303
+    assert cliente.get("/cases").status_code == 303
 
 
 def test_post_de_outra_origem_e_recusado(cliente):

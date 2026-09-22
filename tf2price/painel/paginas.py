@@ -30,8 +30,9 @@ def _estado(request: Request, usuario: Usuario) -> dict:
     }
 
 
-@ROTEADOR.get("/", response_class=HTMLResponse)
-def overview(request: Request, usuario: Usuario = Depends(ses.usuario_obrigatorio)):
+def renderizar_overview(request: Request, usuario: Usuario):
+    """O Overview de quem está logado. `/` é de `publico.py`, que decide
+    entre isto e a landing; aqui fica só a montagem da página."""
     estado = _estado(request, usuario)
     estado["recentes"] = list(reversed(estado["linhas"]))[:5]
     return TEMPLATES.TemplateResponse(

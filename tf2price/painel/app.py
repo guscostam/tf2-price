@@ -16,7 +16,7 @@ from sqlalchemy.engine import Engine
 from tf2price import db
 from tf2price.contas import servico
 from tf2price.efeitos import arte as arte_dos_efeitos
-from tf2price.painel import acesso, admin
+from tf2price.painel import acesso, admin, publico
 from tf2price.painel import sessao as ses
 
 if TYPE_CHECKING:
@@ -50,6 +50,7 @@ def criar_app(engine: Engine, contexto: "Contexto | None" = None) -> FastAPI:
 
     app.include_router(acesso.ROTEADOR)
     app.include_router(admin.ROTEADOR)
+    app.include_router(publico.ROTEADOR)
 
     if contexto is not None:
         from tf2price.painel import consulta, paginas
