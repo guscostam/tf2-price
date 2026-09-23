@@ -69,12 +69,13 @@ não configure.
 
 - `tf2price/domain/`: tipos e regras puras do domínio, como `Brl`, identidade
   de itens e catálogo de efeitos.
-- `tf2price/sources/`: clientes da Steam e backpack.tf, interpretação das
-  respostas, limites de requisição e backoff.
+- `tf2price/sources/`: clientes da Steam, backpack.tf e Banco Central (PTAX),
+  interpretação das respostas, limites de requisição e backoff.
 - `tf2price/lookup/`: análise que cruza listagens, preços e câmbio sem cuidar de
   HTTP, rotas ou persistência.
-- `tf2price/preco/`: serialização, repositórios e retrato compartilhado de preço
-  com validade, idade e comportamento degradado.
+- `tf2price/preco/`: serialização, repositórios, retrato compartilhado de preço
+  com validade, idade e comportamento degradado, e a chave de referência em
+  dinheiro (`referencia.py`).
 - `tf2price/contas/`: usuários, senhas, tokens, convites, sessões e regras de
   autenticação.
 - `tf2price/acompanhamento/`: persistência dos pares item-efeito acompanhados
@@ -84,9 +85,13 @@ não configure.
   assinatura mudou), agendador de fundo e cálculo do resultado na leitura.
 - `tf2price/painel/`: aplicação FastAPI, composição de dependências, rotas,
   autenticação, templates Jinja/HTMX e trabalho de aquecimento em segundo plano.
-- `tf2price/data/`: `effects.json` e artes WebP empacotadas com a aplicação.
-- `scripts/`: geração explícita de dados, hoje iniciada por
-  `scripts/fetch_effects.py`.
+- `tf2price/efeitos/`: arte dos efeitos. `coletor.py` é a coleta única, feita
+  pelo navegador do dono porque a backpack.tf recusa servidor; `arte.py` liga o
+  nome do efeito ao WebP empacotado. A arte nunca é buscada ao vivo.
+- `tf2price/data/`: `effects.json`, `cosmeticos.json` e artes WebP empacotadas
+  com a aplicação.
+- `scripts/`: geração explícita de dados: `scripts/fetch_effects.py` gera
+  `effects.json` e `scripts/fetch_cosmeticos.py` gera `cosmeticos.json`.
 - `tests/`: testes por área e fixtures determinísticas; espelham as fronteiras
   relevantes do pacote.
 - `docs/`: specs, planos e achados históricos; consulte-os quando a mudança
@@ -135,11 +140,15 @@ não configure.
 - Toda cotação, retrato ou preço persistido mostrado ao usuário deve conservar
   e expor sua idade real, inclusive quando antigo é melhor que indisponível.
 - Nenhum import ou teste pode acessar a rede. Rotas não devem bloquear à espera
-  da renovação da cotação.
+  da renovação da cotação ou da PTAX.
 - Nenhuma conexão ou transação de banco pode permanecer aberta durante HTTP,
   espera de rate limit, backoff ou qualquer outro I/O externo.
 - Compatibilidade entre SQLite nos testes e PostgreSQL em produção é requisito;
   não dependa de permissividade, coerção ou semântica exclusiva de um dialeto.
+- Toda conta de troca ("N chaves", saída pela troca, prêmio, resultado da
+  varredura) usa a chave de referência: o dólar da chave na backpack.tf vezes a
+  PTAX de venda do Banco Central. O preço da chave na Steam só converte as
+  listagens que a Steam devolve em dólar; não o reintroduza em conta de troca.
 
 ## Banco de dados e transações
 
@@ -171,16 +180,17 @@ exponencial com jitter e o período de calma após limitação; não contorne es
 proteções em caminhos forçados. A trava do limitador serializa chamadas entre
 threads, e as travas dos caches evitam renovação duplicada.
 
-`CotacaoSobDemanda.obter` consulta apenas memória e banco: não acessa a rede. A
-renovação da cotação pertence a `CotacaoSobDemanda.renovar` e é executada
-exclusivamente pelo trabalho de fundo; rotas respondem com a cotação antiga ou
-com o estado ainda indisponível em vez de renová-la.
+`CotacaoSobDemanda.obter` e `PtaxSobDemanda.obter` consultam apenas memória e
+banco: não acessam a rede. A renovação pertence a `renovar` de cada uma e é
+executada exclusivamente pelo trabalho de fundo; rotas respondem com o valor
+antigo ou com o estado ainda indisponível em vez de renová-lo.
 
-Essa regra de renovação em segundo plano é específica da cotação. Outras buscas
-remotas existentes, especialmente retratos via `Retratos.obter`, podem ocorrer
-sincronicamente em uma rota. Mesmo nesses caminhos, conclua a leitura do banco e
-devolva a conexão ao pool antes do I/O externo; abra outra transação curta apenas
-depois da resposta, se for necessário persistir o resultado.
+Essa regra de renovação em segundo plano é específica da cotação e da PTAX.
+Outras buscas remotas existentes, especialmente retratos via `Retratos.obter`,
+podem ocorrer sincronicamente em uma rota. Mesmo nesses caminhos, conclua a
+leitura do banco e devolva a conexão ao pool antes do I/O externo; abra outra
+transação curta apenas depois da resposta, se for necessário persistir o
+resultado.
 
 Mantenha uma única réplica de produção enquanto rate limiters, travas e períodos
 de calma viverem somente na memória local do processo. Escalar réplicas exige
