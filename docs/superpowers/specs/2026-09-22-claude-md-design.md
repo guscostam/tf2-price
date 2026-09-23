@@ -1,5 +1,9 @@
 # CLAUDE.md
 
+**Data:** 2026-09-22
+
+**Status:** aprovado, não implementado
+
 ## Objetivo
 
 Dar ao Claude Code as mesmas regras que o `AGENTS.md` já dá aos outros agentes,
