@@ -257,9 +257,8 @@ def _e_priceoverview(request: httpx.Request) -> bool:
 def _priceoverview_response(request: httpx.Request) -> httpx.Response:
     """Serve o priceoverview POR MOEDA.
 
-    search_page passou a derivar a taxa USD->BRL de duas chamadas a este
-    endpoint, então o transporte de teste precisa distinguir currency=7 de
-    currency=1. Devolver o payload em real para o pedido em dólar faria
+    A cotação deriva a taxa USD->BRL de duas chamadas a este endpoint, então
+    o transporte de teste precisa distinguir currency=7 de currency=1. Devolver o payload em real para o pedido em dólar faria
     parse_usd_price_text estourar — que é o comportamento desejado, e é
     por isso que o transporte não pode "ajudar" respondendo igual aos dois.
     """
@@ -286,7 +285,7 @@ def test_search_page_envia_currency_brl_e_idioma_ingles():
         client=_cliente(_fixture("steam_search_page.json"), capturadas),
     )
 
-    client.search_page(start=0)
+    client.search_page(start=0, usd_to_brl=TAXA_REDONDA)
 
     params = capturadas[0].url.params
     assert params["currency"] == "7"
@@ -328,10 +327,6 @@ def test_429_e_repetido_com_backoff_e_registrado():
     payload = _fixture("steam_search_page.json")
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if _e_priceoverview(request):
-            # A taxa USD->BRL é buscada depois da página; ela não consome a
-            # sequência de respostas que este teste está exercitando.
-            return _priceoverview_response(request)
         status = respostas.pop(0)
         if status == 429:
             return httpx.Response(429, text="")
@@ -345,7 +340,7 @@ def test_429_e_repetido_com_backoff_e_registrado():
         max_retries=2,
     )
 
-    page = client.search_page(start=0)
+    page = client.search_page(start=0, usd_to_brl=TAXA_REDONDA)
 
     assert page.total_count == 21543
     assert limiter.throttled == 2
@@ -365,7 +360,7 @@ def test_429_persistente_levanta_steam_limitando():
     )
 
     with pytest.raises(SteamLimitando, match="Steam is rate limiting this server"):
-        client.search_page(start=0)
+        client.search_page(start=0, usd_to_brl=TAXA_REDONDA)
 
 
 def test_5xx_persistente_nao_e_steam_limitando():
@@ -381,7 +376,7 @@ def test_5xx_persistente_nao_e_steam_limitando():
     )
 
     with pytest.raises(RuntimeError, match="Steam did not respond after backoff") as capturado:
-        client.search_page(start=0)
+        client.search_page(start=0, usd_to_brl=TAXA_REDONDA)
     assert not isinstance(capturado.value, SteamLimitando)
 
 
@@ -399,7 +394,7 @@ def test_falha_5xx_persistente_para_apos_uma_retentativa():
     )
 
     with pytest.raises(RuntimeError):
-        client.search_page(start=0)
+        client.search_page(start=0, usd_to_brl=TAXA_REDONDA)
 
     assert tentativas["n"] == 2
 
@@ -431,18 +426,18 @@ def test_depois_de_desistir_com_429_a_calma_recusa_sem_ir_a_rede():
     )
 
     with pytest.raises(SteamLimitando):
-        client.search_page(start=0)
+        client.search_page(start=0, usd_to_brl=TAXA_REDONDA)
     gastos = pedidos["n"]
     assert gastos > 1, "a escada nem subiu; o teste não está medindo o que diz"
 
     with pytest.raises(SteamLimitando, match="try again in a few minutes"):
-        client.search_page(start=0)
+        client.search_page(start=0, usd_to_brl=TAXA_REDONDA)
     assert pedidos["n"] == gastos, "a calma deixou passar requisição"
 
     # Passada a calma, volta a tentar.
     relogio.agora += CALMA_APOS_429_S
     with pytest.raises(SteamLimitando):
-        client.search_page(start=0)
+        client.search_page(start=0, usd_to_brl=TAXA_REDONDA)
     assert pedidos["n"] > gastos
 
 
@@ -459,7 +454,7 @@ def test_calma_restante_diz_quanto_falta_da_calma_do_cliente():
     assert client.calma_restante_s() == 0.0
 
     with pytest.raises(SteamLimitando):
-        client.search_page(start=0)
+        client.search_page(start=0, usd_to_brl=TAXA_REDONDA)
     assert client.calma_restante_s() == CALMA_APOS_429_S
 
     relogio.agora += 20
@@ -476,8 +471,6 @@ def test_429_que_termina_em_sucesso_nao_liga_a_calma():
     payload = _fixture("steam_search_page.json")
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if _e_priceoverview(request):
-            return _priceoverview_response(request)
         status = respostas.pop(0)
         if status == 429:
             return httpx.Response(429, text="")
@@ -490,9 +483,9 @@ def test_429_que_termina_em_sucesso_nao_liga_a_calma():
         max_retries=2,
     )
 
-    assert client.search_page(start=0).total_count == 21543
+    assert client.search_page(start=0, usd_to_brl=TAXA_REDONDA).total_count == 21543
     # A segunda chamada passa: se a calma tivesse ligado, isto levantaria.
-    assert client.search_page(start=0).total_count == 21543
+    assert client.search_page(start=0, usd_to_brl=TAXA_REDONDA).total_count == 21543
 
 
 def test_5xx_e_repetido_e_nao_conta_como_throttle():
@@ -503,8 +496,6 @@ def test_5xx_e_repetido_e_nao_conta_como_throttle():
     payload = _fixture("steam_search_page.json")
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if _e_priceoverview(request):
-            return _priceoverview_response(request)
         status = respostas.pop(0)
         if status == 500:
             return httpx.Response(500, text="")
@@ -517,7 +508,7 @@ def test_5xx_e_repetido_e_nao_conta_como_throttle():
         sleep=lambda _: None,
     )
 
-    page = client.search_page(start=0)
+    page = client.search_page(start=0, usd_to_brl=TAXA_REDONDA)
 
     assert page.total_count == 21543
     assert limiter.throttled == 0
@@ -531,9 +522,6 @@ def test_timeout_e_repetido():
     payload = _fixture("steam_search_page.json")
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if _e_priceoverview(request):
-            # Só as tentativas da própria busca são contadas aqui.
-            return _priceoverview_response(request)
         tentativas["n"] += 1
         if tentativas["n"] == 1:
             raise httpx.ReadTimeout("tempo esgotado", request=request)
@@ -546,7 +534,7 @@ def test_timeout_e_repetido():
         sleep=lambda _: None,
     )
 
-    page = client.search_page(start=0)
+    page = client.search_page(start=0, usd_to_brl=TAXA_REDONDA)
 
     assert page.total_count == 21543
     assert tentativas["n"] == 2
@@ -569,7 +557,7 @@ def test_404_falha_na_primeira_tentativa():
     )
 
     with pytest.raises(httpx.HTTPStatusError):
-        client.search_page(start=0)
+        client.search_page(start=0, usd_to_brl=TAXA_REDONDA)
 
     assert tentativas["n"] == 1
 
@@ -581,7 +569,7 @@ def test_search_page_envia_query_quando_informado():
         client=_cliente(_fixture("steam_search_page.json"), capturadas),
     )
 
-    client.search_page(start=0, query="Unusual")
+    client.search_page(start=0, query="Unusual", usd_to_brl=TAXA_REDONDA)
 
     assert capturadas[0].url.params["query"] == "Unusual"
 
@@ -593,7 +581,7 @@ def test_search_page_sem_query_nao_envia_o_parametro():
         client=_cliente(_fixture("steam_search_page.json"), capturadas),
     )
 
-    client.search_page(start=0)
+    client.search_page(start=0, usd_to_brl=TAXA_REDONDA)
 
     assert "query" not in capturadas[0].url.params
 
@@ -608,7 +596,7 @@ def test_search_page_query_vazio_nao_envia_o_parametro():
         client=_cliente(_fixture("steam_search_page.json"), capturadas),
     )
 
-    client.search_page(start=0, query="")
+    client.search_page(start=0, query="", usd_to_brl=TAXA_REDONDA)
 
     assert "query" not in capturadas[0].url.params
 
@@ -626,7 +614,7 @@ def test_search_page_ordena_por_preco_decrescente():
         client=_cliente(_fixture("steam_search_page.json"), capturadas),
     )
 
-    client.search_page(start=0)
+    client.search_page(start=0, usd_to_brl=TAXA_REDONDA)
 
     params = capturadas[0].url.params
     assert params["sort_column"] == "price"
@@ -666,37 +654,20 @@ def test_cache_do_priceoverview_nao_vaza_entre_instancias():
     assert len(capturadas) == 2
 
 
-def test_search_page_converte_o_preco_em_dolar_para_real():
-    # A busca responde em dólar e ignora currency=7 (medido em 2026-09-19).
-    # A chave da fixture sai por 2214 centavos de DÓLAR; com a taxa de 6,0
-    # derivada do priceoverview, o preço em real é 13284 centavos.
-    client = SteamClient(
-        limiter=RateLimiter(min_interval_s=0.0),
-        client=_cliente(_fixture("steam_search_page.json")),
-    )
-
-    page = client.search_page(start=0)
-
-    assert page.results[0].lowest_price == Brl.from_cents(round(2214 * TAXA_DO_TRANSPORTE))
-    assert page.results[0].lowest_price == Brl.from_cents(13284)
-
-
 def test_taxa_e_a_chave_em_brl_dividida_pela_chave_em_usd():
     # R$ 22,14 / US$ 3,69 = 6,0. O teste amarra a definição da taxa: se ela
     # virasse USD/BRL, ou uma cotação externa, o número mudaria.
     capturadas: list[httpx.Request] = []
     client = SteamClient(
         limiter=RateLimiter(min_interval_s=0.0),
-        client=_cliente(_fixture("steam_search_page.json"), capturadas),
+        client=_cliente({}, capturadas),
     )
 
-    page = client.search_page(start=0)
+    _, taxa = client.renovar_cotacao()
 
     brl_cents = parse_price_text(_fixture("steam_priceoverview.json")["lowest_price"]).cents
     usd_cents = parse_usd_price_text(PRICEOVERVIEW_USD["lowest_price"])
-    taxa = brl_cents / usd_cents
-    assert taxa == 6.0
-    assert page.results[0].lowest_price == Brl.from_cents(round(2214 * taxa))
+    assert taxa == brl_cents / usd_cents == TAXA_DO_TRANSPORTE
 
     moedas = {
         r.url.params["currency"] for r in capturadas if "priceoverview" in r.url.path
@@ -704,59 +675,23 @@ def test_taxa_e_a_chave_em_brl_dividida_pela_chave_em_usd():
     assert moedas == {"7", "1"}
 
 
-def test_taxa_e_calculada_uma_vez_por_instancia():
-    # Duas páginas não podem custar dois pares de priceoverview: a taxa é
-    # calculada uma vez e guardada na instância.
-    capturadas: list[httpx.Request] = []
-    client = SteamClient(
-        limiter=RateLimiter(min_interval_s=0.0),
-        client=_cliente(_fixture("steam_search_page.json"), capturadas),
-    )
-
-    client.search_page(start=0)
-    client.search_page(start=100)
-
-    priceoverviews = [r for r in capturadas if "priceoverview" in r.url.path]
-    assert len(priceoverviews) == 2
-
-
 def test_cache_do_priceoverview_e_por_moeda():
-    # A chave em real continua vindo em reais depois de a taxa ter pedido a
-    # mesma chave em dólar. Um cache de payload único devolveria o dólar
+    # A chave em real continua vindo em reais depois de a cotação ter pedido
+    # a mesma chave em dólar. Um cache de payload único devolveria o dólar
     # aqui — ou o real para o pedido em dólar — e a taxa sairia 1,0.
     capturadas: list[httpx.Request] = []
     client = SteamClient(
         limiter=RateLimiter(min_interval_s=0.0),
-        client=_cliente(_fixture("steam_search_page.json"), capturadas),
+        client=_cliente({}, capturadas),
     )
 
-    client.search_page(start=0)
+    client.renovar_cotacao()
 
     assert client.key_price() == Brl.from_float(22.14)
     assert client.key_median_price() == Brl.from_float(22.49)
-    # O pedido em BRL da taxa já preencheu o cache: nenhuma requisição nova.
+    # O pedido em BRL da cotação já preencheu o cache: nenhuma requisição nova.
     priceoverviews = [r for r in capturadas if "priceoverview" in r.url.path]
     assert len(priceoverviews) == 2
-
-
-def test_taxa_nao_vaza_entre_instancias():
-    capturadas: list[httpx.Request] = []
-    payload = _fixture("steam_search_page.json")
-
-    primeiro = SteamClient(
-        limiter=RateLimiter(min_interval_s=0.0),
-        client=_cliente(payload, capturadas),
-    )
-    primeiro.search_page(start=0)
-
-    segundo = SteamClient(
-        limiter=RateLimiter(min_interval_s=0.0),
-        client=_cliente(payload, capturadas),
-    )
-    segundo.search_page(start=0)
-
-    priceoverviews = [r for r in capturadas if "priceoverview" in r.url.path]
-    assert len(priceoverviews) == 4
 
 
 def test_listings_levanta_runtime_error_quando_a_steam_devolve_html():
@@ -824,6 +759,61 @@ def test_parse_search_page_guarda_o_preco_cru_em_centavos_de_dolar():
     assert [r.sell_price_usd_cents for r in page.results] == [2214, 89000, 15990]
 
 
+# --- busca sem priceoverview ----------------------------------------------
+#
+# Medido no Railway em 23/09/2026: com o IP limitado, o priceoverview dava 429
+# e a busca, que dependia dele para a taxa guardada só na memória do cliente,
+# falhava junto depois de cada deploy — mesmo com a taxa no banco.
+
+
+def _priceoverview_limitado(payload: dict, capturadas: list[httpx.Request]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        capturadas.append(request)
+        if _e_priceoverview(request):
+            return httpx.Response(429, text="")
+        return httpx.Response(200, json=payload)
+
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_buscar_nomes_gasta_uma_requisicao_e_nao_toca_o_priceoverview():
+    """A busca da tela só quer os nomes: nenhum preço, nenhuma taxa."""
+    capturadas: list[httpx.Request] = []
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_priceoverview_limitado(_fixture("steam_search_page.json"), capturadas),
+        sleep=lambda _: None,
+    )
+
+    nomes = client.buscar_nomes("Team Captain", count=25)
+
+    assert nomes == [
+        "Mann Co. Supply Crate Key",
+        "Unusual Team Captain",
+        "Strange Australium Rocket Launcher",
+    ]
+    assert len(capturadas) == 1
+    assert capturadas[0].url.path == "/market/search/render/"
+    params = capturadas[0].url.params
+    assert params["query"] == "Team Captain"
+    assert params["count"] == "25"
+    assert params["start"] == "0"
+
+
+def test_search_page_converte_com_a_taxa_recebida_sem_priceoverview():
+    capturadas: list[httpx.Request] = []
+    client = SteamClient(
+        limiter=RateLimiter(min_interval_s=0.0),
+        client=_priceoverview_limitado(_fixture("steam_search_page.json"), capturadas),
+        sleep=lambda _: None,
+    )
+
+    page = client.search_page(start=0, usd_to_brl=TAXA_REDONDA)
+
+    assert page.results[0].lowest_price == Brl.from_cents(2214 * 5)
+    assert len(capturadas) == 1
+
+
 # --- renovação da cotação -------------------------------------------------
 
 
@@ -843,7 +833,7 @@ def test_renovar_cotacao_busca_de_novo_a_cada_chamada():
     assert sum(1 for r in capturadas if _e_priceoverview(r)) == 4
 
 
-def test_renovar_cotacao_atualiza_a_taxa_da_busca():
+def test_renovar_cotacao_devolve_a_taxa_nova():
     usd = {"lowest_price": "$3.69"}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -863,11 +853,10 @@ def test_renovar_cotacao_atualiza_a_taxa_da_busca():
     _, taxa = client.renovar_cotacao()
 
     assert taxa == pytest.approx(2214 / 300)
-    assert client.usd_to_brl() == pytest.approx(2214 / 300)
 
 
-def test_renovar_cotacao_que_falha_mantem_a_taxa_antiga():
-    """Zerar o cache antes de buscar deixaria a busca da tela sem taxa até a
+def test_renovar_cotacao_que_falha_mantem_o_cache_antigo():
+    """Zerar o cache antes de buscar deixaria o preço da chave sem valor até a
     próxima renovação boa. Por isso a troca só acontece no sucesso."""
     estado = {"falhar": False}
 
@@ -891,5 +880,4 @@ def test_renovar_cotacao_que_falha_mantem_a_taxa_antiga():
         client.renovar_cotacao()
 
     # Lida do cache, sem ir à rede (que agora só devolve 500).
-    assert client.usd_to_brl() == 6.0
     assert client.key_price() == Brl.from_float(22.14)

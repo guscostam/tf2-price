@@ -244,6 +244,52 @@ def test_depois_da_calma_tenta_de_novo(engine):
     assert steam.chamadas == 2
 
 
+def _espera_ate_tentar_de_novo(sob, steam, relogio, engine, quando=AGORA) -> float:
+    """Anda o relógio de minuto em minuto até `renovar` voltar à rede."""
+    chamadas = steam.chamadas
+    espera = 0.0
+    while steam.chamadas == chamadas:
+        relogio.avancar(60.0)
+        espera += 60.0
+        sob.renovar(engine, quando)
+    return espera
+
+
+def test_falhas_seguidas_dobram_a_espera_ate_o_teto(engine):
+    """Medido no Railway em 23/09/2026: com o IP limitado, a renovação pediu o
+    priceoverview a cada 5 minutos por mais de 12 horas, e todas levaram 429.
+    Contra um IP já marcado, cada falha seguida espera o dobro, até uma hora."""
+    steam = _SteamClienteFalso()
+    steam.falhar = True
+    relogio = _RelogioFalso()
+    sob = CotacaoSobDemanda(steam, espera_apos_falha_s=300.0, relogio=relogio)
+
+    sob.renovar(engine, AGORA)
+    esperas = [_espera_ate_tentar_de_novo(sob, steam, relogio, engine) for _ in range(6)]
+
+    assert esperas == [300.0, 600.0, 1200.0, 2400.0, 3600.0, 3600.0]
+
+
+def test_sucesso_volta_a_espera_ao_comeco(engine):
+    steam = _SteamClienteFalso()
+    steam.falhar = True
+    relogio = _RelogioFalso()
+    sob = CotacaoSobDemanda(steam, espera_apos_falha_s=300.0, relogio=relogio)
+    sob.renovar(engine, AGORA)
+    _espera_ate_tentar_de_novo(sob, steam, relogio, engine)
+    _espera_ate_tentar_de_novo(sob, steam, relogio, engine)
+
+    steam.falhar = False
+    _espera_ate_tentar_de_novo(sob, steam, relogio, engine)
+    assert sob.obter(engine).buscado_em == AGORA
+
+    # A nova vence, e a renovação seguinte falha: a espera é a do começo.
+    vencida = AGORA + VALIDADE_COTACAO + timedelta(minutes=1)
+    steam.falhar = True
+    sob.renovar(engine, vencida)
+    assert _espera_ate_tentar_de_novo(sob, steam, relogio, engine, vencida) == 300.0
+
+
 def test_falha_fica_registrada_no_log(engine, capsys):
     steam = _SteamClienteFalso()
     steam.falhar = True

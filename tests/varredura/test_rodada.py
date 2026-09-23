@@ -72,29 +72,32 @@ class _Steam:
     """Busca falsa: fatia a lista de 10 em 10, como a Steam real.
 
     `limitar_busca={start: n}` responde 429 nas n primeiras tentativas
-    daquele `start`; `usd_limitado=n` faz o mesmo com a cotação do dólar.
+    daquele `start`.
 
     `calma_ate` é a calma do próprio `SteamClient` (60 s depois de um 429,
     ligada também pela renovação da cotação ou por uma busca de usuário):
     ligada, o cliente recusa sem requisição, e `recusas` conta isso.
-    `calma_apos_usd=s` liga essa calma logo depois de a cotação dar certo.
+    `calma_apos_busca=s` liga essa calma logo depois da primeira busca que der
+    certo.
+
+    Não há `usd_to_brl`: a rodada converte com a taxa da cotação guardada, e
+    uma chamada à Steam para isso quebraria a rodada com erro.
     """
 
     def __init__(self, resultados, limitar_busca=None, erro_no_start=None, erro=None,
-                 usd_limitado=0, contador=None, ao_buscar=None, calma_apos_usd=0.0):
+                 contador=None, ao_buscar=None, calma_apos_busca=0.0):
         self.resultados = list(resultados)
         self.limitar_busca = dict(limitar_busca or {})
         self.erro_no_start = erro_no_start
         self.erro = erro or RuntimeError("HTTP 500")
-        self.usd_limitado = usd_limitado
         self.contador = contador
         self.ao_buscar = ao_buscar
-        self.calma_apos_usd = calma_apos_usd
+        self.calma_apos_busca = calma_apos_busca
         self.tempo = None  # o `_rodar` do teste liga o relógio simulado
         self.calma_ate = 0.0
         self.recusas = 0
         self.chamadas = []
-        self.usd_chamadas = 0
+        self.taxas = []
         self.emprestadas = []
 
     def _s(self):
@@ -108,21 +111,10 @@ class _Steam:
             self.recusas += 1
             raise SteamLimitando("em calma, sem requisição")
 
-    def usd_to_brl(self):
-        self._recusar_em_calma()
-        self.usd_chamadas += 1
-        if self.contador is not None:
-            self.emprestadas.append(self.contador["emprestadas"])
-        if self.usd_limitado > 0:
-            self.usd_limitado -= 1
-            raise SteamLimitando("429")
-        if self.calma_apos_usd:
-            self.calma_ate = self._s() + self.calma_apos_usd
-        return 5.0
-
-    def search_page(self, start=0, count=100, query=None):
+    def search_page(self, start=0, count=100, query=None, usd_to_brl=None):
         self._recusar_em_calma()
         self.chamadas.append((start, query))
+        self.taxas.append(usd_to_brl)
         if self.contador is not None:
             self.emprestadas.append(self.contador["emprestadas"])
         if self.ao_buscar is not None:
@@ -132,6 +124,9 @@ class _Steam:
             raise SteamLimitando("429")
         if start == self.erro_no_start:
             raise self.erro
+        if self.calma_apos_busca:
+            self.calma_ate = self._s() + self.calma_apos_busca
+            self.calma_apos_busca = 0.0
         return SearchPage(total_count=len(self.resultados),
                           results=self.resultados[start:start + 10])
 
@@ -222,7 +217,6 @@ def test_primeira_rodada_le_a_fundo_so_os_cosmeticos_e_pagina_a_busca(engine):
 
     resumo = _rodar(engine, steam, retratos)
 
-    assert steam.usd_chamadas == 1
     assert steam.chamadas == [(0, QUERY), (10, QUERY)]
     assert retratos.pedidos == ["Unusual A", "Unusual B"]
     assert (resumo.nomes_lidos, resumo.fundas_feitas, resumo.falhas, resumo.motivo) == (2, 2, 0, "ok")
@@ -230,6 +224,18 @@ def test_primeira_rodada_le_a_fundo_so_os_cosmeticos_e_pagina_a_busca(engine):
     with engine.begin() as conn:
         rodada = repo.ultima_rodada(conn)
     assert (rodada.motivo_parada, rodada.nomes_lidos, rodada.fundas_feitas) == ("ok", 2, 2)
+
+
+def test_busca_rasa_converte_com_a_taxa_da_cotacao_sem_pedir_o_dolar_a_steam(engine):
+    """Medido no Railway em 23/09/2026: toda rodada morria em "429 na cotação
+    do dólar", um passo que pedia à Steam uma taxa que o banco já tinha."""
+    steam = _Steam([_r("Unusual A")])
+
+    resumo = _rodar(engine, steam, _Retratos(PAGINAS),
+                    cotacao=_cotacao(SimpleNamespace(usd_to_brl=5.3)))
+
+    assert resumo.motivo == "ok"
+    assert steam.taxas == [5.3]
 
 
 def test_assinatura_igual_dentro_do_prazo_nao_le_a_fundo(engine):
@@ -319,7 +325,7 @@ def test_sem_cotacao_da_chave_a_rodada_para_com_erro_sem_ir_a_steam(engine):
     resumo = _rodar(engine, steam, _Retratos(PAGINAS), cotacao=_cotacao(None))
 
     assert resumo.motivo == "erro"
-    assert (steam.usd_chamadas, steam.chamadas) == (0, [])
+    assert steam.chamadas == []
 
 
 def test_espaco_extra_antes_de_cada_passo(engine):
@@ -327,8 +333,8 @@ def test_espaco_extra_antes_de_cada_passo(engine):
 
     _rodar(engine, _Steam([_r("Unusual A"), _r("Unusual B")]), _Retratos(PAGINAS), tempo=tempo)
 
-    # cotação do dólar + 1 página da busca + 2 leituras fundas
-    assert tempo.esperas == [ESPACO_EXTRA_S] * 4
+    # 1 página da busca + 2 leituras fundas
+    assert tempo.esperas == [ESPACO_EXTRA_S] * 3
 
 
 def test_estourar_o_teto_de_paginas_rasas_conta_como_erro(engine, monkeypatch):
@@ -353,7 +359,7 @@ def test_nenhuma_conexao_emprestada_durante_as_requisicoes(engine):
 
     _rodar(engine, steam, retratos)
 
-    assert steam.emprestadas == [0, 0]  # cotação do dólar + busca
+    assert steam.emprestadas == [0]  # a busca
     assert retratos.emprestadas == [0, 0]
 
 
@@ -453,18 +459,6 @@ def test_cotacao_que_some_no_meio_para_a_rodada_com_erro(engine):
 
 # --- pausa e retomada no 429 -----------------------------------------------
 
-def test_429_na_cotacao_do_dolar_pausa_e_retoma_antes_da_busca(engine):
-    tempo = _Tempo()
-    steam = _Steam([_r("Unusual A")], usd_limitado=1)
-
-    resumo = _rodar(engine, steam, _Retratos(PAGINAS), tempo=tempo)
-
-    assert resumo.motivo == "ok"
-    assert steam.usd_chamadas == 2
-    assert steam.chamadas == [(0, QUERY)]
-    assert tempo.pausas() == [300]
-
-
 def test_429_na_busca_pausa_e_retoma_no_mesmo_start(engine):
     tempo = _Tempo()
     steam = _Steam([_r("Unusual A"), *TAUNTS, _r("Unusual B")], limitar_busca={10: 1})
@@ -551,7 +545,7 @@ def test_calma_ja_ligada_no_inicio_e_esperada_sem_contar_como_pausa(engine, caps
 
     assert resumo.motivo == "ok"
     assert tempo.esperas[0] == CALMA_S
-    assert (steam.usd_chamadas, steam.chamadas) == (1, [(0, QUERY)])
+    assert steam.chamadas == [(0, QUERY)]
     assert "pausa" not in capsys.readouterr().out
 
 
@@ -571,7 +565,7 @@ def test_calma_ligada_durante_o_espaco_extra_e_esperada_antes_de_requisitar(engi
 
     assert resumo.motivo == "ok"
     assert tempo.esperas[:2] == [ESPACO_EXTRA_S, CALMA_S - ESPACO_EXTRA_S]
-    assert steam.usd_chamadas == 1
+    assert steam.chamadas == [(0, QUERY)]
 
 
 CALMA_CLIENTE_S = 60.0
@@ -593,21 +587,23 @@ def test_calma_do_cliente_ja_ligada_e_esperada_sem_contar_como_pausa(engine, cap
     assert tempo.esperas[0] == CALMA_CLIENTE_S
     assert tempo.pausas() == [CALMA_CLIENTE_S]
     assert steam.recusas == 0
-    assert (steam.usd_chamadas, steam.chamadas) == (1, [(0, QUERY)])
+    assert steam.chamadas == [(0, QUERY)]
     assert retratos.calma_ate == 0.0
     assert "pausa" not in capsys.readouterr().out
 
 
-def test_calma_do_cliente_ligada_entre_passos_e_esperada_na_busca(engine, capsys):
+def test_calma_do_cliente_ligada_entre_paginas_e_esperada_na_busca(engine, capsys):
     tempo = _Tempo()
     retratos = _Retratos(PAGINAS)
-    steam = _Steam([_r("Unusual A")], calma_apos_usd=CALMA_CLIENTE_S)
+    steam = _Steam([_r("Unusual A"), *TAUNTS, _r("Unusual B")],
+                   calma_apos_busca=CALMA_CLIENTE_S)
 
     resumo = _rodar(engine, steam, retratos, tempo=tempo)
 
     assert resumo.motivo == "ok"
     assert steam.recusas == 0
-    assert steam.chamadas == [(0, QUERY)]
+    assert steam.chamadas == [(0, QUERY), (10, QUERY)]
+    assert tempo.esperas[:2] == [ESPACO_EXTRA_S, CALMA_CLIENTE_S]
     assert retratos.calma_ate == 0.0
     assert "pausa" not in capsys.readouterr().out
 
@@ -628,33 +624,18 @@ def test_calma_do_cliente_ligada_durante_o_espaco_extra_e_esperada_antes_de_requ
 
     assert resumo.motivo == "ok"
     assert tempo.esperas[:2] == [ESPACO_EXTRA_S, CALMA_CLIENTE_S - ESPACO_EXTRA_S]
-    assert (steam.recusas, steam.usd_chamadas) == (0, 1)
+    assert (steam.recusas, steam.chamadas) == (0, [(0, QUERY)])
     assert retratos.calma_ate == 0.0
 
 
-def test_429_persistente_na_cotacao_do_dolar_desiste_depois_de_quatro_pausas(engine):
-    tempo = _Tempo()
-    retratos = _Retratos(PAGINAS)
-    steam = _Steam([_r("Unusual A")], usd_limitado=99)
-
-    resumo = _rodar(engine, steam, retratos, tempo=tempo)
-
-    assert resumo.motivo == "429"
-    assert steam.usd_chamadas == MAX_PAUSAS_SEGUIDAS + 1
-    assert tempo.pausas() == [300, 600, 1200, 1800]
-    assert steam.chamadas == []
-    assert retratos.pedidos == []
-
-
 def test_log_diz_onde_veio_cada_429(engine, capsys):
-    steam = _Steam([_r("Unusual A")], limitar_busca={0: 1}, usd_limitado=1)
+    steam = _Steam([_r("Unusual A")], limitar_busca={0: 1})
     retratos = _Retratos(PAGINAS, limitar={"Unusual A": 1})
 
     resumo = _rodar(engine, steam, retratos)
     saida = capsys.readouterr().out
 
     assert resumo.motivo == "ok"
-    assert ": 429 na cotação do dólar; pausa 1 de 4, até " in saida
     assert ": 429 na busca (página 1); pausa 1 de 4, até " in saida
     assert ": 429 na página de Unusual A; pausa 1 de 4, até " in saida
 
@@ -681,7 +662,7 @@ def test_stop_no_espaco_extra_para_sem_requisicao(engine):
     resumo = _rodar(engine, steam, _Retratos(PAGINAS), tempo=_Tempo(cancelar_se=lambda s: True))
 
     assert resumo.motivo == "cancelada"
-    assert (steam.usd_chamadas, steam.chamadas) == (0, [])
+    assert steam.chamadas == []
 
 
 def test_stop_durante_a_espera_da_calma_para_sem_requisicao(engine):
@@ -694,7 +675,7 @@ def test_stop_durante_a_espera_da_calma_para_sem_requisicao(engine):
 
     assert resumo.motivo == "cancelada"
     assert tempo.esperas == [CALMA_CLIENTE_S]
-    assert (steam.recusas, steam.usd_chamadas, steam.chamadas) == (0, 0, [])
+    assert (steam.recusas, steam.chamadas) == (0, [])
     assert retratos.pedidos == []
 
 

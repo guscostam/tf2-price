@@ -20,6 +20,7 @@ from tf2price.preco.retrato import Retratos
 from tf2price.sources.backpacktf import PriceIndex
 from tf2price.sources.bcb import Ptax
 from tf2price.sources.ratelimit import RateLimiter
+from tf2price.sources.steam import SteamClient
 from tf2price.sources.steam_page import PageStructureError, SteamLimitando, SteamPageClient
 
 from .conftest import (
@@ -78,9 +79,38 @@ def test_busca_lista_os_nomes(cliente):
     assert NOME in r.text
 
 
+def test_busca_real_gasta_uma_requisicao_com_o_priceoverview_limitado(engine):
+    """Medido no Railway em 23/09/2026: depois de cada deploy, a busca pedia
+    dois priceoverview para uma taxa que ela nem usa, e com o IP limitado
+    nesse endpoint a pesquisa da tela falhava inteira."""
+    pedidos: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        pedidos.append(request)
+        if "priceoverview" in request.url.path:
+            return httpx.Response(429, text="")
+        return httpx.Response(200, json={
+            "total_count": 1,
+            "results": [{"hash_name": NOME, "sell_price": 100, "sell_listings": 1}],
+        })
+
+    steam = SteamClient(
+        RateLimiter(min_interval_s=0.0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda _: None,
+    )
+    cliente = cliente_logado(engine, _contexto(steam=steam))
+
+    r = cliente.get("/buscar", params={"q": "Chairholder"})
+
+    assert NOME in r.text
+    assert 'role="alert"' not in r.text
+    assert [p.url.path for p in pedidos] == ["/market/search/render/"]
+
+
 def test_busca_limitada_distingue_429_sem_detalhes_e_limpa_paineis(engine):
     class SteamLimitada:
-        def search_page(self, start=0, count=100, query=None):
+        def buscar_nomes(self, query, count):
             raise SteamLimitando("upstream-private-detail token=fixture-only")
 
     cliente = cliente_logado(engine, _contexto(steam=SteamLimitada()))

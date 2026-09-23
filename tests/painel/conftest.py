@@ -13,7 +13,6 @@ from tf2price.painel.consulta import Contexto, Cotacao
 from tf2price.preco.retrato import Leitura
 from tf2price.sources.backpacktf import PriceIndex
 from tf2price.sources.bcb import Ptax
-from tf2price.sources.steam import SearchPage, SearchResult
 from tf2price.sources.steam_page import parse_item_page
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
@@ -40,15 +39,9 @@ class _SteamFalso:
         self.nomes = nomes
         self.chamadas = 0
 
-    def search_page(self, start=0, count=100, query=None):
+    def buscar_nomes(self, query, count):
         self.chamadas += 1
-        return SearchPage(
-            total_count=len(self.nomes),
-            results=[
-                SearchResult(hash_name=n, lowest_price=Brl.from_cents(1000), sell_listings=1)
-                for n in self.nomes
-            ],
-        )
+        return list(self.nomes)
 
 
 class _IndiceFalso:

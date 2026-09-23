@@ -1,9 +1,10 @@
-"""Uma rodada da varredura: cotação do dólar, passada rasa, passada funda.
+"""Uma rodada da varredura: passada rasa, passada funda.
 
 A passada rasa lê a busca da Steam (10 nomes por requisição) e guarda, por
 nome, o menor preço e o número de listagens, que é a assinatura. A funda abre
 a página só dos nomes cuja assinatura mudou, que nunca foram lidos ou cuja
-leitura passou do prazo.
+leitura passou do prazo. As duas convertem o dólar com a taxa da cotação
+guardada no banco: a rodada não pede taxa à Steam.
 
 Toda requisição sai do mesmo IP da consulta, e a consulta é o produto. Por
 isso a rodada espera um intervalo extra antes de cada passo, espera a calma de
@@ -45,8 +46,8 @@ PAUSAS_MIN = (5, 10, 20, 30)
 # Uma tentativa depois da quarta pausa que também leve 429 encerra a rodada:
 # ~65 min batendo num IP limitado já é resposta. São 5 tentativas do mesmo
 # passo (a primeira e uma depois de cada pausa), cada uma com até 2
-# requisições pela retentativa do cliente (a primeira da cotação do dólar, até
-# 4: são dois `priceoverview`): na ordem de 10 requisições nesses ~65 min.
+# requisições pela retentativa do cliente: na ordem de 10 requisições nesses
+# ~65 min.
 MAX_PAUSAS_SEGUIDAS = 4
 
 
@@ -219,23 +220,17 @@ def _rodar(
     steam: Any, retratos: Any, cotacao: Any,
     agora: Callable[[], datetime], aceitar: Callable[[str], bool],
 ) -> str:
-    if cotacao.obter(engine) is None:
-        print("[varredura] sem cotação da chave: a página do item vem em dólar "
-              "e não há taxa para converter", flush=True)
+    cot = cotacao.obter(engine)
+    if cot is None:
+        print("[varredura] sem cotação da chave: a busca e a página do item vêm em "
+              "dólar e não há taxa para converter", flush=True)
         return repo.MOTIVO_ERRO
 
-    # --- cotação do dólar: a busca responde em dólar e o `SteamClient`
-    # converte com esta taxa. Antes ela era buscada escondida dentro da
-    # primeira busca, e um 429 ali não dizia de onde veio.
-    while True:
-        freio.antes_de_requisitar()
-        try:
-            steam.usd_to_brl()
-        except SteamLimitando:
-            freio.limitado("na cotação do dólar")
-            continue
-        freio.sucesso()
-        break
+    # A taxa vem da cotação guardada, não da Steam. Medido no Railway em
+    # 23/09/2026: um passo que pedia a taxa ao priceoverview antes da busca
+    # levou 429 em toda rodada por 12 horas, com a taxa parada no banco.
+    # A assinatura da passada rasa é em dólar; a taxa só converte o preço
+    # exibido, e uma rodada de horas não precisa relê-la a cada página.
 
     # --- passada rasa
     freio.gravar(fase=repo.FASE_BUSCA)
@@ -253,7 +248,7 @@ def _rodar(
             return repo.MOTIVO_ERRO
         freio.antes_de_requisitar()
         try:
-            pagina = steam.search_page(start=start, query=QUERY)
+            pagina = steam.search_page(start=start, query=QUERY, usd_to_brl=cot.usd_to_brl)
         except SteamLimitando:
             freio.limitado(f"na busca (página {paginas_lidas + 1})")
             continue

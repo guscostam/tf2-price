@@ -136,6 +136,11 @@ SEM_COTACAO = "Steam's dollar conversion rate has not loaded yet. Try again in a
 # anda em seis horas. Uma cotação mais velha que isso manda buscar — mas, se a
 # busca falhar, a velha continua servindo, com a idade à vista na Sources.
 VALIDADE_COTACAO = timedelta(hours=6)
+# Teto da espera entre tentativas de renovar a cotação depois de falhas
+# seguidas. Medido no Railway em 23/09/2026: com o IP limitado, a renovação
+# pediu o priceoverview a cada 5 minutos por mais de 12 horas, e todas levaram
+# 429. A espera dobra a cada falha seguida (5, 10, 20, 40 min) até uma hora.
+ESPERA_MAXIMA_COTACAO_S = 3600.0
 
 
 @dataclass(frozen=True)
@@ -192,6 +197,7 @@ class CotacaoSobDemanda:
         self._relogio = relogio
         self._cotacao: Cotacao | None = None
         self._proxima_tentativa = 0.0
+        self._falhas_seguidas = 0
         self._trava = threading.Lock()
 
     def obter(self, engine: Engine) -> Cotacao | None:
@@ -247,20 +253,23 @@ class CotacaoSobDemanda:
             if self._relogio() < self._proxima_tentativa:
                 return guardada
             try:
-                # `renovar_cotacao`, e não `key_price()`/`usd_to_brl()`: esses
-                # leem o cache do cliente, que não tem validade, e a cotação
+                # `renovar_cotacao`, e não `key_price()`: esse lê o cache do
+                # cliente, que não tem validade, e a cotação
                 # congelava na vida do processo.
                 chave, taxa = self._steam.renovar_cotacao()
                 nova = Cotacao(key_brl=chave, usd_to_brl=taxa, buscado_em=quando)
             except Exception as erro:
-                _registra_falha_sob_demanda("CotacaoSobDemanda", erro, self._espera)
-                self._proxima_tentativa = self._relogio() + self._espera
+                espera = min(self._espera * 2 ** self._falhas_seguidas, ESPERA_MAXIMA_COTACAO_S)
+                self._falhas_seguidas += 1
+                _registra_falha_sob_demanda("CotacaoSobDemanda", erro, espera)
+                self._proxima_tentativa = self._relogio() + espera
                 # A velha, e não None: uma cotação de 20 minutos atrás com a
                 # idade escrita na tela é mais útil que "indisponível", e a
                 # chave não anda tanto nesse tempo.
                 return guardada
 
             self._cotacao = nova
+            self._falhas_seguidas = 0
             with engine.begin() as conn:
                 preco_repo.guardar_cotacao(
                     conn, nova.key_brl.cents, nova.usd_to_brl, quando
@@ -384,11 +393,13 @@ def buscar(request: Request, q: str = ""):
             request=request, name="_itens.html", context={"nomes": []}
         )
     try:
-        pagina = contexto.steam.search_page(start=0, count=BUSCA_MAX, query=termo)
+        # Só os nomes: a busca com preço pediria a taxa do dólar, e a tela
+        # não mostra preço nenhum aqui.
+        encontrados = contexto.steam.buscar_nomes(termo, count=BUSCA_MAX)
     except (RuntimeError, PageStructureError) as erro:
         return _erro(request, _mensagem_falha_steam(erro), limpar_efeitos=True)
 
-    nomes = [r.hash_name for r in pagina.results if is_unusual_name(r.hash_name)]
+    nomes = [n for n in encontrados if is_unusual_name(n)]
     return TEMPLATES.TemplateResponse(
         request=request, name="_itens.html", context={"nomes": nomes[:BUSCA_MAX]}
     )

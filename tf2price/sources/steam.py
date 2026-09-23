@@ -129,7 +129,7 @@ def parse_search_page(payload: dict[str, Any], usd_to_brl: float) -> SearchPage:
     (o que o código fazia até aqui) deixa todo preço da Steam ~5,4x baixo
     demais e fabrica descontos de 40-80% que não existem.
 
-    `usd_to_brl` vem de SteamClient._usd_to_brl_rate(): a chave precificada
+    `usd_to_brl` é a da cotação (ver SteamClient.renovar_cotacao): a chave precificada
     em BRL dividida pela mesma chave precificada em USD, ambas pelo
     /market/priceoverview/, que — ao contrário da busca — honra `currency`.
     Não é uma cotação comercial de câmbio, e não deve ser trocada por uma:
@@ -271,7 +271,6 @@ class SteamClient:
         # contrário), e a taxa sairia 1,0 — exatamente a mesma classe de
         # bug que esta correção existe para matar, só que silenciosa.
         self._priceoverview_cache: dict[int, dict[str, Any]] = {}
-        self._usd_to_brl: float | None = None
         self._http = client or httpx.Client(
             timeout=timeout_s,
             headers={"User-Agent": "tf2price/0.1"},
@@ -353,8 +352,31 @@ class SteamClient:
             )
         raise RuntimeError(f"Steam did not respond after backoff (last result: {last_reason})")
 
-    def search_page(self, start: int, count: int = 100, query: str | None = None) -> SearchPage:
-        """Uma página da busca de mercado, opcionalmente filtrada por texto.
+    def search_page(
+        self, start: int, count: int = 100, query: str | None = None, *, usd_to_brl: float
+    ) -> SearchPage:
+        """Uma página da busca de mercado, com os preços convertidos para real.
+
+        A busca responde em dólar, e `usd_to_brl` é obrigatório de propósito:
+        quem chama tem a taxa da cotação guardada no banco. Buscá-la aqui
+        (dois `priceoverview`, o endpoint de limite mais apertado) deixava
+        toda busca de um processo novo à mercê dele: medido no Railway em
+        23/09/2026, 12 horas de 429 no priceoverview derrubaram a busca e a
+        varredura junto, com a taxa parada no banco. Ver `_buscar_pagina`
+        para os parâmetros.
+        """
+        return parse_search_page(self._buscar_pagina(start, count, query), usd_to_brl)
+
+    def buscar_nomes(self, query: str, count: int) -> list[str]:
+        """Os nomes da primeira página da busca, sem preço nenhum.
+
+        A pesquisa da tela só lista nomes: uma requisição, sem taxa.
+        """
+        payload = self._buscar_pagina(0, count, query)
+        return [row["hash_name"] for row in (payload.get("results") or [])]
+
+    def _buscar_pagina(self, start: int, count: int, query: str | None) -> dict[str, Any]:
+        """Uma página crua da busca de mercado, opcionalmente filtrada por texto.
 
         `query` é o parâmetro `query` da Steam: um filtro de TEXTO sobre o
         nome do item, não um filtro de qualidade. "Unusual" casa com
@@ -395,11 +417,10 @@ class SteamClient:
         }
         if query:
             params["query"] = query
-        payload = self._get(f"{BASE}/market/search/render/", params)
         # `currency` continua sendo enviado por honestidade de pedido, mas a
         # busca o ignora e responde em dólar: quem traz o número para reais
         # é a taxa derivada da chave, não a Steam.
-        return parse_search_page(payload, self._usd_to_brl_rate())
+        return self._get(f"{BASE}/market/search/render/", params)
 
     def listings(self, hash_name: str, count: int = 100) -> list[Listing]:
         quoted = urllib.parse.quote(hash_name, safe="")
@@ -468,36 +489,6 @@ class SteamClient:
             },
         )
 
-    def _usd_to_brl_rate(self) -> float:
-        """Taxa dólar->real tirada da própria economia da Steam.
-
-        usd_to_brl = preço_da_chave_em_BRL_centavos / preço_da_chave_em_USD_centavos
-
-        Os dois lados vêm do /market/priceoverview/, que honra `currency` —
-        é essa assimetria com a busca (que não honra) que torna a correção
-        possível. Ver parse_search_page para por que uma taxa derivada da
-        chave é a taxa CERTA aqui, e não um remendo: a conta do spike é
-        valor em chaves, e a moeda se cancela.
-
-        Calculada uma vez por instância e guardada; `renovar_cotacao` é quem a
-        troca.
-        """
-        if self._usd_to_brl is None:
-            self._usd_to_brl = _taxa_da_chave(
-                self._priceoverview(CURRENCY_BRL), self._priceoverview(CURRENCY_USD)
-            )
-        return self._usd_to_brl
-
-    def usd_to_brl(self) -> float:
-        """A mesma taxa dólar->real já usada na busca, exposta aos chamadores.
-
-        A página de listagens também vem em dólar em parte das requisições e
-        precisa converter. Existe um acessor para que ninguém re-derive a
-        taxa nem invente uma segunda fonte de verdade: o valor é o mesmo
-        cache por instância de `_usd_to_brl_rate`.
-        """
-        return self._usd_to_brl_rate()
-
     def renovar_cotacao(self) -> tuple[Brl, float]:
         """Busca a chave de novo, sem olhar o cache, e devolve (chave, taxa).
 
@@ -505,16 +496,17 @@ class SteamClient:
         cotação renovada de 15 em 15 min era o mesmo número da subida com
         `buscado_em` novo, e a tela dizia "agora" para um preço de dias.
 
-        Os caches só são trocados depois que as duas buscas e a conta deram
-        certo. Zerá-los antes deixaria `search_page`, que usa a mesma taxa,
-        sem taxa nenhuma durante um 429.
+        A taxa é `_taxa_da_chave`: a chave em BRL dividida pela mesma chave em
+        USD, as duas pelo /market/priceoverview/, que — ao contrário da busca
+        — honra `currency`. Quem a guarda é a cotação, no banco; o cliente não
+        a retém. O cache do priceoverview só é trocado depois que as duas
+        buscas e a conta deram certo.
         """
         brl = self._buscar_priceoverview(CURRENCY_BRL)
         usd = self._buscar_priceoverview(CURRENCY_USD)
         taxa = _taxa_da_chave(brl, usd)
         chave = parse_price_text(brl["lowest_price"])
         self._priceoverview_cache = {CURRENCY_BRL: brl, CURRENCY_USD: usd}
-        self._usd_to_brl = taxa
         return chave, taxa
 
     def key_price(self) -> Brl:
