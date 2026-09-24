@@ -30,20 +30,20 @@
     <input type="number" name="preco_max" min="0" step="0.01"
            value="{{ '%.2f'|format(filtros.preco_max.as_float) if filtros.preco_max else '' }}">
   </label>
-  <label>Max backpack.tf age (days)
+  <label>Max suggested price age (days)
     <input type="number" name="idade_max" min="1"
            value="{{ filtros.idade_max_bptf_dias if filtros.idade_max_bptf_dias else '' }}">
   </label>
   <label class="scan-filters__check">
     <input type="checkbox" name="so_com_preco" value="1"{% if filtros.so_com_preco %} checked{% endif %}>
-    Only with a usable backpack.tf price
+    Only with a usable suggested price
   </label>
   <label>Sort by
     <select name="ordem">
-      <option value="resultado"{% if filtros.ordem == 'resultado' %} selected{% endif %}>Result (R$)</option>
-      <option value="percentual"{% if filtros.ordem == 'percentual' %} selected{% endif %}>Result (%)</option>
+      <option value="resultado"{% if filtros.ordem == 'resultado' %} selected{% endif %}>Guide gap (R$)</option>
+      <option value="percentual"{% if filtros.ordem == 'percentual' %} selected{% endif %}>Guide gap (%)</option>
       <option value="preco"{% if filtros.ordem == 'preco' %} selected{% endif %}>Steam price</option>
-      <option value="idade_bptf"{% if filtros.ordem == 'idade_bptf' %} selected{% endif %}>backpack.tf price age</option>
+      <option value="idade_bptf"{% if filtros.ordem == 'idade_bptf' %} selected{% endif %}>Suggested price age</option>
     </select>
   </label>
   <button class="button button--quiet" type="submit">Apply</button>

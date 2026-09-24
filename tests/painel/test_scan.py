@@ -172,3 +172,18 @@ def test_sem_referencia_o_scan_diz_e_esconde_o_resultado(engine):
 def test_o_cabecalho_do_scan_diz_qual_chave_usa(engine):
     cliente = cliente_logado(engine, _contexto(indice=_indice()))
     assert "× reference key price" in cliente.get("/scan").text
+
+
+def test_scan_distingue_preco_sugerido_de_vendas_ativas(engine):
+    _semear(engine, [("1", 80000, "Burning Flames")])
+    cliente = cliente_logado(engine, _contexto(indice=_indice()))
+
+    texto = cliente.get("/scan").text
+
+    assert "Below suggested price" in texto
+    assert "Suggested backpack.tf price" in texto
+    assert "Guide gap" in texto
+    assert "A suggested price is not a buyer offer" in texto
+    assert "View sellers" in texto
+    assert "item=Team+Captain" in texto and "particle=13" in texto
+    assert "Profitable" not in texto

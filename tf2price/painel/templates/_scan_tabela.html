@@ -2,10 +2,11 @@
   <a class="scan-tab{% if filtros.aba == 'todas' %} scan-tab--active{% endif %}"
      href="/scan?{{ filtros.query(aba='todas', pagina=1) }}">All listings</a>
   <a class="scan-tab{% if filtros.aba == 'lucro' %} scan-tab--active{% endif %}"
-     href="/scan?{{ filtros.query(aba='lucro', pagina=1) }}">Profitable</a>
+     href="/scan?{{ filtros.query(aba='lucro', pagina=1) }}">Below suggested price</a>
 </nav>
 <p class="scan-count">{{ pagina.total }} listings{% if pagina.paginas > 1 %} · page {{ pagina.pagina }} of {{ pagina.paginas }}{% endif %}
-  · result = backpack.tf value in keys × reference key price (backpack.tf dollar × PTAX) − Steam price</p>
+  · Guide gap = suggested backpack.tf value in keys × reference key price − Steam price.
+  A suggested price is not a buyer offer; check active sellers before buying.</p>
 
 {% if not pagina.linhas %}
 <p class="empty-state">No listings match these filters.</p>
@@ -17,9 +18,9 @@
         <th scope="col">Item</th>
         <th scope="col">Effect</th>
         <th scope="col">Steam price</th>
-        <th scope="col">backpack.tf value</th>
-        <th scope="col">Result</th>
-        <th scope="col">bp.tf age</th>
+        <th scope="col">Suggested backpack.tf price</th>
+        <th scope="col">Guide gap</th>
+        <th scope="col">Suggested age</th>
         <th scope="col">Read</th>
         <th scope="col"><span class="visually-hidden">Links</span></th>
       </tr>
@@ -46,6 +47,7 @@
         <td class="scan-links">
           {% if l.listagem.efeito %}<a href="/cases/new?nome={{ l.listagem.hash_name|urlencode }}&amp;efeito={{ l.listagem.efeito|urlencode }}">Open case</a>{% endif %}
           <a href="https://steamcommunity.com/market/listings/440/{{ l.listagem.hash_name|urlencode }}" target="_blank" rel="noopener noreferrer">Steam</a>
+          {% if l.vendas_url %}<a href="{{ l.vendas_url }}" target="_blank" rel="noopener noreferrer">View sellers</a>{% endif %}
         </td>
       </tr>
     {% endfor %}
