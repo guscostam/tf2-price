@@ -34,10 +34,6 @@
     <input type="number" name="idade_max" min="1"
            value="{{ filtros.idade_max_bptf_dias if filtros.idade_max_bptf_dias else '' }}">
   </label>
-  <label class="scan-filters__check">
-    <input type="checkbox" name="so_com_preco" value="1"{% if filtros.so_com_preco %} checked{% endif %}>
-    Only with a usable suggested price (guide views)
-  </label>
   <label>Sort by
     <select name="ordem">
       <option value="resultado"{% if filtros.ordem == 'resultado' %} selected{% endif %}>Potential resale (R$)</option>

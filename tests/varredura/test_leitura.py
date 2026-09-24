@@ -90,15 +90,10 @@ def _montar(listagens, **filtros):
                           AGORA, effects_path=EFEITOS)
 
 
-def test_aba_lucro_so_tem_resultado_positivo():
+def test_aba_legada_de_guia_nao_filtra_oportunidades():
     listagens = [_l("ganha", 80000), _l("perde", 150000), _l("sem", 1, efeito="Sunbeams")]
-    assert [l.listagem.listing_id for l in _montar(listagens, aba="lucro").linhas] == ["ganha"]
+    assert [l.listagem.listing_id for l in _montar(listagens, aba="lucro").linhas] == ["ganha", "perde", "sem"]
     assert _montar(listagens).total == 3
-
-
-def test_so_com_preco_tira_as_linhas_sem_resultado():
-    listagens = [_l("ganha", 80000), _l("sem", 1, efeito="Sunbeams")]
-    assert [l.listagem.listing_id for l in _montar(listagens, so_com_preco=True).linhas] == ["ganha"]
 
 
 def test_ordenacoes():
@@ -134,12 +129,12 @@ def test_arte_so_e_calculada_para_as_linhas_da_pagina(monkeypatch):
 
 
 def test_filtros_da_query_valida_tudo():
-    f = leitura.filtros_da_query(aba="lucro", q="  team ", efeito="Sunbeams",
+    f = leitura.filtros_da_query(aba="revenda", q="  team ", efeito="Sunbeams",
                                  preco_min="10.50", preco_max="abc", idade_max="",
-                                 so_com_preco="1", ordem="preco", pagina="-3")
-    assert f == leitura.Filtros(aba="lucro", texto="team", efeito="Sunbeams",
+                                 ordem="preco", pagina="-3")
+    assert f == leitura.Filtros(aba="revenda", texto="team", efeito="Sunbeams",
                                 preco_min=Brl(1050), preco_max=None,
-                                idade_max_bptf_dias=None, so_com_preco=True,
+                                idade_max_bptf_dias=None,
                                 ordem="preco", pagina=1)
 
 
@@ -154,9 +149,9 @@ def test_filtros_padrao():
 
 
 def test_query_preserva_filtros_e_troca_so_o_pedido():
-    f = leitura.Filtros(texto="team", preco_min=Brl(1050), so_com_preco=True)
+    f = leitura.Filtros(texto="team", preco_min=Brl(1050))
     q = f.query(pagina=3)
-    assert "q=team" in q and "preco_min=10.50" in q and "so_com_preco=1" in q
+    assert "q=team" in q and "preco_min=10.50" in q and "so_com_preco" not in q
     assert "pagina=3" in q
 
 
@@ -232,18 +227,27 @@ def test_sem_vendedores_e_falha_nao_viram_preco_sugerido():
         assert linha.estado_venda == estado
 
 
-def test_venda_antiga_e_steam_antiga_mostram_preco_mas_nao_potencial():
-    for venda, listagem in (
-        (_venda(horas=7), _listagem_fresca()),
-        (_venda(), _listagem_fresca(horas=7)),
-    ):
-        linha = leitura.avaliar(
-            listagem, _indice(), CHAVE, AGORA, 90,
-            effects_path=EFEITOS, venda=venda,
-        )
-        assert linha.valor_venda == Brl(100000)
-        assert linha.potencial is None
-        assert linha.estado_venda == "stale"
+def test_venda_antiga_ainda_define_potencial_com_idade_original_e_falha_posterior():
+    venda = _venda(horas=24 * 30, falhou=True)
+    linha = leitura.avaliar(
+        _listagem_fresca(), _indice(), CHAVE, AGORA, 90,
+        effects_path=EFEITOS, venda=venda,
+    )
+    assert linha.valor_venda == Brl(100000)
+    assert linha.potencial == Brl(20000)
+    assert linha.estado_venda == "encontrado"
+    assert linha.venda_buscada_em == venda.buscado_em
+    assert linha.venda_falhou_em == venda.falhou_em
+
+
+def test_steam_antiga_nao_define_oportunidade_com_venda_observada():
+    linha = leitura.avaliar(
+        _listagem_fresca(horas=7), _indice(), CHAVE, AGORA, 90,
+        effects_path=EFEITOS, venda=_venda(horas=24),
+    )
+    assert linha.valor_venda == Brl(100000)
+    assert linha.potencial is None
+    assert linha.estado_venda == "stale"
 
 
 def test_taxa_mudada_invalida_oportunidade_mantendo_idade_da_venda():
@@ -282,11 +286,11 @@ def test_aba_revenda_usa_potencial_positivo_e_isola_efeito():
     assert [l.listagem.listing_id for l in pagina.linhas] == ["ganha"]
 
 
-def test_filtro_do_guia_nao_esconde_revenda_com_venda_fresca():
+def test_guia_velho_nao_esconde_revenda_com_venda_fresca():
     listagem = _listagem_fresca()
     pagina = leitura.montar(
         [listagem], _indice(dias=200), CHAVE,
-        leitura.Filtros(aba="revenda", so_com_preco=True), AGORA,
+        leitura.Filtros(aba="revenda"), AGORA,
         effects_path=EFEITOS,
         vendas_por_par={(listagem.hash_name, listagem.efeito): _venda()},
     )

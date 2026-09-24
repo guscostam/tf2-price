@@ -23,9 +23,10 @@ from tf2price.varredura.repositorio import ListagemVarrida
 
 IDADE_MAX_BPTF_PADRAO = 90
 POR_PAGINA = 50
-ABAS = ("todas", "lucro", "revenda")
+ABAS = ("todas", "revenda")
 ORDENS = ("resultado", "percentual", "preco", "idade_bptf", "guia")
-IDADE_MAX_VENDA = timedelta(hours=6)
+IDADE_MAX_STEAM = timedelta(hours=6)
+IDADE_MAX_CONFIRMACAO_SEM_VENDAS = timedelta(hours=6)
 EFEITO_DESCONHECIDO = "Steam did not report the effect of this listing"
 PRECO_MAXIMO = Decimal("10000000")  # Limita preco da query para sempre poder formatar de volta
 
@@ -38,7 +39,6 @@ class Filtros:
     preco_min: Brl | None = None
     preco_max: Brl | None = None
     idade_max_bptf_dias: int | None = IDADE_MAX_BPTF_PADRAO
-    so_com_preco: bool = False
     ordem: str = "resultado"
     pagina: int = 1
 
@@ -56,8 +56,6 @@ class Filtros:
             "ordem": f.ordem,
             "pagina": str(f.pagina),
         }
-        if f.so_com_preco:
-            pares["so_com_preco"] = "1"
         return urlencode(pares)
 
 
@@ -110,7 +108,7 @@ def _positivo(texto: str) -> int | None:
 def filtros_da_query(
     *, aba: str = "todas", q: str = "", efeito: str = "", preco_min: str = "",
     preco_max: str = "", idade_max: str = str(IDADE_MAX_BPTF_PADRAO),
-    so_com_preco: str = "", ordem: str = "resultado", pagina: str = "1",
+    ordem: str = "resultado", pagina: str = "1",
 ) -> Filtros:
     """Tudo aqui é texto de fora: valor inválido vira o padrão, nunca erro."""
     return Filtros(
@@ -120,7 +118,6 @@ def filtros_da_query(
         preco_min=_brl(preco_min),
         preco_max=_brl(preco_max),
         idade_max_bptf_dias=_positivo(idade_max),
-        so_com_preco=so_com_preco == "1",
         ordem=ordem if ordem in ORDENS else "resultado",
         pagina=_positivo(pagina) or 1,
     )
@@ -196,8 +193,8 @@ def avaliar(
                 idade_venda = agora - venda.buscado_em if venda.buscado_em else None
                 idade_steam = agora - listagem.lido_em
                 if (
-                    idade_venda is not None and timedelta(0) <= idade_venda <= IDADE_MAX_VENDA
-                    and timedelta(0) <= idade_steam <= IDADE_MAX_VENDA
+                    idade_venda is not None and idade_venda >= timedelta(0)
+                    and timedelta(0) <= idade_steam <= IDADE_MAX_STEAM
                 ):
                     potencial = valor_venda - listagem.preco
                     percentual_venda = (
@@ -209,7 +206,7 @@ def avaliar(
             estado_venda = "indisponivel"
     elif venda is not None and venda.estado == "sem_vendas_confirmado" and venda.buscado_em is not None:
         idade_venda = agora - venda.buscado_em
-        if not timedelta(0) <= idade_venda <= IDADE_MAX_VENDA:
+        if not timedelta(0) <= idade_venda <= IDADE_MAX_CONFIRMACAO_SEM_VENDAS:
             estado_venda = "stale"
 
     def linha(**campos) -> LinhaVarrida:
@@ -299,10 +296,6 @@ def montar(
                 com_arte=False, venda=vendas.get((l.hash_name, l.efeito)) if l.efeito else None)
         for l in listagens
     ]
-    if filtros.so_com_preco and filtros.aba != "revenda":
-        linhas = [l for l in linhas if l.resultado is not None]
-    if filtros.aba == "lucro":
-        linhas = [l for l in linhas if l.resultado is not None and l.resultado.cents > 0]
     if filtros.aba == "revenda":
         linhas = [l for l in linhas if l.potencial is not None and l.potencial.cents > 0]
     linhas.sort(key=_chave_de_ordem(filtros.ordem))

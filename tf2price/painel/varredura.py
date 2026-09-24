@@ -53,14 +53,13 @@ def scan(
     preco_min: str = "",
     preco_max: str = "",
     idade_max: str = str(leitura.IDADE_MAX_BPTF_PADRAO),
-    so_com_preco: str = "",
     ordem: str = "resultado",
     pagina: str = "1",
     usuario: Usuario = Depends(ses.usuario_obrigatorio),
 ):
     filtros = leitura.filtros_da_query(
         aba=aba, q=q, efeito=efeito, preco_min=preco_min, preco_max=preco_max,
-        idade_max=idade_max, so_com_preco=so_com_preco, ordem=ordem, pagina=pagina,
+        idade_max=idade_max, ordem=ordem, pagina=pagina,
     )
     engine = request.app.state.engine
     contexto = request.app.state.contexto

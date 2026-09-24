@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from datetime import timedelta
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -55,14 +56,14 @@ def test_mostra_cada_listagem_e_o_resultado(engine):
     assert 'href="/scan"' in texto and "Market Scan" in texto
 
 
-def test_aba_profitable_so_mostra_lucro(engine):
+def test_aba_antiga_de_guia_nao_esconde_listagens(engine):
     _semear(engine, [("1", 80000, "Burning Flames"), ("2", 150000, "Burning Flames")])
     cliente = cliente_logado(engine, _contexto(indice=_indice()))
 
-    texto = cliente.get("/scan", params={"aba": "lucro"}).text
+    texto = cliente.get("/scan", params={"aba": "lucro", "so_com_preco": "1"}).text
 
     assert "R$ 800,00" in texto
-    assert "R$ 1.500,00" not in texto
+    assert "R$ 1.500,00" in texto
 
 
 def test_efeito_sem_preco_nao_herda_de_outro_efeito(engine):
@@ -70,20 +71,18 @@ def test_efeito_sem_preco_nao_herda_de_outro_efeito(engine):
     cliente = cliente_logado(engine, _contexto(indice=_indice()))
 
     todas = cliente.get("/scan").text
-    lucro = cliente.get("/scan", params={"aba": "lucro"}).text
-
     assert RAZAO_SEM_PRECO in todas
-    assert "Sunbeams" not in lucro.split('id="scan-tabela"')[1]
+    assert "Sunbeams" in todas.split('id="scan-tabela"')[1]
 
 
-def test_preco_velho_fica_fora_do_lucro_pelo_filtro_padrao(engine):
+def test_preco_sugerido_velho_nao_define_guide_gap_sem_limite_explicito(engine):
     _semear(engine, [("1", 80000, "Burning Flames")])
     cliente = cliente_logado(engine, _contexto(indice=_indice(dias=200)))
 
-    padrao = cliente.get("/scan", params={"aba": "lucro"}).text
-    sem_limite = cliente.get("/scan", params={"aba": "lucro", "idade_max": ""}).text
+    padrao = cliente.get("/scan").text
+    sem_limite = cliente.get("/scan", params={"idade_max": ""}).text
 
-    assert "No listings match these filters." in padrao
+    assert "R$ 373,00" not in padrao
     assert "R$ 373,00" in sem_limite
 
 
@@ -182,7 +181,8 @@ def test_scan_distingue_preco_sugerido_de_vendas_ativas(engine):
 
     texto = cliente.get("/scan").text
 
-    assert "Below suggested price" in texto
+    assert "Below suggested price" not in texto
+    assert "Only with a usable suggested price" not in texto
     assert "Suggested backpack.tf price" in texto
     assert "Guide gap" in texto
     assert "A suggested price is not a buyer offer" in texto
@@ -225,4 +225,22 @@ def test_aba_revenda_nao_usa_guia_quando_venda_indisponivel(engine):
     cliente = cliente_logado(engine, _contexto(indice=_indice()))
 
     assert "No listings match these filters." in cliente.get("/scan", params={"aba": "revenda"}).text
-    assert "R$ 373,00" in cliente.get("/scan", params={"aba": "lucro"}).text
+    assert "R$ 373,00" in cliente.get("/scan").text
+
+
+def test_aba_revenda_usa_ultima_venda_observada_mesmo_apos_falha(engine):
+    _semear(engine, [("1", 80000, "Burning Flames")])
+    observado = db.agora() - timedelta(days=30)
+    with engine.begin() as conn:
+        vendas_repo.gravar_sucesso(
+            conn, NOME, "Burning Flames", Decimal("120"), Decimal("0"), observado,
+            metal_por_chave=Decimal("64.11"),
+        )
+        vendas_repo.gravar_falha(conn, NOME, "Burning Flames", db.agora())
+    cliente = cliente_logado(engine, _contexto(indice=_indice()))
+
+    texto = cliente.get("/scan", params={"aba": "revenda"}).text
+
+    assert "R$ 607,60" in texto
+    assert "Update unavailable" in texto
+    assert "30 d ago" in texto

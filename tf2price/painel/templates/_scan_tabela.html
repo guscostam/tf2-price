@@ -3,12 +3,11 @@
      href="/scan?{{ filtros.query(aba='todas', pagina=1) }}">All listings</a>
   <a class="scan-tab{% if filtros.aba == 'revenda' %} scan-tab--active{% endif %}"
      href="/scan?{{ filtros.query(aba='revenda', pagina=1) }}">Potential resale</a>
-  <a class="scan-tab{% if filtros.aba == 'lucro' %} scan-tab--active{% endif %}"
-     href="/scan?{{ filtros.query(aba='lucro', pagina=1) }}">Below suggested price</a>
 </nav>
 <p class="scan-count">{{ pagina.total }} listings{% if pagina.paginas > 1 %} · page {{ pagina.pagina }} of {{ pagina.paginas }}{% endif %}
-  · Potential resale = lowest observed seller ask × reference key price − Steam price.
-  A seller ask does not guarantee a buyer. Check the exact Steam listing and seller attributes before buying.
+  · Potential resale = last observed lowest seller ask × reference key price − Steam price.
+  A seller ask does not guarantee a buyer. An older observation may no longer be available.
+  Check the exact Steam listing and seller attributes before buying.
   Guide gap uses the suggested backpack.tf price. A suggested price is not a buyer offer.</p>
 
 {% if not pagina.linhas %}

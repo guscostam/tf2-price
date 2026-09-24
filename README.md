@@ -79,22 +79,26 @@ segundo plano. O admin liga, desliga e define o intervalo entre rodadas em
 `/admin` (mínimo de 60 min).
 
 O Market Scan mostra o menor anúncio de venda **observado** na backpack.tf
-para o mesmo item e efeito, quando uma leitura autenticada recente contém um
-exemplar comparável. A aba "Potential resale" mostra a diferença positiva
-entre esse pedido e o preço Steam quando as duas leituras têm até seis horas.
+para o mesmo item e efeito, quando uma leitura autenticada contém um exemplar
+comparável. A aba "Potential resale" mostra a diferença positiva entre o
+último pedido observado e o preço Steam quando a listagem Steam tem até seis
+horas. A leitura do vendedor pode ser antiga; sua idade original continua
+visível, inclusive após falha de atualização.
 O efeito e o ID do cosmético são conferidos contra o mapa do schema da Valve
 gerado por `scripts/fetch_cosmeticos.py`.
 É uma possibilidade de revenda, não lucro confirmado: preço pedido não prova
-que haverá comprador. Atributos do exemplar Steam e do anúncio precisam ser
-conferidos antes da compra. A coleta ocorre em segundo plano, com cache por
+que haverá comprador, e um anúncio observado há muito tempo pode ter sido
+retirado. Atributos do exemplar Steam e do anúncio precisam ser conferidos
+antes da compra. A coleta ocorre em segundo plano, com cache por
 item e efeito, espaçamento de ao menos 20 segundos entre consultas e pausa
-após limite da API. Sem vendedor comparável, falha da API e dado antigo são
-estados diferentes; uma falha preserva a idade do último sucesso.
+após limite da API. Sem vendedor comparável, falha da API e idade da última
+observação aparecem separadamente; uma falha preserva a idade do último sucesso.
 
 O preço **sugerido** da backpack.tf e a diferença "Guide gap" permanecem
-separados. A aba "Below suggested price" filtra essa diferença pelo limite
-de idade escolhido. Nenhuma delas representa uma oferta de compra. Linhas com
-efeito conhecido oferecem link para conferir manualmente os vendedores.
+separados como contexto; não filtram oportunidades. O limite de idade
+escolhido para o preço sugerido afeta apenas o "Guide gap". Nenhuma dessas
+medidas representa uma oferta de compra. Linhas com efeito conhecido oferecem
+link para conferir manualmente os vendedores.
 
 A chave de referência é o valor da chave em dinheiro: o dólar da
 chave segundo a backpack.tf vezes a PTAX do Banco Central. O preço da chave na
