@@ -3,7 +3,9 @@ from __future__ import annotations
 import pytest
 
 from tf2price.varredura.escopo import (
+    COSMETICOS_DEFINDEX_PATH,
     carregar_cosmeticos,
+    defindices_de_cosmeticos,
     e_cosmetico_unusual,
     nomes_de_cosmeticos,
 )
@@ -46,9 +48,28 @@ def test_nomes_de_cosmeticos_filtra_classe_e_slot():
     assert nomes_de_cosmeticos(itens) == ["Hot Case", "Team Captain"]
 
 
+def test_defindices_de_cosmeticos_preserva_multiplos_ids_por_nome():
+    itens = [
+        {"item_name": "Team Captain", "defindex": 378, "item_class": "tf_wearable", "item_slot": "head"},
+        {"item_name": "Team Captain", "defindex": 999, "item_class": "tf_wearable", "item_slot": "head"},
+        {"item_name": "Team Captain", "defindex": 378, "item_class": "tf_wearable", "item_slot": "head"},
+        {"item_name": "Taunt: Chairholder", "defindex": 31578, "item_class": "tf_wearable", "item_slot": "taunt"},
+        {"item_name": "Gunboats", "defindex": 444, "item_class": "tf_wearable", "item_slot": "secondary"},
+    ]
+    assert defindices_de_cosmeticos(itens) == {"Team Captain": [378, 999]}
+
+
 def test_arquivo_empacotado_tem_chapeus_e_nao_tem_taunts():
     cosmeticos = carregar_cosmeticos()
     assert "Team Captain" in cosmeticos
     assert "Brigade Helm" in cosmeticos
     assert "Taunt: Chairholder" not in cosmeticos
     assert len(cosmeticos) > 500
+
+
+def test_mapa_empacotado_cobre_todos_os_nomes():
+    from tf2price.sources.classificados import carregar_defindices
+
+    mapa = carregar_defindices(COSMETICOS_DEFINDEX_PATH)
+    assert set(mapa) == carregar_cosmeticos()
+    assert 378 in mapa["Team Captain"]

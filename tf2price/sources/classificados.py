@@ -6,14 +6,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from email.utils import parsedate_to_datetime
+from functools import lru_cache
+import json
+from pathlib import Path
 import time
-from typing import Any
+from typing import Any, Mapping
 
 import httpx
 
 BASE = "https://backpack.tf/api/classifieds/listings/snapshot"
 APPID = 440
 REQUEST_TIMEOUT_S = 10.0
+COSMETICOS_DEFINDEX_PATH = Path(__file__).resolve().parent.parent / "data" / "cosmeticos_defindices.json"
 _ITEM_FIELDS = {"quality", "defindex", "quantity", "attributes"}
 _ITEM_METADATA = {"id", "inventory", "level", "origin", "original_id"}
 # Defaults vistos no schema de cosméticos e confirmados na resposta real.
@@ -42,6 +46,24 @@ class ClassificadosLimitando(RuntimeError):
         self.retry_after_s = retry_after_s
 
 
+@lru_cache(maxsize=4)
+def carregar_defindices(path: Path = COSMETICOS_DEFINDEX_PATH) -> dict[str, frozenset[int]]:
+    """Mapa gerado do schema Valve; disco somente na primeira consulta."""
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("invalid cosmetic defindex map")
+    mapa: dict[str, frozenset[int]] = {}
+    for nome, valores in raw.items():
+        if (
+            not isinstance(nome, str) or not nome
+            or not isinstance(valores, list) or not valores
+            or any(not isinstance(v, int) or isinstance(v, bool) or v <= 0 for v in valores)
+        ):
+            raise ValueError("invalid cosmetic defindex map")
+        mapa[nome] = frozenset(valores)
+    return mapa
+
+
 def _decimal_nao_negativo(value: Any) -> Decimal | None:
     if isinstance(value, bool):
         return None
@@ -52,7 +74,9 @@ def _decimal_nao_negativo(value: Any) -> Decimal | None:
     return number if number.is_finite() and number >= 0 else None
 
 
-def _venda_comparavel(row: dict[str, Any], effect_id: int) -> Venda | None:
+def _venda_comparavel(
+    row: dict[str, Any], effect_id: int, defindices: frozenset[int]
+) -> Venda | None:
     if row.get("intent") != "sell":
         return None
     item = row.get("item")
@@ -65,7 +89,8 @@ def _venda_comparavel(row: dict[str, Any], effect_id: int) -> Venda | None:
         return None
     if item["quality"] != 5 or item["quantity"] != 1:
         return None
-    if not isinstance(item["defindex"], int) or item["defindex"] <= 0:
+    if (not isinstance(item["defindex"], int) or isinstance(item["defindex"], bool)
+            or item["defindex"] not in defindices):
         return None
     attrs = item["attributes"]
     if not isinstance(attrs, list):
@@ -98,8 +123,12 @@ def _venda_comparavel(row: dict[str, Any], effect_id: int) -> Venda | None:
     return Venda(keys, metal)
 
 
-def snapshot_para_vendas(payload: Any, sku: str, effect_id: int) -> SnapshotVendas:
+def snapshot_para_vendas(
+    payload: Any, sku: str, effect_id: int, defindices: frozenset[int]
+) -> SnapshotVendas:
     """Extrai vendas estritamente comparáveis; payload inválido não é ausência."""
+    if not defindices:
+        raise ValueError("cosmetic defindex unavailable")
     if (
         not isinstance(payload, dict)
         or payload.get("appid") != APPID
@@ -117,7 +146,7 @@ def snapshot_para_vendas(payload: Any, sku: str, effect_id: int) -> SnapshotVend
     for row in payload["listings"]:
         if not isinstance(row, dict):
             raise ValueError("invalid classifieds listing")
-        venda = _venda_comparavel(row, effect_id)
+        venda = _venda_comparavel(row, effect_id, defindices)
         if venda is not None:
             vendas.append(venda)
     criado_em = datetime.fromtimestamp(payload["createdAt"], timezone.utc).replace(tzinfo=None)
@@ -142,13 +171,25 @@ def _retry_after(header: str | None) -> float | None:
 
 
 class ClassificadosClient:
-    def __init__(self, token: str, client: httpx.Client | None = None) -> None:
+    def __init__(
+        self, token: str, client: httpx.Client | None = None, *,
+        defindices_por_nome: Mapping[str, frozenset[int]] | None = None,
+        defindices_path: Path = COSMETICOS_DEFINDEX_PATH,
+    ) -> None:
         if not token:
             raise ValueError("BPTF_USER_TOKEN não configurado")
         self._token = token
         self._http = client or httpx.Client(headers={"User-Agent": "tf2price/0.1"})
+        self._defindices_por_nome = defindices_por_nome
+        self._defindices_path = defindices_path
 
-    def vendas(self, sku: str, effect_id: int) -> SnapshotVendas:
+    def vendas(self, sku: str, effect_id: int, item_name: str) -> SnapshotVendas:
+        mapa = self._defindices_por_nome
+        if mapa is None:
+            mapa = carregar_defindices(self._defindices_path)
+        defindices = mapa.get(item_name)
+        if not defindices:
+            raise ValueError("cosmetic defindex unavailable")
         try:
             response = self._http.get(
                 BASE,
@@ -163,7 +204,7 @@ class ClassificadosClient:
         if response.status_code != 200:
             raise RuntimeError("classificados indisponíveis")
         try:
-            payload = response.json()
+            payload = json.loads(response.text, parse_float=Decimal)
         except ValueError:
             raise RuntimeError("resposta inválida de classificados") from None
-        return snapshot_para_vendas(payload, sku, effect_id)
+        return snapshot_para_vendas(payload, sku, effect_id, defindices)

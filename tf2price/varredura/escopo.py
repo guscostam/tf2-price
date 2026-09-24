@@ -19,6 +19,7 @@ from tf2price.domain.identity import (
 )
 
 COSMETICOS_PATH = Path(__file__).resolve().parent.parent / "data" / "cosmeticos.json"
+COSMETICOS_DEFINDEX_PATH = COSMETICOS_PATH.with_name("cosmeticos_defindices.json")
 
 # `tf_wearable` sozinho não basta: no schema, as provocações também são
 # `tf_wearable` (slot `taunt`), e alguns itens de arma também (Gunboats,
@@ -41,6 +42,20 @@ def nomes_de_cosmeticos(itens: Iterable[dict[str, Any]]) -> list[str]:
         and item.get("item_slot") in SLOTS_DE_COSMETICO
         and item.get("item_name")
     })
+
+
+def defindices_de_cosmeticos(itens: Iterable[dict[str, Any]]) -> dict[str, list[int]]:
+    """Todos os IDs de schema por nome cosmético, inclusive nomes repetidos."""
+    ids: dict[str, set[int]] = {}
+    for item in itens:
+        if item.get("item_class") != "tf_wearable" or item.get("item_slot") not in SLOTS_DE_COSMETICO:
+            continue
+        nome, defindex = item.get("item_name"), item.get("defindex")
+        if (not isinstance(nome, str) or not nome or not isinstance(defindex, int)
+                or isinstance(defindex, bool) or defindex <= 0):
+            continue
+        ids.setdefault(nome, set()).add(defindex)
+    return {nome: sorted(ids[nome]) for nome in sorted(ids)}
 
 
 @lru_cache(maxsize=4)

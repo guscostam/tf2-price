@@ -17,7 +17,12 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
-from tf2price.varredura.escopo import COSMETICOS_PATH, nomes_de_cosmeticos
+from tf2price.varredura.escopo import (
+    COSMETICOS_DEFINDEX_PATH,
+    COSMETICOS_PATH,
+    defindices_de_cosmeticos,
+    nomes_de_cosmeticos,
+)
 
 SCHEMA_ITEMS_URL = "https://api.steampowered.com/IEconItems_440/GetSchemaItems/v0001/"
 
@@ -32,12 +37,17 @@ def main() -> int:
     itens: list[dict] = []
     inicio: int | None = 0
     while inicio is not None:
-        resposta = httpx.get(
-            SCHEMA_ITEMS_URL,
-            params={"key": api_key, "language": "en", "start": inicio},
-            timeout=60.0,
-        )
-        resposta.raise_for_status()
+        try:
+            resposta = httpx.get(
+                SCHEMA_ITEMS_URL,
+                params={"key": api_key, "language": "en", "start": inicio},
+                timeout=60.0,
+            )
+            resposta.raise_for_status()
+        except httpx.HTTPError:
+            # A URL da exceção contém a chave em query; não imprimi-la.
+            print("Falha ao consultar o schema da Steam.", file=sys.stderr)
+            return 1
         resultado = resposta.json()["result"]
         itens.extend(resultado.get("items") or [])
         inicio = resultado.get("next")
@@ -45,10 +55,16 @@ def main() -> int:
             time.sleep(1.0)
 
     nomes = nomes_de_cosmeticos(itens)
+    defindices = defindices_de_cosmeticos(itens)
+    if set(nomes) != set(defindices):
+        print("Schema incompleto: cosmético sem defindex.", file=sys.stderr)
+        return 1
     destino = Path(COSMETICOS_PATH)
+    destino_ids = Path(COSMETICOS_DEFINDEX_PATH)
     destino.parent.mkdir(parents=True, exist_ok=True)
     destino.write_text(json.dumps(nomes, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"{len(itens)} itens lidos, {len(nomes)} cosméticos gravados em {destino}")
+    destino_ids.write_text(json.dumps(defindices, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"{len(itens)} itens lidos, {len(nomes)} cosméticos gravados")
     return 0
 
 

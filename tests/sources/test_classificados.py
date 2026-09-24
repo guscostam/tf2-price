@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from datetime import datetime, timezone
+import json
 import time
 
 import httpx
@@ -11,7 +12,8 @@ from tf2price.sources.classificados import (
     ClassificadosClient,
     ClassificadosLimitando,
     Venda,
-    snapshot_para_vendas,
+    carregar_defindices,
+    snapshot_para_vendas as _snapshot_para_vendas,
 )
 
 
@@ -32,6 +34,10 @@ def _anuncio(**changes):
 
 def _snapshot(*anuncios, sku=SKU):
     return {"appid": 440, "sku": sku, "createdAt": int(time.time()), "listings": list(anuncios)}
+
+
+def snapshot_para_vendas(payload, sku, effect_id, defindices=frozenset({378})):
+    return _snapshot_para_vendas(payload, sku, effect_id, defindices)
 
 
 def test_parser_aceita_venda_com_efeito_exato_e_decimais():
@@ -76,6 +82,33 @@ def test_parser_aceita_metadados_e_atributos_padrao_observados_na_api():
 def test_parser_ignora_compras_e_outro_efeito():
     outro = _anuncio(item={"quality": 5, "defindex": 378, "quantity": 1, "attributes": [{"defindex": 134, "float_value": 13}]})
     assert snapshot_para_vendas(_snapshot(_anuncio(intent="buy"), outro), SKU, 12).vendas == ()
+
+
+def test_parser_ignora_defindex_de_outro_item_mesmo_com_efeito_correto():
+    item = {"quality": 5, "defindex": 999, "quantity": 1,
+            "attributes": [{"defindex": 134, "float_value": 12}]}
+    assert snapshot_para_vendas(
+        _snapshot(_anuncio(item=item)), SKU, 12, frozenset({378})
+    ).vendas == ()
+
+
+def test_parser_aceita_qualquer_defindex_do_mesmo_nome_no_schema():
+    item = {"quality": 5, "defindex": 999, "quantity": 1,
+            "attributes": [{"defindex": 134, "float_value": 12}]}
+    assert snapshot_para_vendas(
+        _snapshot(_anuncio(item=item)), SKU, 12, frozenset({378, 999})
+    ).vendas == (Venda(Decimal("12.5"), Decimal("0.11")),)
+
+
+def test_parser_recusa_conjunto_de_defindices_ausente():
+    with pytest.raises(ValueError, match="defindex unavailable"):
+        snapshot_para_vendas(_snapshot(), SKU, 12, frozenset())
+
+
+def test_loader_le_mapa_local_sem_rede(tmp_path):
+    path = tmp_path / "ids.json"
+    path.write_text(json.dumps({"Team Captain": [378, 999]}), encoding="utf-8")
+    assert carregar_defindices(path)["Team Captain"] == frozenset({378, 999})
 
 
 @pytest.mark.parametrize(
@@ -140,7 +173,10 @@ def test_cliente_envia_token_cabecalho_sku_e_timeout():
         return httpx.Response(200, json=_snapshot(_anuncio()))
 
     http = httpx.Client(transport=httpx.MockTransport(handler))
-    snapshot = ClassificadosClient("SEGREDO_DE_TESTE", client=http).vendas(SKU, 12)
+    snapshot = ClassificadosClient(
+        "SEGREDO_DE_TESTE", client=http,
+        defindices_por_nome={"Team Captain": frozenset({378})},
+    ).vendas(SKU, 12, "Team Captain")
     assert snapshot.vendas == (Venda(Decimal("12.5"), Decimal("0.11")),)
     request = requests[0]
     assert request.url.path == "/api/classifieds/listings/snapshot"
@@ -149,9 +185,36 @@ def test_cliente_envia_token_cabecalho_sku_e_timeout():
     assert request.extensions["timeout"]["read"] > 0
 
 
+def test_cliente_preserva_precisao_decimal_do_json():
+    body = json.dumps(_snapshot(_anuncio())).replace(
+        '"keys": 12.5', '"keys": 0.123456789123456789'
+    )
+    http = httpx.Client(transport=httpx.MockTransport(
+        lambda _: httpx.Response(200, text=body)
+    ))
+    snapshot = ClassificadosClient(
+        "SEGREDO_DE_TESTE", client=http,
+        defindices_por_nome={"Team Captain": frozenset({378})},
+    ).vendas(SKU, 12, "Team Captain")
+    assert snapshot.vendas[0].chaves == Decimal("0.123456789123456789")
+
+
 def test_cliente_429_expoe_retry_after_sem_token():
     http = httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(429, headers={"Retry-After": "42"})))
     with pytest.raises(ClassificadosLimitando) as error:
-        ClassificadosClient("SEGREDO_DE_TESTE", client=http).vendas(SKU, 12)
+        ClassificadosClient(
+            "SEGREDO_DE_TESTE", client=http,
+            defindices_por_nome={"Team Captain": frozenset({378})},
+        ).vendas(SKU, 12, "Team Captain")
     assert error.value.retry_after_s == 42
     assert "SEGREDO_DE_TESTE" not in str(error.value)
+
+
+def test_cliente_sem_item_no_mapa_falha_antes_do_http():
+    def handler(_request):
+        pytest.fail("não deve consultar vendedores sem defindex conhecido")
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    cliente = ClassificadosClient("SEGREDO_DE_TESTE", client=http, defindices_por_nome={})
+    with pytest.raises(ValueError, match="defindex unavailable"):
+        cliente.vendas(SKU, 12, "Team Captain")
