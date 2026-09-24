@@ -24,7 +24,12 @@ PERIODO_S = 60.0
 
 
 class ClienteVendas(Protocol):
-    def vendas(self, sku: str, effect_id: int) -> tuple[Venda, ...]: ...
+    def vendas(self, sku: str, effect_id: int) -> SnapshotLido: ...
+
+
+class SnapshotLido(Protocol):
+    vendas: tuple[Venda, ...]
+    criado_em: datetime
 
 
 class VendasColetor:
@@ -86,8 +91,8 @@ class VendasColetor:
                 return
             self._ultima_chamada = self._monotonic()
             try:
-                vendas = self._client.vendas(sku, efeito_id)
-                menor = self._menor(vendas)
+                snapshot = self._client.vendas(sku, efeito_id)
+                menor = self._menor(snapshot.vendas)
             except ClassificadosLimitando as erro:
                 with self._engine.begin() as conn:
                     repo.gravar_falha(conn, hash_name, efeito, self._agora())
@@ -108,9 +113,9 @@ class VendasColetor:
             self._falhas_seguidas = 0
             with self._engine.begin() as conn:
                 if menor is None:
-                    repo.gravar_sucesso(conn, hash_name, efeito, None, None, self._agora())
+                    repo.gravar_sucesso(conn, hash_name, efeito, None, None, snapshot.criado_em)
                 else:
-                    repo.gravar_sucesso(conn, hash_name, efeito, menor.chaves, menor.metal, self._agora())
+                    repo.gravar_sucesso(conn, hash_name, efeito, menor.chaves, menor.metal, snapshot.criado_em)
 
     def _menor(self, vendas: tuple[Venda, ...]) -> Venda | None:
         if not vendas:

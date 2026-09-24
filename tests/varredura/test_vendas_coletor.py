@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 from sqlalchemy import event, insert
 
@@ -29,7 +30,7 @@ class Cliente:
         resposta = next(self.respostas)
         if isinstance(resposta, Exception):
             raise resposta
-        return resposta
+        return resposta if hasattr(resposta, "vendas") else SimpleNamespace(vendas=resposta, criado_em=T0)
 
 
 def _listagem(engine, ident, nome="Unusual Team Captain", efeito="Burning Flames", instante=T0):
@@ -78,6 +79,22 @@ def test_consulta_sku_do_efeito_em_vez_do_item_generico(engine):
     cliente = Cliente([()])
     _coletor(engine, cliente).rodar_uma_passada(Parar())
     assert cliente.chamadas == [("Massed Flies Team Captain", 12)]
+
+
+def test_snapshot_repetido_preserva_created_at_original(engine):
+    _listagem(engine, "1")
+    criado_em = T0 - timedelta(hours=7)
+    snapshot = SimpleNamespace(
+        vendas=(Venda(Decimal("8"), Decimal("2")),), criado_em=criado_em,
+    )
+    cliente = Cliente([snapshot, snapshot])
+    coletor = _coletor(engine, cliente)
+    coletor.rodar_uma_passada(Parar())
+    coletor.rodar_uma_passada(Parar())
+    with engine.begin() as conn:
+        registro = vendas_repo.ler_todas(conn)[("Unusual Team Captain", "Burning Flames")]
+    assert len(cliente.chamadas) == 2
+    assert registro.buscado_em == criado_em
 
 
 def test_sem_cotacao_metal_nao_grava_ausencia(engine):
