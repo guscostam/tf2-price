@@ -216,3 +216,16 @@ def test_criar_app_nao_aquece(engine):
     assert ctx.cotacao.chamadas == 0
     assert ctx.indice.chamadas == 0
     assert threading.active_count() >= 1
+
+
+def test_preparar_vendas_so_inicia_com_token_sem_fazer_http(engine):
+    from tf2price.painel.app import preparar_vendas
+    from tf2price.varredura.vendas_coletor import VendasColetor
+
+    ctx = _ContextoFalso(_Fonte(), _Fonte())
+    iniciados = []
+    assert preparar_vendas(engine, ctx, token="", iniciar=iniciados.append) is None
+    coletor = preparar_vendas(engine, ctx, token="token-de-teste", iniciar=iniciados.append)
+    assert isinstance(coletor, VendasColetor)
+    assert iniciados == [coletor]
+    assert ctx.indice.chamadas == 0

@@ -522,7 +522,7 @@ button:active { transform: translateY(1px); }
 .scan-tab--active { border-color: var(--warning); color: var(--warning); }
 .scan-count { font-family: var(--font-mono); font-size: .75rem; color: color-mix(in srgb, var(--paper) 70%, transparent); }
 .scan-table-wrap { overflow-x: auto; border: 1px solid var(--ink-blue); }
-.scan-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.scan-table { width: 100%; min-width: 1120px; border-collapse: collapse; font-size: .85rem; }
 .scan-table th, .scan-table td { padding: .6rem .75rem; text-align: left; vertical-align: top; border-bottom: 1px dotted var(--ink-blue); }
 .scan-table th { font: 700 .72rem var(--font-condensed); text-transform: uppercase; background: var(--ink-panel); }
 .scan-sub { display: block; margin-top: .2rem; font-family: var(--font-mono); font-size: .72rem; color: color-mix(in srgb, var(--paper) 65%, transparent); }

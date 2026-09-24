@@ -198,6 +198,7 @@ venda_efeito = Table(
     Column("estado", String(30), nullable=False),
     Column("chaves", String(80), nullable=True),
     Column("metal", String(80), nullable=True),
+    Column("metal_por_chave", String(80), nullable=True),
     Column("buscado_em", DateTime, nullable=True),
     Column("falhou_em", DateTime, nullable=True),
 )

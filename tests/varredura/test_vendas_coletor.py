@@ -25,8 +25,8 @@ class Cliente:
         self.respostas = iter(respostas)
         self.chamadas = []
 
-    def vendas(self, sku, effect_id):
-        self.chamadas.append((sku, effect_id))
+    def vendas(self, sku, effect_id, item_name):
+        self.chamadas.append((sku, effect_id, item_name))
         resposta = next(self.respostas)
         if isinstance(resposta, Exception):
             raise resposta
@@ -57,7 +57,7 @@ def test_seleciona_apenas_steam_recente_deduplica_e_nao_rele_ate_vencer(engine):
     coletor = _coletor(engine, cliente)
     coletor.rodar_uma_passada(Parar())
     coletor.rodar_uma_passada(Parar())
-    assert cliente.chamadas == [("Burning Flames Team Captain", 13)]
+    assert cliente.chamadas == [("Burning Flames Team Captain", 13, "Team Captain")]
     with engine.begin() as conn:
         assert vendas_repo.ler_todas(conn)[("Unusual Team Captain", "Burning Flames")].chaves == Decimal("10")
 
@@ -71,14 +71,47 @@ def test_escolhe_minimo_convertendo_metal_por_chave(engine):
     _coletor(engine, cliente, taxa=Decimal("50")).rodar_uma_passada(Parar())
     with engine.begin() as conn:
         registro = vendas_repo.ler_todas(conn)[("Unusual Team Captain", "Burning Flames")]
-    assert (registro.chaves, registro.metal) == (Decimal("2"), Decimal("0"))
+    assert (registro.chaves, registro.metal, registro.metal_por_chave) == (
+        Decimal("2"), Decimal("0"), Decimal("50"))
+
+
+def test_refaz_selecao_quando_relacao_metal_chave_muda(engine):
+    _listagem(engine, "1")
+    ofertas = (Venda(Decimal("1"), Decimal("0")), Venda(Decimal("0"), Decimal("50")))
+    cliente = Cliente([ofertas, ofertas])
+    taxa = [Decimal("60")]
+    coletor = VendasColetor(
+        engine, cliente, key_in_refined=lambda: taxa[0], agora=lambda: T0,
+        esperar=lambda _: False, monotonic=lambda: 0.0,
+    )
+    coletor.rodar_uma_passada(Parar())
+    taxa[0] = Decimal("40")
+    coletor.rodar_uma_passada(Parar())
+    with engine.begin() as conn:
+        registro = vendas_repo.ler_todas(conn)[("Unusual Team Captain", "Burning Flames")]
+    assert len(cliente.chamadas) == 2
+    assert (registro.chaves, registro.metal, registro.metal_por_chave) == (
+        Decimal("1"), Decimal("0"), Decimal("40"))
+    assert registro.buscado_em == T0
 
 
 def test_consulta_sku_do_efeito_em_vez_do_item_generico(engine):
     _listagem(engine, "1", efeito="Massed Flies")
     cliente = Cliente([()])
     _coletor(engine, cliente).rodar_uma_passada(Parar())
-    assert cliente.chamadas == [("Massed Flies Team Captain", 12)]
+    assert cliente.chamadas == [("Massed Flies Team Captain", 12, "Team Captain")]
+
+
+def test_nao_aplica_venda_unusual_comum_a_qualidade_dupla(engine):
+    _listagem(engine, "1", nome="Strange Unusual Bonk Boy")
+    _listagem(engine, "2", nome="Unusual Strange Bonk Boy")
+    cliente = Cliente([])
+
+    _coletor(engine, cliente).rodar_uma_passada(Parar())
+
+    assert cliente.chamadas == []
+    with engine.begin() as conn:
+        assert vendas_repo.ler_todas(conn) == {}
 
 
 def test_snapshot_repetido_preserva_created_at_original(engine):
@@ -136,9 +169,9 @@ def test_nao_segura_conexao_durante_http_ou_espera(engine):
     event.listen(engine.pool, "checkin", checkin)
 
     class Observador(Cliente):
-        def vendas(self, sku, effect_id):
+        def vendas(self, sku, effect_id, item_name):
             observadas.append(emprestadas)
-            return super().vendas(sku, effect_id)
+            return super().vendas(sku, effect_id, item_name)
 
     cliente = Observador([(), ()])
     tempos = iter([0.0, 0.0, 0.0, 20.0, 20.0])
@@ -170,3 +203,22 @@ def test_429_respeita_retry_after_e_interrompe_passada(engine):
     with engine.begin() as conn:
         registro = vendas_repo.ler_todas(conn)[("Unusual Brigade Helm", "Burning Flames")]
     assert (registro.estado, registro.falhou_em) == ("indisponivel", T0)
+
+
+def test_ciclo_sobrevive_falha_transitoria_do_banco(engine, monkeypatch):
+    coletor = _coletor(engine, Cliente([]))
+    tentativas = []
+    esperas = []
+
+    def passada(_):
+        tentativas.append(1)
+        if len(tentativas) == 1:
+            raise RuntimeError("falha temporaria do banco")
+
+    monkeypatch.setattr(coletor, "rodar_uma_passada", passada)
+    coletor._esperar = lambda segundos: esperas.append(segundos) or len(esperas) == 2
+
+    coletor.ciclo(Parar(), periodo_s=1)
+
+    assert len(tentativas) == 2
+    assert esperas == [1, 1]

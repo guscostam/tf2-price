@@ -36,13 +36,14 @@
   </label>
   <label class="scan-filters__check">
     <input type="checkbox" name="so_com_preco" value="1"{% if filtros.so_com_preco %} checked{% endif %}>
-    Only with a usable suggested price
+    Only with a usable suggested price (guide views)
   </label>
   <label>Sort by
     <select name="ordem">
-      <option value="resultado"{% if filtros.ordem == 'resultado' %} selected{% endif %}>Guide gap (R$)</option>
-      <option value="percentual"{% if filtros.ordem == 'percentual' %} selected{% endif %}>Guide gap (%)</option>
+      <option value="resultado"{% if filtros.ordem == 'resultado' %} selected{% endif %}>Potential resale (R$)</option>
+      <option value="percentual"{% if filtros.ordem == 'percentual' %} selected{% endif %}>Potential resale (%)</option>
       <option value="preco"{% if filtros.ordem == 'preco' %} selected{% endif %}>Steam price</option>
+      <option value="guia"{% if filtros.ordem == 'guia' %} selected{% endif %}>Guide gap (R$)</option>
       <option value="idade_bptf"{% if filtros.ordem == 'idade_bptf' %} selected{% endif %}>Suggested price age</option>
     </select>
   </label>

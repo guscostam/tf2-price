@@ -19,6 +19,7 @@ from tf2price.painel.templates import TEMPLATES
 from tf2price.preco.referencia import montar_referencia, motivo_sem_referencia
 from tf2price.varredura import leitura
 from tf2price.varredura import repositorio as repo
+from tf2price.varredura import vendas_repo
 
 ROTEADOR = APIRouter(dependencies=[Depends(ses.usuario_obrigatorio)])
 
@@ -77,8 +78,10 @@ def scan(
         ultima = repo.ultima_rodada(conn)
         completa = repo.ultima_completa(conn)
         cobertura = repo.cobertura(conn)
+        vendas_por_par = vendas_repo.ler_todas(conn)
     resultado = leitura.montar(
-        listagens, indice, referencia.brl if referencia else None, filtros, int(time.time())
+        listagens, indice, referencia.brl if referencia else None, filtros, time.time(),
+        vendas_por_par=vendas_por_par,
     )
     agendador = request.app.state.agendador
     contexto_da_tela = {

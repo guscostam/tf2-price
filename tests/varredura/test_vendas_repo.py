@@ -12,9 +12,9 @@ T0 = datetime(2026, 9, 24, 12)
 
 def test_dois_efeitos_ficam_isolados_e_upsert_substitui_sucesso(engine):
     with engine.begin() as conn:
-        repo.gravar_sucesso(conn, "Unusual Team Captain", "Burning Flames", Decimal("1.25"), Decimal("3.33"), T0)
+        repo.gravar_sucesso(conn, "Unusual Team Captain", "Burning Flames", Decimal("1.25"), Decimal("3.33"), T0, metal_por_chave=Decimal("50"))
         repo.gravar_sucesso(conn, "Unusual Team Captain", "Sunbeams", None, None, T0)
-        repo.gravar_sucesso(conn, "Unusual Team Captain", "Burning Flames", Decimal("2"), Decimal("0"), T0 + timedelta(hours=1))
+        repo.gravar_sucesso(conn, "Unusual Team Captain", "Burning Flames", Decimal("2"), Decimal("0"), T0 + timedelta(hours=1), metal_por_chave=Decimal("50"))
         registros = repo.ler_todas(conn)
     burning = registros[("Unusual Team Captain", "Burning Flames")]
     sunbeams = registros[("Unusual Team Captain", "Sunbeams")]
@@ -26,7 +26,7 @@ def test_dois_efeitos_ficam_isolados_e_upsert_substitui_sucesso(engine):
 
 def test_falha_preserva_preco_e_instante_de_sucesso(engine):
     with engine.begin() as conn:
-        repo.gravar_sucesso(conn, "X", "Burning Flames", Decimal("10"), Decimal("5"), T0)
+        repo.gravar_sucesso(conn, "X", "Burning Flames", Decimal("10"), Decimal("5"), T0, metal_por_chave=Decimal("50"))
         repo.gravar_falha(conn, "X", "Burning Flames", T0 + timedelta(hours=1))
         registro = repo.ler_todas(conn)[("X", "Burning Flames")]
         repo.gravar_falha(conn, "Y", "Sunbeams", T0)
@@ -35,6 +35,27 @@ def test_falha_preserva_preco_e_instante_de_sucesso(engine):
         "encontrado", Decimal("10"), Decimal("5"), T0, T0 + timedelta(hours=1))
     assert (indisponivel.estado, indisponivel.buscado_em, indisponivel.falhou_em) == (
         "indisponivel", None, T0)
+
+
+def test_sucesso_guarda_taxa_da_selecao_e_falha_a_preserva(engine):
+    with engine.begin() as conn:
+        repo.gravar_sucesso(
+            conn, "X", "Burning Flames", Decimal("1"), Decimal("20"), T0,
+            metal_por_chave=Decimal("50"),
+        )
+        repo.gravar_falha(conn, "X", "Burning Flames", T0 + timedelta(hours=1))
+        registro = repo.ler_todas(conn)[("X", "Burning Flames")]
+    assert registro.metal_por_chave == Decimal("50")
+    assert registro.buscado_em == T0
+
+
+def test_sucesso_com_vendedor_exige_taxa_valida(engine):
+    with engine.begin() as conn:
+        with pytest.raises(ValueError):
+            repo.gravar_sucesso(conn, "X", "E", Decimal("1"), Decimal("0"), T0)
+        with pytest.raises(ValueError):
+            repo.gravar_sucesso(conn, "X", "E", Decimal("1"), Decimal("0"), T0,
+                                metal_por_chave=Decimal("0"))
 
 
 @pytest.mark.parametrize("chaves,metal", [(-1, 0), (Decimal("NaN"), 0), (None, 0), (0, None)])

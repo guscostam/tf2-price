@@ -26,6 +26,7 @@ class RegistroVenda:
     metal: Decimal | None
     buscado_em: datetime | None
     falhou_em: datetime | None
+    metal_por_chave: Decimal | None = None
 
 
 def _identidade_data(hash_name: str, efeito: str, quando: datetime) -> None:
@@ -51,6 +52,7 @@ def ler_todas(conn: Connection) -> dict[tuple[str, str], RegistroVenda]:
             Decimal(l.chaves) if l.chaves is not None else None,
             Decimal(l.metal) if l.metal is not None else None,
             l.buscado_em, l.falhou_em,
+            Decimal(l.metal_por_chave) if l.metal_por_chave is not None else None,
         ) for l in linhas
     }
 
@@ -83,15 +85,26 @@ def _upsert(conn: Connection, hash_name: str, efeito: str, valores: dict) -> Non
 def gravar_sucesso(
     conn: Connection, hash_name: str, efeito: str,
     chaves: Decimal | None, metal: Decimal | None, quando: datetime,
+    *, metal_por_chave: Decimal | None = None,
 ) -> None:
     _identidade_data(hash_name, efeito, quando)
     if (chaves is None) != (metal is None):
         raise ValueError("chaves e metal devem vir juntos")
+    if chaves is not None:
+        _quantia(chaves)
+        _quantia(metal)
+        if (
+            not isinstance(metal_por_chave, Decimal)
+            or not metal_por_chave.is_finite()
+            or metal_por_chave <= 0
+        ):
+            raise ValueError("relação metal/chave inválida")
     estado = SEM_VENDAS if chaves is None else ENCONTRADO
     valores = {
         "estado": estado,
         "chaves": None if chaves is None else _quantia(chaves),
         "metal": None if metal is None else _quantia(metal),
+        "metal_por_chave": None if chaves is None else str(metal_por_chave),
         "buscado_em": quando,
         "falhou_em": None,
     }

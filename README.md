@@ -18,6 +18,7 @@ Authenticated navigation: `Overview`, `New Case`, `Case Files`, `Sources`, and
 
 - Python 3.12+
 - API key da backpack.tf: https://next.backpack.tf/developer/ (login via Steam)
+- Access Token da backpack.tf para vendas do Market Scan: https://next.backpack.tf/account/api-access
 - Steam Web API key, só para gerar o mapa de efeitos: https://steamcommunity.com/dev/apikey
 
 ## Instalação
@@ -51,7 +52,9 @@ administradores (`Make admin` / `Remove admin` em `/admin`), e ninguém mexe
 nela. Os outros administradores convidam, resetam senha e desativam apenas
 membros. Sem a variável, o painel funciona, mas ninguém promove nem rebaixa.
 
-Requer `BPTF_API_KEY` e `DATABASE_URL` no `.env`. A aplicação sobe mesmo quando
+Requer `BPTF_API_KEY` e `DATABASE_URL` no `.env`. `BPTF_USER_TOKEN` habilita a
+coleta de anúncios de venda no Market Scan; sem ele, a consulta pontual e o
+preço sugerido seguem disponíveis. A aplicação sobe mesmo quando
 a Steam ou a backpack.tf estão fora do ar: a cotação e o índice de preços são
 buscados na primeira necessidade, e a tela diz quando algum deles ainda não
 carregou.
@@ -75,14 +78,23 @@ A página **Market Scan** lista as listagens de cosméticos Unusual varridas em
 segundo plano. O admin liga, desliga e define o intervalo entre rodadas em
 `/admin` (mínimo de 60 min).
 
-Por enquanto, a diferença mostrada no Market Scan compara a listagem Steam com
-o preço **sugerido** da backpack.tf para o mesmo efeito. Ela é uma diferença
-contra a referência, não lucro confirmado nem uma oferta de compra. A aba
-"Below suggested price" filtra diferenças positivas após o filtro de idade
-do preço sugerido. Linhas com efeito conhecido têm um link para conferir os
-anúncios ativos de venda daquele item e efeito na backpack.tf. O scan não usa
-esses anúncios no cálculo até existir uma fonte automática verificada para
-eles.
+O Market Scan mostra o menor anúncio de venda **observado** na backpack.tf
+para o mesmo item e efeito, quando uma leitura autenticada recente contém um
+exemplar comparável. A aba "Potential resale" mostra a diferença positiva
+entre esse pedido e o preço Steam quando as duas leituras têm até seis horas.
+O efeito e o ID do cosmético são conferidos contra o mapa do schema da Valve
+gerado por `scripts/fetch_cosmeticos.py`.
+É uma possibilidade de revenda, não lucro confirmado: preço pedido não prova
+que haverá comprador. Atributos do exemplar Steam e do anúncio precisam ser
+conferidos antes da compra. A coleta ocorre em segundo plano, com cache por
+item e efeito, espaçamento de ao menos 20 segundos entre consultas e pausa
+após limite da API. Sem vendedor comparável, falha da API e dado antigo são
+estados diferentes; uma falha preserva a idade do último sucesso.
+
+O preço **sugerido** da backpack.tf e a diferença "Guide gap" permanecem
+separados. A aba "Below suggested price" filtra essa diferença pelo limite
+de idade escolhido. Nenhuma delas representa uma oferta de compra. Linhas com
+efeito conhecido oferecem link para conferir manualmente os vendedores.
 
 A chave de referência é o valor da chave em dinheiro: o dólar da
 chave segundo a backpack.tf vezes a PTAX do Banco Central. O preço da chave na

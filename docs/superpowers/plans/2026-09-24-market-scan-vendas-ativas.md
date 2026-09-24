@@ -12,6 +12,7 @@
 
 - A identidade econômica é `(hash_name, efeito)`; qualidade 5 e atributo de efeito 134 precisam corresponder à requisição. Compras nunca entram no mínimo.
 - Uma resposta bem-sucedida sem venda comparável é diferente de HTTP/parse/limite indisponível. Falha não altera preço nem instante do último sucesso.
+- Persistir `createdAt` do snapshot como idade da fonte; buscar novamente o mesmo snapshot não renova sua idade.
 - Só listagem Steam e leitura de vendas com até seis horas participam de `Potential resale`. Dado antigo permanece visível com idade real.
 - `Potential resale` é preço pedido menos preço Steam, sem promessa de comprador, e usa a chave de referência backpack.tf USD × PTAX.
 - Sem rede em imports, testes ou rota `/scan`; nenhuma conexão emprestada durante HTTP, espera ou backoff.

@@ -1,12 +1,15 @@
 <nav class="scan-tabs" aria-label="Scan views">
   <a class="scan-tab{% if filtros.aba == 'todas' %} scan-tab--active{% endif %}"
      href="/scan?{{ filtros.query(aba='todas', pagina=1) }}">All listings</a>
+  <a class="scan-tab{% if filtros.aba == 'revenda' %} scan-tab--active{% endif %}"
+     href="/scan?{{ filtros.query(aba='revenda', pagina=1) }}">Potential resale</a>
   <a class="scan-tab{% if filtros.aba == 'lucro' %} scan-tab--active{% endif %}"
      href="/scan?{{ filtros.query(aba='lucro', pagina=1) }}">Below suggested price</a>
 </nav>
 <p class="scan-count">{{ pagina.total }} listings{% if pagina.paginas > 1 %} · page {{ pagina.pagina }} of {{ pagina.paginas }}{% endif %}
-  · Guide gap = suggested backpack.tf value in keys × reference key price − Steam price.
-  A suggested price is not a buyer offer; check active sellers before buying.</p>
+  · Potential resale = lowest observed seller ask × reference key price − Steam price.
+  A seller ask does not guarantee a buyer. Check the exact Steam listing and seller attributes before buying.
+  Guide gap uses the suggested backpack.tf price. A suggested price is not a buyer offer.</p>
 
 {% if not pagina.linhas %}
 <p class="empty-state">No listings match these filters.</p>
@@ -18,6 +21,9 @@
         <th scope="col">Item</th>
         <th scope="col">Effect</th>
         <th scope="col">Steam price</th>
+        <th scope="col">Lowest observed seller ask</th>
+        <th scope="col">Potential resale</th>
+        <th scope="col">Seller read</th>
         <th scope="col">Suggested backpack.tf price</th>
         <th scope="col">Guide gap</th>
         <th scope="col">Suggested age</th>
@@ -33,6 +39,14 @@
         <td>{% if l.arte %}<img class="scan-art" src="{{ l.arte }}" alt="" width="32" height="32" loading="lazy">{% endif %}{{ l.listagem.efeito or 'Effect unknown' }}</td>
         <td>{{ l.listagem.preco }}
           {% if l.preco_em_chaves is not none %}<span class="scan-sub">{{ l.preco_em_chaves|keys }} keys</span>{% endif %}</td>
+        <td>{% if l.valor_venda %}{{ l.valor_venda }}<span class="scan-sub">{{ l.chaves_venda|keys }} keys</span>{% else %}
+          <span class="scan-sub">{% if l.estado_venda == 'sem_vendas_confirmado' %}No matching sellers{% elif l.estado_venda == 'stale' %}Stale{% else %}Unavailable{% endif %}</span>{% endif %}</td>
+        <td>{% if l.potencial is not none %}
+          <span class="scan-result {{ 'scan-result--gain' if l.potencial.cents > 0 else 'scan-result--loss' }}">{{ l.potencial }}</span>
+          {% if l.percentual_venda is not none %}<span class="scan-sub">{{ '%+.0f'|format(l.percentual_venda * 100) }}%</span>{% endif %}
+          {% else %}<span class="scan-sub">{% if l.estado_venda == 'sem_vendas_confirmado' %}No matching sellers{% elif l.estado_venda == 'stale' %}Stale{% else %}Unavailable{% endif %}</span>{% endif %}</td>
+        <td>{% if l.venda_buscada_em %}{{ ha(l.venda_buscada_em) }}{% else %}—{% endif %}
+          {% if l.venda_falhou_em and (not l.venda_buscada_em or l.venda_falhou_em > l.venda_buscada_em) %}<span class="scan-sub">Update unavailable</span>{% endif %}</td>
         <td>{% if l.valor_bptf %}{{ l.valor_bptf }}<span class="scan-sub">{{ l.chaves_bptf|keys }} keys</span>{% else %}—{% endif %}</td>
         <td>
           {% if l.resultado is not none %}

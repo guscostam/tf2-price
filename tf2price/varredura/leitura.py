@@ -1,8 +1,6 @@
-"""A página da varredura: cada listagem cruzada com a backpack.tf, na hora.
+"""Cruza listagens Steam, preço sugerido e vendas cacheadas por item e efeito.
 
-O resultado nunca é gravado. Ele sai da mesma `patient_exit` da tela de
-consulta, contra o índice e a cotação que estão na memória agora. Quando a
-bp.tf atualiza um preço, a página reflete sem nenhuma requisição à Steam.
+Os resultados são calculados na leitura, sem consulta remota nesta camada.
 """
 
 from __future__ import annotations
@@ -161,7 +159,7 @@ def avaliar(
     listagem: ListagemVarrida,
     indice: PriceIndex | None,
     key_brl: Brl | None,
-    agora_unix: int,
+    agora_unix: int | float,
     idade_max_bptf_dias: int | None,
     effects_path: Path = DEFAULT_EFFECTS_PATH,
     com_arte: bool = True,
@@ -172,14 +170,20 @@ def avaliar(
     estado_venda = "indisponivel" if venda is None else venda.estado
     venda_buscada_em = None if venda is None else venda.buscado_em
     venda_falhou_em = None if venda is None else venda.falhou_em
+    relacao_atual = Decimal(str(indice.key_in_refined)) if indice is not None else None
+    relacao_selecao = None if venda is None else getattr(venda, "metal_por_chave", None)
+    taxa_compativel = relacao_atual is not None and relacao_selecao == relacao_atual
+    if venda is not None and venda.estado == "encontrado" and not taxa_compativel:
+        estado_venda = "stale"
     valor_venda: Brl | None = None
     chaves_venda: Decimal | None = None
     potencial: Brl | None = None
     percentual_venda: float | None = None
-    if venda is not None and venda.estado == "encontrado" and key_brl is not None and key_brl.cents > 0:
+    if (venda is not None and venda.estado == "encontrado" and taxa_compativel
+            and key_brl is not None and key_brl.cents > 0):
         chaves = venda.chaves
         metal = venda.metal
-        relacao = Decimal(str(indice.key_in_refined)) if indice is not None else None
+        relacao = relacao_atual
         if (
             isinstance(chaves, Decimal) and isinstance(metal, Decimal)
             and chaves >= 0 and metal >= 0
@@ -229,7 +233,7 @@ def avaliar(
 
     saida = patient_exit(
         listagem.preco, listagem.hash_name, listagem.efeito, indice, key_brl,
-        now=agora_unix, effects_path=effects_path,
+        now=int(agora_unix), effects_path=effects_path,
     )
     if not saida.available:
         return linha(preco_em_chaves=em_chaves, motivo=saida.reason)
@@ -285,7 +289,7 @@ def montar(
     indice: PriceIndex | None,
     key_brl: Brl | None,
     filtros: Filtros,
-    agora_unix: int,
+    agora_unix: int | float,
     effects_path: Path = DEFAULT_EFFECTS_PATH,
     vendas_por_par: Mapping[tuple[str, str], Any] | None = None,
 ) -> Pagina:
@@ -295,7 +299,7 @@ def montar(
                 com_arte=False, venda=vendas.get((l.hash_name, l.efeito)) if l.efeito else None)
         for l in listagens
     ]
-    if filtros.so_com_preco:
+    if filtros.so_com_preco and filtros.aba != "revenda":
         linhas = [l for l in linhas if l.resultado is not None]
     if filtros.aba == "lucro":
         linhas = [l for l in linhas if l.resultado is not None and l.resultado.cents > 0]

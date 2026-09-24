@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from decimal import Decimal
 
 from fastapi.testclient import TestClient
 
@@ -11,6 +12,7 @@ from tf2price.painel.app import criar_app
 from tf2price.sources.backpacktf import PriceIndex
 from tf2price.sources.steam_page import PageListing
 from tf2price.varredura import repositorio as repo
+from tf2price.varredura import vendas_repo
 
 from .conftest import USD_DO_TESTE, _contexto, cliente_logado
 
@@ -187,3 +189,40 @@ def test_scan_distingue_preco_sugerido_de_vendas_ativas(engine):
     assert "View sellers" in texto
     assert "item=Team+Captain" in texto and "particle=13" in texto
     assert "Profitable" not in texto
+
+
+def test_scan_mostra_potencial_de_revenda_com_estado_indisponivel_sem_cache(engine):
+    _semear(engine, [("1", 80000, "Burning Flames")])
+    cliente = cliente_logado(engine, _contexto(indice=_indice()))
+
+    texto = cliente.get("/scan").text
+
+    assert "Potential resale" in texto
+    assert "Lowest observed seller ask" in texto
+    assert "Unavailable" in texto
+    assert "A seller ask does not guarantee a buyer" in texto
+
+
+def test_venda_ativa_define_potencial_sem_substituir_preco_sugerido(engine):
+    _semear(engine, [("1", 80000, "Burning Flames")])
+    with engine.begin() as conn:
+        vendas_repo.gravar_sucesso(
+            conn, NOME, "Burning Flames", Decimal("120"), Decimal("0"), db.agora(),
+            metal_por_chave=Decimal("64.11"),
+        )
+    cliente = cliente_logado(engine, _contexto(indice=_indice()))
+
+    texto = cliente.get("/scan", params={"aba": "revenda"}).text
+
+    assert "R$ 1.407,60" in texto  # menor pedido observado, 120 × R$ 11,73
+    assert "R$ 607,60" in texto  # potencial, 1.407,60 − 800,00
+    assert "R$ 1.173,00" in texto  # sugestão independente, 100 × R$ 11,73
+    assert "R$ 373,00" in texto  # guide gap independente
+
+
+def test_aba_revenda_nao_usa_guia_quando_venda_indisponivel(engine):
+    _semear(engine, [("1", 80000, "Burning Flames")])
+    cliente = cliente_logado(engine, _contexto(indice=_indice()))
+
+    assert "No listings match these filters." in cliente.get("/scan", params={"aba": "revenda"}).text
+    assert "R$ 373,00" in cliente.get("/scan", params={"aba": "lucro"}).text

@@ -6,6 +6,7 @@ import os
 import re
 import threading
 import time
+from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
@@ -28,6 +29,8 @@ from tf2price.varredura.agendador import (
     construir_agendador,
     iniciar_em_segundo_plano,
 )
+from tf2price.sources.classificados import ClassificadosClient
+from tf2price.varredura.vendas_coletor import VendasColetor
 
 if TYPE_CHECKING:
     from tf2price.painel.consulta import Contexto
@@ -232,6 +235,36 @@ def preparar_varredura(
     return agendador
 
 
+def iniciar_vendas_em_segundo_plano(coletor: VendasColetor) -> threading.Thread:
+    thread = threading.Thread(
+        target=coletor.ciclo, args=(threading.Event(),), name="vendas-backpacktf", daemon=True
+    )
+    thread.start()
+    return thread
+
+
+def preparar_vendas(
+    engine: Engine,
+    contexto: "Contexto | None",
+    *,
+    token: str | None = None,
+    iniciar: Callable[[VendasColetor], object] = iniciar_vendas_em_segundo_plano,
+) -> VendasColetor | None:
+    acesso = (os.getenv("BPTF_USER_TOKEN", "") if token is None else token).strip()
+    if not acesso or contexto is None:
+        return None
+
+    def relacao_metal_chave() -> Decimal | None:
+        indice = contexto.indice.em_memoria()
+        return Decimal(str(indice.key_in_refined)) if indice is not None else None
+
+    coletor = VendasColetor(
+        engine, ClassificadosClient(acesso), key_in_refined=relacao_metal_chave
+    )
+    iniciar(coletor)
+    return coletor
+
+
 _SEM_GESTAO = "ninguém pode promover ou rebaixar administradores"
 
 
@@ -285,6 +318,7 @@ def servir() -> None:
     contexto = construir_contexto()
     aquecer_em_segundo_plano(contexto, engine)
     agendador = preparar_varredura(engine, contexto)
+    preparar_vendas(engine, contexto)
     uvicorn.run(
         criar_app(engine, contexto, agendador, superadmin=superadmin),
         host="127.0.0.1",
@@ -325,6 +359,7 @@ def construir_aplicacao() -> FastAPI:
     # página em branco.
     aquecer_em_segundo_plano(contexto, engine)
     agendador = preparar_varredura(engine, contexto)
+    preparar_vendas(engine, contexto)
     return criar_app(engine, contexto, agendador, superadmin=superadmin)
 
 

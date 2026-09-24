@@ -196,6 +196,7 @@ def _venda(*, estado="encontrado", chaves="100", metal="0", horas=1, falhou=Fals
         metal=Decimal(metal) if estado == "encontrado" else None,
         buscado_em=buscado,
         falhou_em=buscado + timedelta(minutes=1) if falhou else None,
+        metal_por_chave=Decimal("64.11") if estado == "encontrado" else None,
     )
 
 
@@ -245,6 +246,19 @@ def test_venda_antiga_e_steam_antiga_mostram_preco_mas_nao_potencial():
         assert linha.estado_venda == "stale"
 
 
+def test_taxa_mudada_invalida_oportunidade_mantendo_idade_da_venda():
+    venda = _venda(chaves="1", metal="50")
+    venda.metal_por_chave = Decimal("60")
+    linha = leitura.avaliar(
+        _listagem_fresca(), _indice(), CHAVE, AGORA, 90,
+        effects_path=EFEITOS, venda=venda,
+    )
+    assert linha.valor_venda is None
+    assert linha.potencial is None
+    assert linha.estado_venda == "stale"
+    assert linha.venda_buscada_em == venda.buscado_em
+
+
 def test_preco_sugerido_antigo_nao_esconde_potencial_de_venda_fresca():
     linha = leitura.avaliar(
         _listagem_fresca(), _indice(dias=200), CHAVE, AGORA, 90,
@@ -266,6 +280,19 @@ def test_aba_revenda_usa_potencial_positivo_e_isola_efeito():
         effects_path=EFEITOS, vendas_por_par=vendas,
     )
     assert [l.listagem.listing_id for l in pagina.linhas] == ["ganha"]
+
+
+def test_filtro_do_guia_nao_esconde_revenda_com_venda_fresca():
+    listagem = _listagem_fresca()
+    pagina = leitura.montar(
+        [listagem], _indice(dias=200), CHAVE,
+        leitura.Filtros(aba="revenda", so_com_preco=True), AGORA,
+        effects_path=EFEITOS,
+        vendas_por_par={(listagem.hash_name, listagem.efeito): _venda()},
+    )
+    assert [l.listagem.listing_id for l in pagina.linhas] == ["1"]
+    assert pagina.linhas[0].resultado is None
+    assert pagina.linhas[0].potencial == Brl(20000)
 
 
 def test_ordem_padrao_usa_vendas_mesmo_se_guia_prioriza_outro_efeito():

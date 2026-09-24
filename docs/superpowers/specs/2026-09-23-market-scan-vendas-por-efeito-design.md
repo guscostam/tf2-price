@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-23
 
-**Status:** design aprovado; implementação pendente
+**Status:** design aprovado; implementação no worktree, ainda sem deploy
 
 ## Problema e objetivo
 
