@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
-from decimal import Decimal, InvalidOperation
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
+from typing import Any, Mapping
 from urllib.parse import urlencode
 
 from tf2price.domain.effects import DEFAULT_EFFECTS_PATH, effect_id_for
@@ -23,8 +25,9 @@ from tf2price.varredura.repositorio import ListagemVarrida
 
 IDADE_MAX_BPTF_PADRAO = 90
 POR_PAGINA = 50
-ABAS = ("todas", "lucro")
-ORDENS = ("resultado", "percentual", "preco", "idade_bptf")
+ABAS = ("todas", "lucro", "revenda")
+ORDENS = ("resultado", "percentual", "preco", "idade_bptf", "guia")
+IDADE_MAX_VENDA = timedelta(hours=6)
 EFEITO_DESCONHECIDO = "Steam did not report the effect of this listing"
 PRECO_MAXIMO = Decimal("10000000")  # Limita preco da query para sempre poder formatar de volta
 
@@ -137,6 +140,13 @@ class LinhaVarrida:
     motivo: str | None
     arte: str | None
     vendas_url: str | None
+    valor_venda: Brl | None
+    chaves_venda: Decimal | None
+    potencial: Brl | None
+    percentual_venda: float | None
+    estado_venda: str
+    venda_buscada_em: datetime | None
+    venda_falhou_em: datetime | None
 
 
 @dataclass(frozen=True)
@@ -155,14 +165,58 @@ def avaliar(
     idade_max_bptf_dias: int | None,
     effects_path: Path = DEFAULT_EFFECTS_PATH,
     com_arte: bool = True,
+    venda: Any | None = None,
 ) -> LinhaVarrida:
     arte = _arte(listagem, effects_path) if com_arte else None
+    agora = datetime.fromtimestamp(agora_unix, timezone.utc).replace(tzinfo=None)
+    estado_venda = "indisponivel" if venda is None else venda.estado
+    venda_buscada_em = None if venda is None else venda.buscado_em
+    venda_falhou_em = None if venda is None else venda.falhou_em
+    valor_venda: Brl | None = None
+    chaves_venda: Decimal | None = None
+    potencial: Brl | None = None
+    percentual_venda: float | None = None
+    if venda is not None and venda.estado == "encontrado" and key_brl is not None and key_brl.cents > 0:
+        chaves = venda.chaves
+        metal = venda.metal
+        relacao = Decimal(str(indice.key_in_refined)) if indice is not None else None
+        if (
+            isinstance(chaves, Decimal) and isinstance(metal, Decimal)
+            and chaves >= 0 and metal >= 0
+            and (metal == 0 or (relacao is not None and relacao > 0))
+        ):
+            chaves_venda = chaves + (metal / relacao if metal else Decimal(0))
+            if chaves_venda > 0:
+                centavos = int((chaves_venda * key_brl.cents).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+                valor_venda = Brl(centavos)
+                idade_venda = agora - venda.buscado_em if venda.buscado_em else None
+                idade_steam = agora - listagem.lido_em
+                if (
+                    idade_venda is not None and timedelta(0) <= idade_venda <= IDADE_MAX_VENDA
+                    and timedelta(0) <= idade_steam <= IDADE_MAX_VENDA
+                ):
+                    potencial = valor_venda - listagem.preco
+                    percentual_venda = (
+                        potencial.cents / listagem.preco.cents if listagem.preco.cents > 0 else None
+                    )
+                else:
+                    estado_venda = "stale"
+        if valor_venda is None:
+            estado_venda = "indisponivel"
+    elif venda is not None and venda.estado == "sem_vendas_confirmado" and venda.buscado_em is not None:
+        idade_venda = agora - venda.buscado_em
+        if not timedelta(0) <= idade_venda <= IDADE_MAX_VENDA:
+            estado_venda = "stale"
 
     def linha(**campos) -> LinhaVarrida:
         base = dict(
             listagem=listagem, preco_em_chaves=None, chaves_bptf=None, valor_bptf=None,
             resultado=None, percentual=None, idade_bptf_dias=None, motivo=None, arte=arte,
             vendas_url=None,
+            valor_venda=valor_venda, chaves_venda=chaves_venda,
+            potencial=potencial, percentual_venda=percentual_venda,
+            estado_venda=estado_venda, venda_buscada_em=venda_buscada_em,
+            venda_falhou_em=venda_falhou_em,
         )
         base.update(campos)
         return LinhaVarrida(**base)
@@ -216,9 +270,13 @@ def _chave_de_ordem(ordem: str):
     if ordem == "idade_bptf":
         return lambda l: (l.idade_bptf_dias is None, l.idade_bptf_dias or 0, l.listagem.listing_id)
     if ordem == "percentual":
-        return lambda l: (l.percentual is None, -(l.percentual or 0.0), l.listagem.listing_id)
+        return lambda l: (l.percentual_venda is None, -(l.percentual_venda or 0.0), l.listagem.listing_id)
+    if ordem == "guia":
+        return lambda l: (
+            l.resultado is None, -(l.resultado.cents if l.resultado else 0), l.listagem.listing_id
+        )
     return lambda l: (
-        l.resultado is None, -(l.resultado.cents if l.resultado else 0), l.listagem.listing_id
+        l.potencial is None, -(l.potencial.cents if l.potencial else 0), l.listagem.listing_id
     )
 
 
@@ -229,16 +287,20 @@ def montar(
     filtros: Filtros,
     agora_unix: int,
     effects_path: Path = DEFAULT_EFFECTS_PATH,
+    vendas_por_par: Mapping[tuple[str, str], Any] | None = None,
 ) -> Pagina:
+    vendas = vendas_por_par or {}
     linhas = [
         avaliar(l, indice, key_brl, agora_unix, filtros.idade_max_bptf_dias, effects_path,
-                com_arte=False)
+                com_arte=False, venda=vendas.get((l.hash_name, l.efeito)) if l.efeito else None)
         for l in listagens
     ]
     if filtros.so_com_preco:
         linhas = [l for l in linhas if l.resultado is not None]
     if filtros.aba == "lucro":
         linhas = [l for l in linhas if l.resultado is not None and l.resultado.cents > 0]
+    if filtros.aba == "revenda":
+        linhas = [l for l in linhas if l.potencial is not None and l.potencial.cents > 0]
     linhas.sort(key=_chave_de_ordem(filtros.ordem))
 
     total = len(linhas)

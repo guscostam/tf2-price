@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -100,9 +103,9 @@ def test_so_com_preco_tira_as_linhas_sem_resultado():
 
 def test_ordenacoes():
     listagens = [_l("a", 90000), _l("b", 50000), _l("c", 1, efeito="Sunbeams")]
-    assert [l.listagem.listing_id for l in _montar(listagens).linhas] == ["b", "a", "c"]
+    assert [l.listagem.listing_id for l in _montar(listagens).linhas] == ["a", "b", "c"]
     assert [l.listagem.listing_id for l in _montar(listagens, ordem="preco").linhas] == ["c", "b", "a"]
-    assert [l.listagem.listing_id for l in _montar(listagens, ordem="percentual").linhas] == ["b", "a", "c"]
+    assert [l.listagem.listing_id for l in _montar(listagens, ordem="guia").linhas] == ["b", "a", "c"]
 
 
 def test_paginacao_limita_e_corrige_pagina_fora_do_intervalo():
@@ -183,3 +186,100 @@ def test_url_de_vendas_filtra_nome_qualidade_e_efeito():
     }
     assert leitura.url_vendas("Unusual Team Captain", "Not In Schema", EFEITOS) is None
     assert leitura.url_vendas("Strange Unusual Team Captain", "Burning Flames", EFEITOS) is None
+
+
+def _venda(*, estado="encontrado", chaves="100", metal="0", horas=1, falhou=False):
+    buscado = datetime.fromtimestamp(AGORA, timezone.utc).replace(tzinfo=None) - timedelta(hours=horas)
+    return SimpleNamespace(
+        estado=estado,
+        chaves=Decimal(chaves) if estado == "encontrado" else None,
+        metal=Decimal(metal) if estado == "encontrado" else None,
+        buscado_em=buscado,
+        falhou_em=buscado + timedelta(minutes=1) if falhou else None,
+    )
+
+
+def _listagem_fresca(ident="1", preco=80000, efeito="Burning Flames", horas=1):
+    l = _l(ident, preco, efeito=efeito)
+    return l.__class__(
+        l.listing_id, l.hash_name, l.efeito, l.preco, l.icone,
+        datetime.fromtimestamp(AGORA, timezone.utc).replace(tzinfo=None) - timedelta(hours=horas),
+        l.mais_na_steam,
+    )
+
+
+def test_potencial_usa_venda_do_mesmo_efeito_com_metal_sem_misturar_guia():
+    venda = _venda(chaves="100", metal="32.055")  # 100,5 keys a 64,11 ref/key
+    linha = leitura.avaliar(
+        _listagem_fresca(), _indice(chaves=90), CHAVE, AGORA, 90,
+        effects_path=EFEITOS, venda=venda,
+    )
+    assert linha.valor_venda == Brl(100500)
+    assert linha.potencial == Brl(20500)
+    assert linha.resultado == Brl(10000)  # guide gap permanece independente
+    assert linha.estado_venda == "encontrado"
+
+
+def test_sem_vendedores_e_falha_nao_viram_preco_sugerido():
+    for estado in ("sem_vendas_confirmado", "indisponivel"):
+        linha = leitura.avaliar(
+            _listagem_fresca(), _indice(), CHAVE, AGORA, 90,
+            effects_path=EFEITOS, venda=_venda(estado=estado),
+        )
+        assert linha.potencial is None
+        assert linha.valor_venda is None
+        assert linha.estado_venda == estado
+
+
+def test_venda_antiga_e_steam_antiga_mostram_preco_mas_nao_potencial():
+    for venda, listagem in (
+        (_venda(horas=7), _listagem_fresca()),
+        (_venda(), _listagem_fresca(horas=7)),
+    ):
+        linha = leitura.avaliar(
+            listagem, _indice(), CHAVE, AGORA, 90,
+            effects_path=EFEITOS, venda=venda,
+        )
+        assert linha.valor_venda == Brl(100000)
+        assert linha.potencial is None
+        assert linha.estado_venda == "stale"
+
+
+def test_preco_sugerido_antigo_nao_esconde_potencial_de_venda_fresca():
+    linha = leitura.avaliar(
+        _listagem_fresca(), _indice(dias=200), CHAVE, AGORA, 90,
+        effects_path=EFEITOS, venda=_venda(),
+    )
+    assert linha.resultado is None
+    assert linha.potencial == Brl(20000)
+
+
+def test_aba_revenda_usa_potencial_positivo_e_isola_efeito():
+    listagens = [
+        _listagem_fresca("ganha", 80000),
+        _listagem_fresca("perde", 150000),
+        _listagem_fresca("outro", 1, efeito="Sunbeams"),
+    ]
+    vendas = {("Unusual Team Captain", "Burning Flames"): _venda()}
+    pagina = leitura.montar(
+        listagens, _indice(), CHAVE, leitura.Filtros(aba="revenda"), AGORA,
+        effects_path=EFEITOS, vendas_por_par=vendas,
+    )
+    assert [l.listagem.listing_id for l in pagina.linhas] == ["ganha"]
+
+
+def test_ordem_padrao_usa_vendas_mesmo_se_guia_prioriza_outro_efeito():
+    listagens = [
+        _listagem_fresca("guia", 50000),
+        _listagem_fresca("venda", 90000, efeito="Sunbeams"),
+    ]
+    vendas = {
+        ("Unusual Team Captain", "Burning Flames"): _venda(chaves="100"),
+        ("Unusual Team Captain", "Sunbeams"): _venda(chaves="200"),
+    }
+    pagina = leitura.montar(
+        listagens, _indice(), CHAVE, leitura.Filtros(), AGORA,
+        effects_path=EFEITOS, vendas_por_par=vendas,
+    )
+    assert [l.listagem.listing_id for l in pagina.linhas] == ["venda", "guia"]
+    assert pagina.linhas[0].resultado is None  # Sunbeams não tem guia sugerido

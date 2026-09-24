@@ -161,6 +161,10 @@ def test_item_names(index: PriceIndex):
     assert len(index.item_names()) == 3
 
 
+def test_relacao_metal_por_chave_e_exposta_sem_arredondar(index: PriceIndex):
+    assert index.key_in_refined == 69.44
+
+
 # --- cliente HTTP --------------------------------------------------------
 
 

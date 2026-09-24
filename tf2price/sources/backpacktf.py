@@ -112,6 +112,10 @@ class PriceIndex:
     def item_names(self) -> set[str]:
         return set(self._items)
 
+    @property
+    def key_in_refined(self) -> float:
+        return self._key_in_refined
+
     def key_in_usd(self) -> float | None:
         """Dólar de uma chave segundo a bp.tf, ou None se não der para saber.
 
