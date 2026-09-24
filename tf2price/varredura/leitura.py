@@ -13,7 +13,8 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urlencode
 
-from tf2price.domain.effects import DEFAULT_EFFECTS_PATH
+from tf2price.domain.effects import DEFAULT_EFFECTS_PATH, effect_id_for
+from tf2price.domain.identity import parse_market_hash_name
 from tf2price.domain.money import Brl
 from tf2price.efeitos import arte as arte_dos_efeitos
 from tf2price.lookup.analysis import RAZAO_SEM_REFERENCIA, patient_exit
@@ -61,6 +62,24 @@ class Filtros:
 
 def _reais(valor: Brl | None) -> str:
     return "" if valor is None else f"{valor.cents // 100}.{valor.cents % 100:02d}"
+
+
+def url_vendas(
+    hash_name: str, efeito: str | None, effects_path: Path = DEFAULT_EFFECTS_PATH
+) -> str | None:
+    if not efeito:
+        return None
+    item = parse_market_hash_name(hash_name)
+    particle = effect_id_for(efeito, effects_path)
+    if item.quality_id != 5 or particle is None:
+        return None
+    return "https://backpack.tf/classifieds?" + urlencode({
+        "item": item.base_name,
+        "quality": 5,
+        "tradable": 1,
+        "craftable": 1,
+        "particle": particle,
+    })
 
 
 def _brl(texto: str) -> Brl | None:
@@ -117,6 +136,7 @@ class LinhaVarrida:
     idade_bptf_dias: int | None
     motivo: str | None
     arte: str | None
+    vendas_url: str | None
 
 
 @dataclass(frozen=True)
@@ -142,6 +162,7 @@ def avaliar(
         base = dict(
             listagem=listagem, preco_em_chaves=None, chaves_bptf=None, valor_bptf=None,
             resultado=None, percentual=None, idade_bptf_dias=None, motivo=None, arte=arte,
+            vendas_url=None,
         )
         base.update(campos)
         return LinhaVarrida(**base)
@@ -226,7 +247,11 @@ def montar(
     inicio = (pagina - 1) * POR_PAGINA
     # A arte só é buscada para as linhas que a página vai mostrar.
     visiveis = [
-        replace(l, arte=_arte(l.listagem, effects_path))
+        replace(
+            l,
+            arte=_arte(l.listagem, effects_path),
+            vendas_url=url_vendas(l.listagem.hash_name, l.listagem.efeito, effects_path),
+        )
         for l in linhas[inicio:inicio + POR_PAGINA]
     ]
     return Pagina(visiveis, total, pagina, paginas)

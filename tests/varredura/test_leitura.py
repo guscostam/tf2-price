@@ -166,3 +166,20 @@ def test_preco_absurdo_vira_padrao_e_a_query_nao_quebra(texto):
 
 def test_preco_no_teto_e_aceito():
     assert leitura.filtros_da_query(preco_min="10000000").preco_min == Brl(1_000_000_000)
+
+
+def test_url_de_vendas_filtra_nome_qualidade_e_efeito():
+    from urllib.parse import parse_qs, urlparse
+
+    url = leitura.url_vendas("Unusual Team Captain", "Burning Flames", EFEITOS)
+    assert url is not None
+    parsed = urlparse(url)
+    assert (parsed.scheme, parsed.netloc, parsed.path) == (
+        "https", "backpack.tf", "/classifieds"
+    )
+    assert parse_qs(parsed.query) == {
+        "item": ["Team Captain"], "quality": ["5"],
+        "tradable": ["1"], "craftable": ["1"], "particle": ["13"],
+    }
+    assert leitura.url_vendas("Unusual Team Captain", "Not In Schema", EFEITOS) is None
+    assert leitura.url_vendas("Strange Unusual Team Captain", "Burning Flames", EFEITOS) is None
