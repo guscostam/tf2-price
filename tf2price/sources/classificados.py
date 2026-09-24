@@ -14,6 +14,11 @@ import httpx
 BASE = "https://backpack.tf/api/classifieds/listings/snapshot"
 APPID = 440
 REQUEST_TIMEOUT_S = 10.0
+_ITEM_FIELDS = {"quality", "defindex", "quantity", "attributes"}
+_ITEM_METADATA = {"id", "inventory", "level", "origin", "original_id"}
+# Defaults vistos no schema de cosméticos e confirmados na resposta real.
+# Outros atributos podem representar pintura, spell ou outra variante.
+_ATTRS_PADRAO = {746: Decimal(1), 292: Decimal(64), 388: Decimal(64)}
 
 
 @dataclass(frozen=True)
@@ -49,19 +54,27 @@ def _venda_comparavel(row: dict[str, Any], effect_id: int) -> Venda | None:
         raise ValueError("incomplete classifieds sell listing")
     # Não sabemos comparar spells, tintas, craftabilidade ou outras variantes
     # com a listagem Steam. Aceitar apenas o exemplar ordinário conhecido.
-    if set(item) != {"quality", "defindex", "quantity", "attributes"}:
+    if not _ITEM_FIELDS <= item.keys() or set(item) - _ITEM_FIELDS - _ITEM_METADATA:
         return None
     if item["quality"] != 5 or item["quantity"] != 1:
         return None
     if not isinstance(item["defindex"], int) or item["defindex"] <= 0:
         return None
     attrs = item["attributes"]
-    if not isinstance(attrs, list) or len(attrs) != 1:
+    if not isinstance(attrs, list):
         return None
-    attr = attrs[0]
-    if not isinstance(attr, dict) or attr.get("defindex") != 134:
-        return None
-    if _decimal_nao_negativo(attr.get("float_value")) != Decimal(effect_id):
+    seen: set[int] = set()
+    for attr in attrs:
+        if not isinstance(attr, dict):
+            return None
+        attr_id = attr.get("defindex")
+        if not isinstance(attr_id, int) or attr_id in seen:
+            return None
+        expected = Decimal(effect_id) if attr_id == 134 else _ATTRS_PADRAO.get(attr_id)
+        if expected is None or _decimal_nao_negativo(attr.get("float_value")) != expected:
+            return None
+        seen.add(attr_id)
+    if 134 not in seen:
         return None
     if not currencies or set(currencies) - {"keys", "metal"}:
         return None

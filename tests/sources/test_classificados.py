@@ -43,6 +43,28 @@ def test_parser_aceita_created_at_unix_seconds_observado_na_api():
     assert snapshot_para_vendas(_snapshot(), SKU, 12) == ()
 
 
+def test_parser_aceita_metadados_e_atributos_padrao_observados_na_api():
+    item = {
+        "quality": 5,
+        "defindex": 378,
+        "quantity": 1,
+        "attributes": [
+            {"defindex": 134, "float_value": 12},
+            {"defindex": 746, "float_value": 1},
+            {"defindex": 292, "float_value": 64},
+            {"defindex": 388, "float_value": 64},
+        ],
+        "id": "123",
+        "inventory": 1,
+        "level": 10,
+        "origin": 0,
+        "original_id": "123",
+    }
+    assert snapshot_para_vendas(_snapshot(_anuncio(item=item)), SKU, 12) == (
+        Venda(Decimal("12.5"), Decimal("0.11")),
+    )
+
+
 def test_parser_ignora_compras_e_outro_efeito():
     outro = _anuncio(item={"quality": 5, "defindex": 378, "quantity": 1, "attributes": [{"defindex": 134, "float_value": 13}]})
     assert snapshot_para_vendas(_snapshot(_anuncio(intent="buy"), outro), SKU, 12) == ()
