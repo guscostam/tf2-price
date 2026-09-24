@@ -190,6 +190,18 @@ listagem_varrida = Table(
     Column("lido_em", DateTime, nullable=False),
 )
 
+venda_efeito = Table(
+    "venda_efeito",
+    METADATA,
+    Column("hash_name", String(300), primary_key=True),
+    Column("efeito", String(120), primary_key=True),
+    Column("estado", String(30), nullable=False),
+    Column("chaves", String(80), nullable=True),
+    Column("metal", String(80), nullable=True),
+    Column("buscado_em", DateTime, nullable=True),
+    Column("falhou_em", DateTime, nullable=True),
+)
+
 varredura_rodada = Table(
     "varredura_rodada",
     METADATA,
