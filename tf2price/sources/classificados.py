@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from email.utils import parsedate_to_datetime
+import time
 from typing import Any
 
 import httpx
@@ -77,10 +78,15 @@ def snapshot_para_vendas(payload: Any, sku: str, effect_id: int) -> tuple[Venda,
         not isinstance(payload, dict)
         or payload.get("appid") != APPID
         or payload.get("sku") != sku
-        or not isinstance(payload.get("createdAt"), str)
+        or isinstance(payload.get("createdAt"), bool)
+        or not isinstance(payload.get("createdAt"), int)
+        or payload["createdAt"] <= 0
         or not isinstance(payload.get("listings"), list)
     ):
         raise ValueError("invalid classifieds snapshot")
+    age_s = time.time() - payload["createdAt"]
+    if age_s > 6 * 60 * 60 or age_s < -5 * 60:
+        raise ValueError("stale or future classifieds snapshot")
     vendas: list[Venda] = []
     for row in payload["listings"]:
         if not isinstance(row, dict):

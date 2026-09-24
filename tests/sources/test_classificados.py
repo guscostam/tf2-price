@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import time
 
 import httpx
 import pytest
@@ -29,13 +30,17 @@ def _anuncio(**changes):
 
 
 def _snapshot(*anuncios, sku=SKU):
-    return {"appid": 440, "sku": sku, "createdAt": "2026-09-24T12:00:00Z", "listings": list(anuncios)}
+    return {"appid": 440, "sku": sku, "createdAt": int(time.time()), "listings": list(anuncios)}
 
 
 def test_parser_aceita_venda_com_efeito_exato_e_decimais():
     assert snapshot_para_vendas(_snapshot(_anuncio()), SKU, 12) == (
         Venda(chaves=Decimal("12.5"), metal=Decimal("0.11")),
     )
+
+
+def test_parser_aceita_created_at_unix_seconds_observado_na_api():
+    assert snapshot_para_vendas(_snapshot(), SKU, 12) == ()
 
 
 def test_parser_ignora_compras_e_outro_efeito():
@@ -64,6 +69,22 @@ def test_parser_ignora_moeda_invalida(currencies):
 
 def test_parser_distingue_zero_vendas_confirmado():
     assert snapshot_para_vendas(_snapshot(), SKU, 12) == ()
+
+
+@pytest.mark.parametrize("created_at", [0, -1, True, "1790219196", None])
+def test_parser_recusa_created_at_malformado(created_at):
+    payload = _snapshot()
+    payload["createdAt"] = created_at
+    with pytest.raises(ValueError):
+        snapshot_para_vendas(payload, SKU, 12)
+
+
+@pytest.mark.parametrize("offset_s", [-6 * 60 * 60 - 1, 301])
+def test_parser_recusa_snapshot_antigo_ou_futuro(offset_s):
+    payload = _snapshot()
+    payload["createdAt"] = int(time.time()) + offset_s
+    with pytest.raises(ValueError):
+        snapshot_para_vendas(payload, SKU, 12)
 
 
 @pytest.mark.parametrize(
