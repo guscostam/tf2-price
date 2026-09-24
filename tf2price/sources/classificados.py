@@ -19,12 +19,19 @@ _ITEM_METADATA = {"id", "inventory", "level", "origin", "original_id"}
 # Defaults vistos no schema de cosméticos e confirmados na resposta real.
 # Outros atributos podem representar pintura, spell ou outra variante.
 _ATTRS_PADRAO = {746: Decimal(1), 292: Decimal(64), 388: Decimal(64)}
+_MAX_CURRENCY = Decimal(1_000_000)
 
 
 @dataclass(frozen=True)
 class Venda:
     chaves: Decimal
     metal: Decimal
+
+
+@dataclass(frozen=True)
+class SnapshotVendas:
+    vendas: tuple[Venda, ...]
+    criado_em: datetime
 
 
 class ClassificadosLimitando(RuntimeError):
@@ -80,12 +87,18 @@ def _venda_comparavel(row: dict[str, Any], effect_id: int) -> Venda | None:
         return None
     keys = _decimal_nao_negativo(currencies.get("keys", 0))
     metal = _decimal_nao_negativo(currencies.get("metal", 0))
-    if keys is None or metal is None or keys + metal <= 0:
+    if (
+        keys is None
+        or metal is None
+        or keys > _MAX_CURRENCY
+        or metal > _MAX_CURRENCY
+        or keys + metal <= 0
+    ):
         return None
     return Venda(keys, metal)
 
 
-def snapshot_para_vendas(payload: Any, sku: str, effect_id: int) -> tuple[Venda, ...]:
+def snapshot_para_vendas(payload: Any, sku: str, effect_id: int) -> SnapshotVendas:
     """Extrai vendas estritamente comparáveis; payload inválido não é ausência."""
     if (
         not isinstance(payload, dict)
@@ -107,7 +120,8 @@ def snapshot_para_vendas(payload: Any, sku: str, effect_id: int) -> tuple[Venda,
         venda = _venda_comparavel(row, effect_id)
         if venda is not None:
             vendas.append(venda)
-    return tuple(vendas)
+    criado_em = datetime.fromtimestamp(payload["createdAt"], timezone.utc).replace(tzinfo=None)
+    return SnapshotVendas(tuple(vendas), criado_em)
 
 
 def _retry_after(header: str | None) -> float | None:
@@ -134,7 +148,7 @@ class ClassificadosClient:
         self._token = token
         self._http = client or httpx.Client(headers={"User-Agent": "tf2price/0.1"})
 
-    def vendas(self, sku: str, effect_id: int) -> tuple[Venda, ...]:
+    def vendas(self, sku: str, effect_id: int) -> SnapshotVendas:
         try:
             response = self._http.get(
                 BASE,

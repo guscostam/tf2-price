@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from datetime import datetime, timezone
 import time
 
 import httpx
@@ -34,13 +35,20 @@ def _snapshot(*anuncios, sku=SKU):
 
 
 def test_parser_aceita_venda_com_efeito_exato_e_decimais():
-    assert snapshot_para_vendas(_snapshot(_anuncio()), SKU, 12) == (
+    assert snapshot_para_vendas(_snapshot(_anuncio()), SKU, 12).vendas == (
         Venda(chaves=Decimal("12.5"), metal=Decimal("0.11")),
     )
 
 
 def test_parser_aceita_created_at_unix_seconds_observado_na_api():
-    assert snapshot_para_vendas(_snapshot(), SKU, 12) == ()
+    assert snapshot_para_vendas(_snapshot(), SKU, 12).vendas == ()
+
+
+def test_parser_preserva_instante_original_do_snapshot():
+    payload = _snapshot()
+    payload["createdAt"] = int(time.time()) - 123
+    snapshot = snapshot_para_vendas(payload, SKU, 12)
+    assert snapshot.criado_em == datetime.fromtimestamp(payload["createdAt"], timezone.utc).replace(tzinfo=None)
 
 
 def test_parser_aceita_metadados_e_atributos_padrao_observados_na_api():
@@ -60,14 +68,14 @@ def test_parser_aceita_metadados_e_atributos_padrao_observados_na_api():
         "origin": 0,
         "original_id": "123",
     }
-    assert snapshot_para_vendas(_snapshot(_anuncio(item=item)), SKU, 12) == (
+    assert snapshot_para_vendas(_snapshot(_anuncio(item=item)), SKU, 12).vendas == (
         Venda(Decimal("12.5"), Decimal("0.11")),
     )
 
 
 def test_parser_ignora_compras_e_outro_efeito():
     outro = _anuncio(item={"quality": 5, "defindex": 378, "quantity": 1, "attributes": [{"defindex": 134, "float_value": 13}]})
-    assert snapshot_para_vendas(_snapshot(_anuncio(intent="buy"), outro), SKU, 12) == ()
+    assert snapshot_para_vendas(_snapshot(_anuncio(intent="buy"), outro), SKU, 12).vendas == ()
 
 
 @pytest.mark.parametrize(
@@ -81,16 +89,16 @@ def test_parser_ignora_compras_e_outro_efeito():
     ],
 )
 def test_parser_ignora_item_incomparavel(item):
-    assert snapshot_para_vendas(_snapshot(_anuncio(item=item)), SKU, 12) == ()
+    assert snapshot_para_vendas(_snapshot(_anuncio(item=item)), SKU, 12).vendas == ()
 
 
-@pytest.mark.parametrize("currencies", [{"usd": 50}, {"keys": -1}, {"metal": "nan"}, {}])
+@pytest.mark.parametrize("currencies", [{"usd": 50}, {"keys": -1}, {"metal": "nan"}, {"keys": "1e999999"}, {"metal": "1000001"}, {}])
 def test_parser_ignora_moeda_invalida(currencies):
-    assert snapshot_para_vendas(_snapshot(_anuncio(currencies=currencies)), SKU, 12) == ()
+    assert snapshot_para_vendas(_snapshot(_anuncio(currencies=currencies)), SKU, 12).vendas == ()
 
 
 def test_parser_distingue_zero_vendas_confirmado():
-    assert snapshot_para_vendas(_snapshot(), SKU, 12) == ()
+    assert snapshot_para_vendas(_snapshot(), SKU, 12).vendas == ()
 
 
 @pytest.mark.parametrize("created_at", [0, -1, True, "1790219196", None])
@@ -132,8 +140,8 @@ def test_cliente_envia_token_cabecalho_sku_e_timeout():
         return httpx.Response(200, json=_snapshot(_anuncio()))
 
     http = httpx.Client(transport=httpx.MockTransport(handler))
-    vendas = ClassificadosClient("SEGREDO_DE_TESTE", client=http).vendas(SKU, 12)
-    assert vendas == (Venda(Decimal("12.5"), Decimal("0.11")),)
+    snapshot = ClassificadosClient("SEGREDO_DE_TESTE", client=http).vendas(SKU, 12)
+    assert snapshot.vendas == (Venda(Decimal("12.5"), Decimal("0.11")),)
     request = requests[0]
     assert request.url.path == "/api/classifieds/listings/snapshot"
     assert dict(request.url.params) == {"appid": "440", "sku": SKU}
