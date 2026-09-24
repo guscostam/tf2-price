@@ -214,9 +214,10 @@ Por enquanto, a diferença mostrada no Market Scan compara a listagem Steam com
 o preço **sugerido** da backpack.tf para o mesmo efeito. Ela é uma diferença
 contra a referência, não lucro confirmado nem uma oferta de compra. A aba
 "Below suggested price" filtra diferenças positivas após o filtro de idade
-do preço sugerido. Cada linha tem um link para conferir os anúncios ativos de
-venda daquele item e efeito na backpack.tf. O scan não usa esses anúncios no
-cálculo até existir uma fonte automática verificada para eles.
+do preço sugerido. Linhas com efeito conhecido têm um link para conferir os
+anúncios ativos de venda daquele item e efeito na backpack.tf. O scan não usa
+esses anúncios no cálculo até existir uma fonte automática verificada para
+eles.
 ```
 
 Preserve the surrounding paragraphs about key reference, scan scheduling, and admin controls.
